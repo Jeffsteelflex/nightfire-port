@@ -73,10 +73,11 @@ Drone_tag* drone_of(obj_tag* obj) { return static_cast<Drone_tag*>(obj->data); }
 
 template <class T>
 T& at(void* base, uint32_t offset) {
+    static_assert(!nf::is_native_ptr_v<T>, "ponteiro de 4 bytes: use P32<...>");
     return *reinterpret_cast<T*>(static_cast<uint8_t*>(base) + offset);
 }
 // MPGame: 8 entradas de 0x30 bytes, o objeto do jogador em +0x1c e bits em +0x26.
-obj_tag* mp_player(int32_t i) { return at<obj_tag*>(MPGame, uint32_t(i) * 0x30 + 0x1c); }
+obj_tag* mp_player(int32_t i) { return at<P32<obj_tag>>(MPGame, uint32_t(i) * 0x30 + 0x1c); }
 uint16_t mp_player_bits(int32_t i) { return at<uint16_t>(MPGame, uint32_t(i) * 0x30 + 0x26); }
 
 // O teste "fora de ação" que o original repete em linha: objeto nulo, personagem morto ou morrendo
@@ -248,7 +249,7 @@ uint32_t DroneVision_GunThroughWall(Drone_tag* drone) {
     if (DroneWeap_GetWeaponInfo(drone, &bone, &flash, &kind, &pos, &dir) == 0) return 0;
     const _VECTOR muzzle = pos;
     DroneFunc_ClampPosToCollisionCylinder(drone->obj, &pos);
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     if (!Collide_RayIntersect(&pos, &muzzle, drone->obj->cel, drone->obj, nullptr, &hits, 0, 0x927, 0)) return 0;
     Collide_FreeHitList(&hits);
     return 1;
@@ -404,7 +405,7 @@ void DroneVision_HaveOpponentSight(Drone_tag* drone) {
     if (bots_on() && drone->seen_ticks == 2) {
         BOTSTATE_combatWeaponChangeChoice(drone, drone->opponent, 1, 0, 0);
         if (drone->opponent != nullptr && at<uint8_t>(drone->bot, 0x768) == 0x3b &&
-            BOTSTATE_opponentIsMissile(drone, reinterpret_cast<obj_tag*>(uintptr_t(0xffffffffu))) != 0) {
+            BOTSTATE_opponentIsMissile(drone, nf::p32_ptr<obj_tag>(0xffffffffu)) != 0) {
             BOTSTATE_reallyCloseCombatRange(drone);
         } else {
             BOTSTATE_defaultCombatRange(drone);
@@ -538,14 +539,14 @@ void DroneVision_FindAlertedDrones() {
     NPCGLOBALS_tag* n = &NPCGlobals;
     const uint16_t count = n->drones.count;
     if (count == 0) return;
-    Drone_tag* const first = reinterpret_cast<Drone_tag*>(n->drones.first);
+    Drone_tag* const first = reinterpret_cast<Drone_tag*>(nf::raw(n->drones.first));
     if (first == nullptr) return;
     if (GameState.level_file == 0x7000004 || GameState.level_file == 0x700001b) return;
     uint16_t rows = 0, found = 0;
     bool stop = false;
     Drone_tag* a = first;
     Drone_tag* b = nullptr;
-    auto next = [](Drone_tag* d) { return reinterpret_cast<Drone_tag*>(d->node.next); };
+    auto next = [](Drone_tag* d) { return reinterpret_cast<Drone_tag*>(nf::raw(d->node.next)); };
     if (n->alert_cursor[0] != 0 || n->alert_cursor[1] != 0) {
         while (a != nullptr && a->sm.id != n->alert_cursor[0]) a = next(a);
         if (a == nullptr) a = first;
@@ -597,10 +598,10 @@ void DroneVision_ProcessDroneSight() {
     if (left == 0) return;
     const uint32_t frame = GameState.frame;
     if (frame < n->postload_frame + 0xfu || frame < n->unknown_1ac + 0xfu) return;
-    auto next = [](Drone_tag* d) { return reinterpret_cast<Drone_tag*>(d->node.next); };
+    auto next = [](Drone_tag* d) { return reinterpret_cast<Drone_tag*>(nf::raw(d->node.next)); };
     DroneVision_FindAlertedDrones();
     const uint16_t checks = n->vision_checks;
-    for (Drone_tag* d = reinterpret_cast<Drone_tag*>(n->drones.first); d != nullptr; d = next(d)) {
+    for (Drone_tag* d = reinterpret_cast<Drone_tag*>(nf::raw(n->drones.first)); d != nullptr; d = next(d)) {
         obj_tag* obj = d->obj;
         if (out_of_action(obj)) continue;
         d->visibility_here = Drone_VisibilityForPosition(&obj->pos, 0);
@@ -613,7 +614,7 @@ void DroneVision_ProcessDroneSight() {
         }
     }
     // Linha de visão em rodízio, a partir do seguinte ao último testado.
-    Drone_tag* first = reinterpret_cast<Drone_tag*>(n->drones.first);
+    Drone_tag* first = reinterpret_cast<Drone_tag*>(nf::raw(n->drones.first));
     Drone_tag* c = nullptr;
     if (n->drones.count != 0) {
         for (c = first; c != nullptr && c->sm.id != n->sight_cursor; c = next(c)) {
@@ -622,7 +623,7 @@ void DroneVision_ProcessDroneSight() {
     }
     Drone_tag* d = (c == nullptr || next(c) == nullptr) ? first : next(c);
     for (;;) {
-        if (d == nullptr) d = reinterpret_cast<Drone_tag*>(n->drones.first);
+        if (d == nullptr) d = reinterpret_cast<Drone_tag*>(nf::raw(n->drones.first));
         n->sight_cursor = d->sm.id;
         const uint32_t now = GameState.frame;
         if (!out_of_action(d->obj) && (d->flags & 0x10000) != 0 && d->opponent != nullptr) {
@@ -634,7 +635,7 @@ void DroneVision_ProcessDroneSight() {
         d = next(d);
     }
     // Ticks vendo e sem ver o oponente.
-    for (Drone_tag* e = reinterpret_cast<Drone_tag*>(n->drones.first); e != nullptr; e = next(e)) {
+    for (Drone_tag* e = reinterpret_cast<Drone_tag*>(nf::raw(n->drones.first)); e != nullptr; e = next(e)) {
         const uint32_t f = e->sight_flags;
         if (!out_of_action(e->obj) && (e->flags & 0x10000) != 0 && e->opponent != nullptr && (f & 2) != 0) {
             e->lost_ticks = 0;
@@ -753,7 +754,7 @@ int32_t DroneVision_ShoutFromOtherDrone(DCVars_tag*, DroneAlert_tag*, uint32_t) 
 // Trata as mensagens de alerta (0x11 a 0x16 e 0x1e) que os estados repassam e devolve o estado a
 // seguir (0 nenhum). Antes guarda onde estava (estado, pés, sala) para voltar depois.
 int32_t DroneVision_EnemyAlerts(DCVars_tag* dcv, MsgObject* msg) {
-    auto* alert = reinterpret_cast<DroneAlert_tag*>(uintptr_t(msg->data));
+    auto* alert = nf::p32_ptr<DroneAlert_tag>(msg->data);
     // (o original calcula o personagem que mandou o alerta, mas o teste usa sempre nulo)
     if (dcv->drone == nullptr) return 0;
     Drone_tag* d = dcv->drone;
@@ -861,8 +862,8 @@ uint32_t DroneVision_TestEndInterogationAssist(Drone_tag* drone) {
 // Produto dos valores dos volumes de IA do tipo pedido que contêm pos (1 fora deles).
 float Drone_VisibilityForPosition(_VECTOR* pos, uint16_t kind) {
     float v = 1.0f;
-    for (auto* vol = reinterpret_cast<AIVolume_tag*>(AIBoxList.first); vol != nullptr;
-         vol = reinterpret_cast<AIVolume_tag*>(vol->node.next)) {
+    for (auto* vol = reinterpret_cast<AIVolume_tag*>(nf::raw(AIBoxList.first)); vol != nullptr;
+         vol = reinterpret_cast<AIVolume_tag*>(nf::raw(vol->node.next))) {
         if (vol->kind == kind && Intersect_PointOOBox(&vol->obj->matrix, &vol->half, pos, 0.0f) != 0) {
             v = v * vol->value;
         }
@@ -1044,7 +1045,7 @@ void NDrone2_SetOpponent(Drone_tag* drone, obj_tag* opponent) {
     obj_tag* old = drone->opponent;
     drone->opponent = opponent;
     bool same = old == opponent;
-    if (bots_on()) MP_sendBotMessage(drone->obj, 0x45, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(opponent)), 0);
+    if (bots_on()) MP_sendBotMessage(drone->obj, 0x45, nf::p32_u(opponent), 0);
     if (opponent == nullptr) {
         Vec_Zero(&drone->aim_offset);
         drone->opponent_player = 0xff;
@@ -1286,8 +1287,8 @@ uint32_t NDrone2_FindOpponent(Drone_tag* drone) {
         if (drone->opponent != nullptr) best = drone->opp_dist * drone->opp_dist;
     }
     Drone_tag* cursor = drone->unknown_2c0;
-    Drone_tag* d = cursor != nullptr ? reinterpret_cast<Drone_tag*>(cursor->node.next)
-                                     : reinterpret_cast<Drone_tag*>(n->drones.first);
+    Drone_tag* d = cursor != nullptr ? reinterpret_cast<Drone_tag*>(nf::raw(cursor->node.next))
+                                     : reinterpret_cast<Drone_tag*>(nf::raw(n->drones.first));
     const Drone_tag* current = drone->opponent != nullptr ? static_cast<Drone_tag*>(drone->opponent->data) : nullptr;
     if (d == nullptr || d == cursor) {
         drone->unknown_2c0 = d;
@@ -1303,14 +1304,14 @@ uint32_t NDrone2_FindOpponent(Drone_tag* drone) {
             if (seen != 0) {
                 NDrone2_SetOpponent(drone, d->obj);
                 drone->unknown_2c0 = d;
-                return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(d->obj));
+                return nf::p32_u(d->obj);
             }
             if (checks < n->vision_checks) {
                 drone->unknown_2c0 = d;
                 return 0;
             }
         }
-        d = reinterpret_cast<Drone_tag*>(d->node.next);
+        d = reinterpret_cast<Drone_tag*>(nf::raw(d->node.next));
         if (d == nullptr || d == drone->unknown_2c0) {
             drone->unknown_2c0 = d;
             return 0;
@@ -1349,7 +1350,7 @@ void NDrone2_DroneAlertToObject(DCVars_tag* dcv, uint32_t msg, obj_tag* obj, flo
     al.param[1] = b;
     al.param[2] = c;
     NDrone2_SetupAlertTarget();
-    Drone_SM_BroadcastMsg(msg, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&al)), 0x1e, dcv->drone->sm.id);
+    Drone_SM_BroadcastMsg(msg, nf::p32_u(&al), 0x1e, dcv->drone->sm.id);
 }
 
 // [decomp] 0x0014a498 NDrone2_DroneAlertToPosition
@@ -1369,7 +1370,7 @@ void NDrone2_DroneAlertToPosition(obj_tag* sender, uint32_t msg, _VECTOR* pos, c
     al.param[1] = b;
     al.param[2] = c;
     NDrone2_SetupAlertTarget();
-    Drone_SM_BroadcastMsg(msg, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&al)), 0x1e, id);
+    Drone_SM_BroadcastMsg(msg, nf::p32_u(&al), 0x1e, id);
 }
 
 // [decomp] 0x00177420 NDrone2_NearArmedDrone

@@ -14,6 +14,7 @@
 #include "driving/physics/world.h"
 #include "platform/ps2_float.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -217,7 +218,7 @@ TEST(driving_physics_free_rotation_keeps_unit_quaternion_and_angle) {
     // O ângulo do quatérnio (x, y, z, w): 2 atan2(|xyz|, w).
     const double s = std::sqrt(double(rb->quat[0]) * rb->quat[0] + double(rb->quat[1]) * rb->quat[1] +
                                double(rb->quat[2]) * rb->quat[2]);
-    const double angle = 2.0 * std::atan2(s, double(rb->quat[3]));
+    const double angle = 2.0 * nf::fm::atan2(s, double(rb->quat[3]));
     CHECK_NEAR(angle, 2.0 * frames / 60.0, 2e-3);
     // Sem translação.
     CHECK(rb->pos[0] == 0.0f && rb->pos[2] == 0.0f);

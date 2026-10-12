@@ -1,6 +1,7 @@
 // A mira moderna (ADS) e o estilo de mira. Ver player_ads.h.
 
 #include "engine/player_ads.h"
+#include "platform/fmath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -71,7 +72,7 @@ bool modern_now() { return ads_modern_for(ads_style(), current_device()); }
 // A pele da arma na mão (nula sem objeto de animação).
 const ANIMSKIN_tag* gun_skin(const BLData* b) {
     if (b == nullptr || b->gun == nullptr || b->gun->sphere_src == nullptr) return nullptr;
-    return reinterpret_cast<const ANIMOBJ_tag*>(b->gun->sphere_src)->skin;
+    return reinterpret_cast<const ANIMOBJ_tag*>(nf::raw(b->gun->sphere_src))->skin;
 }
 
 // A arma na mão é de fogo, com modelo e sem luneta (a mira fica presa no centro no estilo moderno).
@@ -253,9 +254,9 @@ AdsPose ads_pose(const AdsSights& s, float depth, float drop) {
     // A rotação R com p·R: D vai a z, U a y, L a x (as colunas de R são L, U, D). Os ângulos de RotMatrixZYX:
     // R[0][2] = -sen(y), R[1][2] = cos(y) sen(x), R[2][2] = cos(y) cos(x), R[0][1] = sen(z) cos(y), R[0][0] = cos(z) cos(y).
     AdsPose p{};
-    p.rot[0] = std::atan2(D[1], D[2]);
-    p.rot[1] = std::asin(std::clamp(-D[0], -1.0f, 1.0f));
-    p.rot[2] = std::atan2(U[0], L[0]);
+    p.rot[0] = nf::fm::atan2(D[1], D[2]);
+    p.rot[1] = nf::fm::asin(std::clamp(-D[0], -1.0f, 1.0f));
+    p.rot[2] = nf::fm::atan2(U[0], L[0]);
     MATRIX R;
     Mat_Identity(&R);
     const _VECTOR e{p.rot[0], p.rot[1], p.rot[2], 0.0f};

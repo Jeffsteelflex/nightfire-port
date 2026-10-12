@@ -36,6 +36,7 @@
 #include "platform/psi.h"
 #include "platform/psi_input.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -69,7 +70,7 @@ constexpr int8_t kAimWeapon = 0x30;
 struct Aimer {
     alignas(16) uint8_t skel_data[0x10 + 4 * 12] = {};
     uint8_t parents[4] = {0xff, 0x80, 0x81, 0x82};
-    celglist_tag* meshes[1] = {nullptr};
+    P32<celglist_tag> meshes[1] = {nullptr};
     alignas(16) MATRIX inv[4]{};
     alignas(4) uint8_t extra[0x24] = {};
     ANIMSKIN_tag skin{};
@@ -102,7 +103,7 @@ struct Aimer {
         CHECK(AnimObjectNew(obj, 0x5000322) == 1);
         anim = anim_of(obj);
         Mat_Identity(&obj->matrix);
-        auto* t = reinterpret_cast<_VECTOR*>(anim->frame);
+        auto* t = reinterpret_cast<_VECTOR*>(nf::raw(anim->frame));
         auto* r = reinterpret_cast<quaternion_tag*>(anim->frame + 4 * 16);
         t[0] = {0.0f, 0.0f, 0.0f, 0.0f};
         t[1] = {0.0f, 1.0f, 0.0f, 0.0f};
@@ -374,7 +375,7 @@ struct PlayerWorld {
     obj_tag* target_at(float dist, float deg, float up = 0.0f) {
         const _VECTOR h = head();
         const float a = player->rot.y + deg * 0.017453292f;
-        _VECTOR pos{h.x + std::sin(a) * dist, h.y + up, h.z + std::cos(a) * dist, 1.0f};
+        _VECTOR pos{h.x + nf::fm::sin(a) * dist, h.y + up, h.z + nf::fm::cos(a) * dist, 1.0f};
         obj_tag* o = control_create_object(0, &pos, nullptr, nullptr);
         o->type = 0x51;
         o->unknown_fc = 1;
@@ -527,7 +528,7 @@ TEST(taser_beam_zigzags_in_connected_segments) {
     alignas(16) _VECTOR to{0.0f, 0.0f, 10.0f, 1.0f};
     weapon_def(0x4c)->range = 50.0f;
     Draw_TaserBeam(w.b, &to);
-    obj_tag** fx = w.b->fx;
+    P32<obj_tag>* fx = w.b->fx;
     float total = 0.0f;
     for (int i = 0; i < 8; ++i) {
         CHECK(fx[i]->unknown_f8 != 0);

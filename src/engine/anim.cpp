@@ -35,6 +35,7 @@
 #include "platform/psi.h"
 #include "platform/psi_draw.h"
 #include "platform/psi_file.h"
+#include "platform/fmath.h"
 
 ANIMSKEL_tag* pSkeletons[kSkeletonSlots];
 float Glb_SkinScale[4] = {1.0f, 1.0f, 1.0f, 0.0f};
@@ -66,6 +67,7 @@ const uint32_t kSleeveEnts[8] = {0x20009d0, 0x2000900, 0x20001f7, 0x2000929,
 
 template <typename T>
 T rd(const void* p) {
+    static_assert(!nf::is_native_ptr_v<T>, "ponteiro de 4 bytes: use P32<...>");
     T v;
     std::memcpy(&v, p, sizeof(T));
     return v;
@@ -169,7 +171,7 @@ void AnimProcessSkinData(uint32_t hash) {
         skin->discrete_bones = const_cast<uint8_t*>(p);
         p += skin->n_discrete;
         align4();
-        skin->discrete = reinterpret_cast<celglist_tag**>(const_cast<uint8_t*>(p));
+        skin->discrete = reinterpret_cast<P32<celglist_tag>*>(const_cast<uint8_t*>(p));
         for (uint32_t i = 0; i < skin->n_discrete; ++i) {
             const uint32_t h = rd<uint32_t>(p);
             p += 4;
@@ -178,7 +180,7 @@ void AnimProcessSkinData(uint32_t hash) {
     }
     if (skin->n_meshes != 0) {
         align4();
-        skin->meshes = reinterpret_cast<celglist_tag**>(const_cast<uint8_t*>(p));
+        skin->meshes = reinterpret_cast<P32<celglist_tag>*>(const_cast<uint8_t*>(p));
         for (uint32_t i = 0; i < skin->n_meshes; ++i) {
             const uint32_t h = rd<uint32_t>(p);
             p += 4;
@@ -360,15 +362,15 @@ ANIMSCRIPT_tag* AnimListBuild(obj_tag* obj, uint32_t criteria, uint32_t value, v
             bool match;
             switch (bit) {
                 case 1: match = true; break;
-                case 2: match = reinterpret_cast<uintptr_t>(s) != value; break;
+                case 2: match = nf::p32_u(s) != value; break;
                 case 4: match = s->prev == nullptr; break;
                 case 8: match = s->next == nullptr; break;
                 case 0x10: match = (s->flags & 0x10000000u) != 0; break;
                 case 0x20: match = s->hash == value; break;
                 case 0x40:
-                    match = reinterpret_cast<uintptr_t>(s) == value || reinterpret_cast<uintptr_t>(s->sync) == value;
+                    match = nf::p32_u(s) == value || nf::p32_u(s->sync) == value;
                     break;
-                case 0x80: match = reinterpret_cast<uintptr_t>(s->sync) == value; break;
+                case 0x80: match = nf::p32_u(s->sync) == value; break;
                 case 0x100: match = s->sync != nullptr; break;
                 case 0x200: match = s->tag == value; break;
                 case 0x400: match = (s->tag & value) != 0; break;
@@ -426,12 +428,12 @@ ANIMSEQ_tag* AnimSeqNew(uint32_t frame_size, uint32_t tag) {
 }
 
 // [decomp] 0x001c72e0 AnimSeqDelete
-void AnimSeqDelete(ANIMSEQ_tag** seq) {
+void AnimSeqDelete(P32<ANIMSEQ_tag>* seq) {
     ANIMSEQ_tag* s = *seq;
     if (s == nullptr) return;
-    if (s->cursors != nullptr) Mem_Free(reinterpret_cast<void**>(&s->cursors));
-    if (s->frame != nullptr) Mem_Free(reinterpret_cast<void**>(&s->frame));
-    Mem_Free(reinterpret_cast<void**>(seq));
+    if (s->cursors != nullptr) Mem_Free(&s->cursors);
+    if (s->frame != nullptr) Mem_Free(&s->frame);
+    Mem_Free(seq);
 }
 
 // [decomp] 0x001c79a0 AnimSeqGetInfo
@@ -488,7 +490,7 @@ void AnimFrameCopy(void* out, ANIMSEQ_tag* seq, ANIMSKIN_tag* skin, float frame)
     uint8_t* trans = base;
     uint8_t* quat = base + bones * 0x10;
     seq->raw->cursor = seq->raw->channels;
-    const uint8_t* data = reinterpret_cast<const uint8_t*>(seq->raw->channels);
+    const uint8_t* data = reinterpret_cast<const uint8_t*>(nf::raw(seq->raw->channels));
     const uint32_t* rec = seq->raw->channels;
     const bool cached = ((int32_t(seq->flags) >> 0x15) & 1) != 0;
     uint32_t* cache = seq->cursors != nullptr ? seq->cursors - 2 : nullptr;
@@ -774,7 +776,7 @@ void AnimSeqTick(obj_tag* obj, void* state, ANIMSCRIPT_tag* s, ANIMSEQ_tag* seq)
     } else {
         seq->callback(obj, anim->skin, seq, s);
     }
-    _VECTOR* root = reinterpret_cast<_VECTOR*>(seq->frame);
+    _VECTOR* root = reinterpret_cast<_VECTOR*>(nf::raw(seq->frame));
     _VECTOR delta;
     const uint32_t flags = seq->flags;
     if ((flags & 0x60000000u) == 0) {
@@ -935,7 +937,7 @@ void AnimObjectSetSleeveType(obj_tag* obj, uint32_t type) {
 // [decomp] 0x001c14f0 AnimScriptDelete
 // Avisa (on_delete), solta o dono, apaga as sequências e tira da lista. Apagar o script em
 // atualização marca Glb_bScriptDeleted.
-void AnimScriptDelete(obj_tag* obj, ANIMSCRIPT_tag** ps) {
+void AnimScriptDelete(obj_tag* obj, P32<ANIMSCRIPT_tag>* ps) {
     ANIMSCRIPT_tag* s = *ps;
     if (obj == nullptr || anim_of(obj) == nullptr || s == nullptr) return;
     ANIMOBJ_tag* anim = anim_of(obj);
@@ -951,8 +953,16 @@ void AnimScriptDelete(obj_tag* obj, ANIMSCRIPT_tag** ps) {
     else prev->next = next;
     if (next != nullptr) next->prev = prev;
     s->magic = 0x983c4837u;
-    Mem_Free(reinterpret_cast<void**>(ps));
+    Mem_Free(ps);
 }
+
+#if NF_PTR64
+void AnimScriptDelete(obj_tag* obj, ANIMSCRIPT_tag** ps) {
+    P32<ANIMSCRIPT_tag> slot = *ps;
+    AnimScriptDelete(obj, &slot);
+    *ps = slot;
+}
+#endif
 
 // [decomp] 0x001c70d8 AnimScriptIsStopped
 // Algum script já terminou?
@@ -1376,7 +1386,7 @@ void AnimFacialBlend(obj_tag* obj, void* state, ANIMSKIN_tag* skin) {
     ANIMSCRIPT_tag* talk = AnimListBuild(obj, 0x200, 0xe0000002u, nullptr, 1);
     const uint32_t n = skin->n_morphs;
     float* w = anim->morph_weights;
-    const auto frame_of = [](ANIMSCRIPT_tag* s) { return reinterpret_cast<const float*>(s->seq[1]->frame); };
+    const auto frame_of = [](ANIMSCRIPT_tag* s) { return reinterpret_cast<const float*>(nf::raw(s->seq[1]->frame)); };
     if (ScriptCam != 0) {
         if (talk == nullptr) return;
         for (uint32_t i = 0; i < n; ++i) w[i] = frame_of(talk)[i];
@@ -1487,7 +1497,7 @@ void AnimProcessScriptCmds(obj_tag* obj, void* state, ANIMSCRIPT_tag* s, int32_t
                                m.m[0][1] * p.x + m.m[1][1] * p.y + m.m[2][1] * p.z + owner->pos.y,
                                m.m[0][2] * p.x + m.m[1][2] * p.y + m.m[2][2] * p.z + owner->pos.z, p.w + owner->pos.w};
                         const uint8_t* od = static_cast<const uint8_t*>(owner->data);
-                        if (owner->type == 3 && obj == rd<obj_tag*>(od + 0x7e8)) {
+                        if (owner->type == 3 && obj == rd<P32<obj_tag>>(od + 0x7e8)) {
                             if (owner_weapon() == 1 || AnimDatumGetIndex(obj, 0) < 0) {
                                 const MATRIX& g = obj->matrix;
                                 pos.x += g.m[2][0] * 1.5f;
@@ -1557,7 +1567,7 @@ void AnimProcessScriptCmds(obj_tag* obj, void* state, ANIMSCRIPT_tag* s, int32_t
 // Comando 4 tipo 7: o tiro de uma arma animada (o dono, ou o próprio objeto). Faz parte de
 // AnimProcessScriptCmds no original; separado aqui só para ler melhor.
 void AnimFireWeapon(obj_tag* obj) {
-    obj_tag* who = obj->owner != nullptr ? obj->owner : obj;
+    obj_tag* who = obj->owner != nullptr ? nf::raw(obj->owner) : obj;
     const int32_t w = int32_t(anim_of(who)->weapon) * 0x10c;
     uint32_t flash = 0;
     uint16_t kind = 0;
@@ -1796,7 +1806,7 @@ uint32_t AnimObjectNew(obj_tag* obj, uint32_t skin_hash) {
             }
             bool extras_ok = true;
             if (skin->n_extra != 0) {
-                anim->extra_glists = static_cast<celglist_tag**>(Mem_Malloc(uint32_t(skin->n_extra) << 2, 0x2604, 0));
+                anim->extra_glists = static_cast<P32<celglist_tag>*>(Mem_Malloc(uint32_t(skin->n_extra) << 2, 0x2604, 0));
                 anim->extra_timers =
                     anim->extra_glists == nullptr ? nullptr : static_cast<int8_t*>(Mem_Malloc(skin->n_extra, 0x2604, 0));
                 extras_ok = anim->extra_timers != nullptr;
@@ -1822,7 +1832,7 @@ uint32_t AnimObjectNew(obj_tag* obj, uint32_t skin_hash) {
                     if (skin->n_meshes != 0) obj->life |= 4;
                     ok = true;
                     if (skin->n_discrete != 0) {
-                        anim->attached = static_cast<obj_tag**>(Mem_Malloc(uint32_t(skin->n_discrete) << 2, 0x2604, 0));
+                        anim->attached = static_cast<P32<obj_tag>*>(Mem_Malloc(uint32_t(skin->n_discrete) << 2, 0x2604, 0));
                         ok = anim->attached != nullptr;
                         if (ok) std::memset(anim->attached, 0, uint32_t(skin->n_discrete) << 2);
                         obj_tag* owner = skin->n_discrete * skin->n_meshes != 0 ? obj : nullptr;
@@ -1859,14 +1869,16 @@ uint32_t AnimObjectNew(obj_tag* obj, uint32_t skin_hash) {
             for (int i = 0; i < skin->n_discrete; ++i) {
                 if (anim->attached[i] != nullptr) control_delete_object(anim->attached[i]);
             }
-            Mem_Free(reinterpret_cast<void**>(&anim->attached));
+            Mem_Free(&anim->attached);
         }
-        for (void** p : {reinterpret_cast<void**>(&anim->palette), reinterpret_cast<void**>(&anim->bones),
-                         reinterpret_cast<void**>(&anim->extra_timers), reinterpret_cast<void**>(&anim->extra_glists),
-                         reinterpret_cast<void**>(&anim->morph_weights), reinterpret_cast<void**>(&anim->frame)}) {
-            if (*p != nullptr) Mem_Free(p);
-        }
-        Mem_Free(reinterpret_cast<void**>(&obj->sphere_src));
+        // Na ordem do original: palette, bones, extra_timers, extra_glists, morph_weights, frame.
+        if (anim->palette != nullptr) Mem_Free(&anim->palette);
+        if (anim->bones != nullptr) Mem_Free(&anim->bones);
+        if (anim->extra_timers != nullptr) Mem_Free(&anim->extra_timers);
+        if (anim->extra_glists != nullptr) Mem_Free(&anim->extra_glists);
+        if (anim->morph_weights != nullptr) Mem_Free(&anim->morph_weights);
+        if (anim->frame != nullptr) Mem_Free(&anim->frame);
+        Mem_Free(&obj->sphere_src);
     }
     (void)ok;
     return 0;
@@ -1883,15 +1895,15 @@ void AnimObjectDelete(obj_tag* obj) {
         for (uint32_t i = 0; i < anim->skin->n_discrete; ++i) {
             if (anim->attached[i] != nullptr) control_delete_object(anim->attached[i]);
         }
-        Mem_Free(reinterpret_cast<void**>(&anim->attached));
+        Mem_Free(&anim->attached);
     }
-    if (anim->palette != nullptr) Mem_Free(reinterpret_cast<void**>(&anim->palette));
-    if (anim->bones != nullptr) Mem_Free(reinterpret_cast<void**>(&anim->bones));
-    if (anim->extra_timers != nullptr) Mem_Free(reinterpret_cast<void**>(&anim->extra_timers));
-    if (anim->extra_glists != nullptr) Mem_Free(reinterpret_cast<void**>(&anim->extra_glists));
-    if (anim->morph_weights != nullptr) Mem_Free(reinterpret_cast<void**>(&anim->morph_weights));
-    if (anim->frame != nullptr) Mem_Free(reinterpret_cast<void**>(&anim->frame));
-    Mem_Free(reinterpret_cast<void**>(&obj->sphere_src));
+    if (anim->palette != nullptr) Mem_Free(&anim->palette);
+    if (anim->bones != nullptr) Mem_Free(&anim->bones);
+    if (anim->extra_timers != nullptr) Mem_Free(&anim->extra_timers);
+    if (anim->extra_glists != nullptr) Mem_Free(&anim->extra_glists);
+    if (anim->morph_weights != nullptr) Mem_Free(&anim->morph_weights);
+    if (anim->frame != nullptr) Mem_Free(&anim->frame);
+    Mem_Free(&obj->sphere_src);
 }
 
 // [decomp] 0x001befd8 AnimObjectUpdate
@@ -1978,7 +1990,7 @@ uint32_t AnimObjectUpdate(obj_tag* obj) {
         const _VECTOR fwd{0.0f, 0.0f, 1.0f, 0.0f};
         _VECTOR v;
         Quat_Rot_Vec(rootq, &fwd, &v);
-        const float angle = std::atan2(v.x, v.z);
+        const float angle = nf::fm::atan2(v.x, v.z);
         float* turn = s->turn;
         if (8.0f <= turn[0]) {
             turn[0] = angle;
@@ -2114,7 +2126,7 @@ void AnimObjectHeadTrack(obj_tag* obj, void* state, quaternion_tag* world, MATRI
             } else if (1.0f < dot) {
                 dot = 1.0f;
             }
-            float a = std::acos(dot);
+            float a = nf::fm::acos(dot);
             if (Vec_ScalarTripleProduct(&u1, &u2, &sign) < 0.0f) a = -a;
             *out = a;
             return true;
@@ -2240,7 +2252,7 @@ void AnimObjectAimAt(obj_tag* obj, void* state, quaternion_tag* world, MATRIX* b
     if ((anim->anim_flags & 0x200u) == 0) {
         target = static_cast<const _VECTOR*>(anim->aim_target);
     } else {
-        auto* t = static_cast<obj_tag*>(const_cast<void*>(anim->aim_target));
+        auto* t = static_cast<obj_tag*>(const_cast<void*>(nf::raw(anim->aim_target)));
         if (t != nullptr && t->sphere_src != nullptr) {
             target = &row3(anim_of(t)->bones[anim->aim_bone]);
         } else {
@@ -2286,7 +2298,7 @@ void AnimObjectAimAt(obj_tag* obj, void* state, quaternion_tag* world, MATRIX* b
                 } else if (1.0f < dot) {
                     dot = 1.0f;
                 }
-                float ang = std::acos(dot);
+                float ang = nf::fm::acos(dot);
                 if (0.0f <= Vec_ScalarTripleProduct(&u1, &u2, &sign)) ang = -ang;
                 *out = ang;
             }
@@ -2358,7 +2370,7 @@ void psiBuildMatrixPalette(obj_tag* obj, void* state, int8_t palette) {
         const bool head = (flags & 0x30) != 0;
         const MATRIX objm = obj->matrix;
         alignas(16) static quaternion_tag world[128];
-        const _VECTOR* trans = reinterpret_cast<const _VECTOR*>(anim->frame);
+        const _VECTOR* trans = reinterpret_cast<const _VECTOR*>(nf::raw(anim->frame));
         const quaternion_tag* local = reinterpret_cast<const quaternion_tag*>(anim->frame + count * 0x10);
         for (uint32_t i = 0; i < count; ++i) {
             const uint8_t p = skin->parents[i];
@@ -2400,7 +2412,8 @@ void psiBuildMatrixPalette(obj_tag* obj, void* state, int8_t palette) {
 
 // [decomp] 0x001c3120 AnimGetBoneWorldTrans
 // Posição (e matriz) no mundo de um osso (bone com o bit 31: índice no esqueleto) ou de um anexo
-// da pele (o anexo com o id bone + flag: a matriz dele presa ao osso). Sem pose: zero e identidade.
+// da pele (o anexo com o id bone + flag: a matriz dele presa ao osso). Sem pose: zero e identidade (Mat_Identity só
+// escreve o 3x3: a translação e a coluna w de m ficam o que o chamador tinha; quem usa a linha 3 de m deve iniciá-la).
 void AnimGetBoneWorldTrans(obj_tag* obj, uint32_t bone, int32_t flag, _VECTOR* out, MATRIX* m) {
     if (obj != nullptr) {
         ANIMOBJ_tag* anim = anim_of(obj);
@@ -2449,7 +2462,7 @@ void AnimGetBoneWorldTrans2(obj_tag* obj, uint32_t bone, int32_t flag, _VECTOR* 
         ANIMOBJ_tag* anim = anim_of(obj);
         if (anim != nullptr && (anim->anim_flags & 1) != 0) {
             ANIMSKIN_tag* skin = anim->skin;
-            const _VECTOR* trans = reinterpret_cast<const _VECTOR*>(anim->frame);
+            const _VECTOR* trans = reinterpret_cast<const _VECTOR*>(nf::raw(anim->frame));
             const quaternion_tag* quats =
                 reinterpret_cast<const quaternion_tag*>(anim->frame + skin_bone_count(skin) * 0x10);
             const bool by_index = int32_t(bone) < 0;
@@ -2560,7 +2573,7 @@ void AnimObjectDraw(obj_tag* obj, viewer_tag* viewer, uint8_t, uint8_t, uint8_t,
     for (uint32_t i = 0; i < skin->n_meshes; ++i) {
         celglist_tag* g = skin->meshes[i];
         if (g == nullptr) continue;
-        celglist_tag* draw = (i == 0 && anim->mesh_override != nullptr) ? anim->mesh_override : g;
+        celglist_tag* draw = (i == 0 && anim->mesh_override != nullptr) ? nf::raw(anim->mesh_override) : g;
         psiDrawSkinObjectMatrix(draw, &unused, obj, anim->palette);
     }
     Morph_Count = 0;
@@ -2571,7 +2584,7 @@ void AnimObjectDraw(obj_tag* obj, viewer_tag* viewer, uint8_t, uint8_t, uint8_t,
     }
     if (anim->weapon == 0x18) {
         // Mira laser: um feixe do anexo 8 até onde um raio de 100 m (no x dele) bate.
-        HITDATA_tag* hits = nullptr;
+        P32<HITDATA_tag> hits = nullptr;
         _VECTOR from;
         MATRIX m;
         AnimGetBoneWorldTrans(obj, 8, 3, &from, &m);
@@ -2757,7 +2770,7 @@ void AnimSetDeleteAll(obj_tag* obj) {
         if (prev == nullptr) anim->sets = next;
         else prev->next = next;
         if (next != nullptr) next->prev = prev;
-        Mem_Free(reinterpret_cast<void**>(&set));
+        Mem_Free(&set);
         set = next;
     }
 }
@@ -2906,7 +2919,7 @@ void AnimSetUpdate(obj_tag* obj, ANIMSET_tag* set, float speed, float forward, f
     std::memcpy(&mp, MPSettings + 0x180, 4);
     if (mp == 0) return;
     const float ratio = side / side_max;
-    const float angle = std::atan2(ratio, std::fabs(forward / max_speed));
+    const float angle = nf::fm::atan2(ratio, std::fabs(forward / max_speed));
     uint8_t strafe = 0;
     if ((0.0002f < side || side < -0.0002f) && 0.5f <= std::fabs(angle * 0.63661975f)) strafe = 0.0f < side ? 1 : 2;
     if (strafe != uint8_t(set->strafe)) {

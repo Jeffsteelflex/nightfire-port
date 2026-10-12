@@ -32,8 +32,8 @@ namespace {
 DLISTINFO_tag DynamicSoundList;     // 0x00349b00
 uint8_t FrontEndBankToggle = 0;     // 0x002e1b11 o menu principal alterna os bancos 0xc e 0x38
 
-DYNAMICSOUNDS* first_sound() { return reinterpret_cast<DYNAMICSOUNDS*>(DynamicSoundList.used.first); }
-DYNAMICSOUNDS* as_sound(uint32_t handle) { return reinterpret_cast<DYNAMICSOUNDS*>(uintptr_t(handle)); }
+DYNAMICSOUNDS* first_sound() { return reinterpret_cast<DYNAMICSOUNDS*>(nf::raw(DynamicSoundList.used.first)); }
+DYNAMICSOUNDS* as_sound(uint32_t handle) { return nf::p32_ptr<DYNAMICSOUNDS>(handle); }
 
 const uint8_t* out_data(uint32_t sound) { return sound < 0x60d ? SFXOutputData + sound * 0x18 : nullptr; }
 uint8_t out_loop(uint32_t sound) { return sound < 0x60d ? SFXOutputData[sound * 0x18 + 0x14] : 0; }
@@ -226,7 +226,7 @@ void Sound_UpdateListeners() {
 // 3D ou a menos de metade do alcance.
 void Sound_ReqestPlaySfx(DYNAMICSOUNDS* s) {
     if (s->is3d == 0) {
-        SFXStart(s->sound & 0xfffff, uint32_t(uintptr_t(s)));
+        SFXStart(s->sound & 0xfffff, nf::p32_u(s));
         s->audible = 1;
         ++g_sound_stats.played;
         return;
@@ -243,9 +243,9 @@ void Sound_ReqestPlaySfx(DYNAMICSOUNDS* s) {
     s->audible = dist < s->max_range * 0.5f ? 1 : 0;
     if (ScriptCam != 0 || out_true3d(s->sound) == 0) s->audible = 1;
     if (s->has_ranges == 0) {
-        SFXStart3D(s->sound & 0xfffff, pos, vel, uint32_t(uintptr_t(s)), int32_t(s->volume), -1, -1);
+        SFXStart3D(s->sound & 0xfffff, pos, vel, nf::p32_u(s), int32_t(s->volume), -1, -1);
     } else {
-        SFXStart3D(s->sound & 0xfffff, pos, vel, uint32_t(uintptr_t(s)), int32_t(s->volume), int32_t(s->min_range),
+        SFXStart3D(s->sound & 0xfffff, pos, vel, nf::p32_u(s), int32_t(s->volume), int32_t(s->min_range),
                    int32_t(s->max_range));
     }
     ++g_sound_stats.played;
@@ -261,7 +261,7 @@ void Sound_UpdateSounds(_VECTOR* /*listener*/) {
         DYNAMICSOUNDS* next = s->next;
         s->age = uint8_t(age + 1);
         if (state == 1) {
-            const bool playing = out_loop(s->sound) != 0 ? s->state == 1 : SFXIsSFXPlaying(uint32_t(uintptr_t(s)), -1) != 0;
+            const bool playing = out_loop(s->sound) != 0 ? s->state == 1 : SFXIsSFXPlaying(nf::p32_u(s), -1) != 0;
             if (!playing) s->state = 2;
         } else if (state == 0) {
             Sound_ReqestPlaySfx(s);
@@ -271,7 +271,7 @@ void Sound_UpdateSounds(_VECTOR* /*listener*/) {
                 Sound_DoSubtitle(s->sound);
             }
         } else if (state == 2) {
-            SFXRemove(uint32_t(uintptr_t(s)), 0xffffffffu);
+            SFXRemove(nf::p32_u(s), 0xffffffffu);
             DList_RemoveFromInUse2Free(&DynamicSoundList, reinterpret_cast<LLNODE_tag*>(s));
             s->state = 3;
             s->ref = 0;
@@ -279,7 +279,7 @@ void Sound_UpdateSounds(_VECTOR* /*listener*/) {
         if (s->is3d != 0 && s->state == 1) {
             const float pos[3] = {s->pos.x, s->pos.y, s->pos.z};
             const float vel[3] = {s->vel.x, s->vel.y, s->vel.z};
-            SFXSetPositionAndVelocity(pos, vel, uint32_t(uintptr_t(s)), -1);
+            SFXSetPositionAndVelocity(pos, vel, nf::p32_u(s), -1);
         }
         s->moved = 0;
         if (next == nullptr) return;
@@ -319,7 +319,7 @@ uint32_t Sound_Play(uint32_t sound, float volume, int16_t a, uint32_t ref) {
     s->vel = CONSTANT_ZERO_VECTOR;
     s->frame_delay = delay;
     ++g_sound_stats.requested;
-    return uint32_t(uintptr_t(s));
+    return nf::p32_u(s);
 }
 
 // [decomp] 0x001dd548 Sound_Play3D
@@ -373,7 +373,7 @@ uint32_t Sound_Play3D(uint32_t sound, _VECTOR* pos, float volume, float max_rang
     s->map_sound = uint8_t(map_sound);
     s->frame_delay = delay;
     ++g_sound_stats.requested;
-    return uint32_t(uintptr_t(s));
+    return nf::p32_u(s);
 }
 
 // [decomp] 0x001de0a8 Sound_Stop

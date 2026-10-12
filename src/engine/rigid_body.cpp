@@ -14,6 +14,7 @@
 #include "engine/sound.h"
 #include "engine/vecmath.h"
 #include "engine/view.h"
+#include "platform/fmath.h"
 
 RigidBodyStats g_rigid_body_stats;
 
@@ -209,7 +210,7 @@ void RB_RestingContact(obj_tag* obj, RIGIDBODY* rb, HITDATA_tag* hit) {
 // do tipo (1 sem y; 2 só x; 3 só y; 4 só z). Com acerto da cápsula e empurrão, o torque do empurrão x 2,5 no ponto do
 // primeiro acerto, sem y.
 void RB_RestingContactRot(obj_tag* obj, RIGIDBODY* rb, HITDATA_tag* hit) {
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     alignas(16) _VECTOR up;
     Mat_GetUp(&up, &obj->matrix);
     const _VECTOR& pos = row3(obj->matrix);
@@ -280,13 +281,13 @@ void RB_EulerEvolve(RIGIDBODY* rb, float dt, int32_t skip_impulses) {
     if (dt != 0.0f) {
         if (0.0f < rb->ang_damp) {
             const float avg = ((rb->inertia[0] + rb->inertia[1]) + rb->inertia[2]) * 0.333f;
-            const float e = std::exp((-(avg / rb->ang_damp) / avg) * dt);
+            const float e = nf::fm::exp((-(avg / rb->ang_damp) / avg) * dt);
             const float k = -((1.0f - e) / dt);
             madd3(&rb->omega, rb->omega, k);
         }
         if (rb->kind == 0) {
             if (0.0f < rb->lin_damp) {
-                const float e = std::exp(-dt / rb->lin_damp);
+                const float e = nf::fm::exp(-dt / rb->lin_damp);
                 RB_VecSpecial(&rb->accel, (e - 1.0f) / dt, &rb->vel, rb->gravity, rb->lin_damp);
             } else {
                 rb->accel = WldGravity;

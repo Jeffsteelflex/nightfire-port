@@ -30,6 +30,7 @@
 #include "platform/psi.h"
 #include "platform/psi_input.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -306,7 +307,7 @@ TEST(player_capsule_and_camera) {
     // Olhar para cima inclina a câmera para cima; o limite é 90 graus.
     w.b->pitch = 0.5f;
     Player_PositionCamera(w.player, nullptr);
-    CHECK_NEAR(cam.m[2][1], std::sin(0.5f * 1.5707964f), 2e-3f);
+    CHECK_NEAR(cam.m[2][1], nf::fm::sin(0.5f * 1.5707964f), 2e-3f);
     w.b->pitch = 3.0f;
     Player_ViewClamping(w.player);
     CHECK(w.b->pitch == 1.0f);

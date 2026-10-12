@@ -66,9 +66,9 @@ TEST(llist_add_remove_insert_cut) {
     LLISTINFO_tag list;
     CHECK(LList_Init(&list, sizeof(Node), 3) == 1);
     CHECK(list.count == 3 && list.node_size == sizeof(Node));
-    Node* a = reinterpret_cast<Node*>(list.first);
-    Node* b = reinterpret_cast<Node*>(a->link.next);
-    Node* c = reinterpret_cast<Node*>(b->link.next);
+    Node* a = reinterpret_cast<Node*>(nf::raw(list.first));
+    Node* b = reinterpret_cast<Node*>(nf::raw(a->link.next));
+    Node* c = reinterpret_cast<Node*>(nf::raw(b->link.next));
     CHECK(list.last == &c->link && c->link.next == nullptr && b->link.prev == &a->link);
     CHECK(LList_Remove(&list, &b->link) == &b->link);
     CHECK(list.count == 2 && a->link.next == &c->link && c->link.prev == &a->link);

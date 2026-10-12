@@ -25,6 +25,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "platform/ptr32.h"
 
 namespace drv {
 
@@ -114,7 +115,7 @@ struct alignas(16) RigidBody {
     float momentum[3];         // +0x40
     float mass;                // +0x4c
     float ang_momentum[3];     // +0x50
-    RigidBodyInfo* info;       // +0x5c
+    P32<RigidBodyInfo> info;   // +0x5c
     float force[3];            // +0x60 (zerada a cada quadro em ApplyInitialForcesAndTorques)
     int8_t ground_levers;      // +0x6c alavancas que tocaram o chão no último CollideWithGround
     int8_t type;               // +0x6d < 4: veículos (o dono tem atributos de carro)
@@ -134,12 +135,12 @@ struct alignas(16) RigidBodyInfo {
     float lever_local[16][4];      // +0x080 alavancas no referencial do corpo
     float lever_world[16][4];      // +0x180 as mesmas giradas para o mundo (sem a posição)
     float corners[2][8][4];        // +0x280 as 8 quinas da caixa no mundo (sem a posição), buffer duplo
-    WWorldPos* lever_pos[16];      // +0x380 o rastreador do chão de cada alavanca
+    P32<WWorldPos> lever_pos[16];  // +0x380 o rastreador do chão de cada alavanca
     float lever_ground[16][4];     // +0x3c0 a normal do chão sob cada alavanca e (w) a penetração
     float half_size[4];            // +0x4c0 meias-medidas da caixa (pelo menos 0,001); w = 0
     float lever_restitution;       // +0x4d0 o parâmetro +8 das alavancas (zero salvo em ModifyLevers)
     float lever_friction;          // +0x4d4 massa / BASE_FRICTION_MASS x GROUND_FRICTION_COEFF (InitLevers)
-    WWorldPos* owner_pos;          // +0x4d8 o WWorldPos do dono (o chão sob o centro)
+    P32<WWorldPos> owner_pos;      // +0x4d8 o WWorldPos do dono (o chão sob o centro)
     int8_t lever_count;            // +0x4dc
     int8_t corner_buffer;          // +0x4dd qual dos dois buffers de quinas é o atual
     uint16_t age;                  // +0x4de contador de quadros (0xffff ao criar: não conta)
@@ -168,8 +169,8 @@ struct alignas(16) RigidBodyScratch {
     float normals[16][4];       // +0x100 a normal e a penetração de cada uma
     uint8_t unknown_200[0x160]; // +0x200 (não usado pelo que foi portado)
     float lever_block[3][4];    // +0x360 o que vai para a memória da VU0 27..29 (ResolveLeverForces)
-    RigidBody* vu0_body;        // +0x390 o corpo cujo resultado ainda está na VU0
-    RigidBodyInfo* vu0_info;    // +0x394
+    P32<RigidBody> vu0_body;    // +0x390 o corpo cujo resultado ainda está na VU0
+    P32<RigidBodyInfo> vu0_info;  // +0x394
     uint32_t unknown_398;
     uint8_t vu0_busy;           // +0x39c
     uint8_t pad[3];

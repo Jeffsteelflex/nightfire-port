@@ -58,7 +58,7 @@ bool shared_messages(DCVars_tag* dcv, MsgObject* msg, const Shared& s, uint32_t*
             *ret = 1;
             return true;
         case 0x21:
-            DroneFunc_ConsiderExplosive(dcv, reinterpret_cast<obj_tag*>(static_cast<uintptr_t>(msg->data)),
+            DroneFunc_ConsiderExplosive(dcv, nf::p32_ptr<obj_tag>(msg->data),
                                         static_cast<int16_t>(s.explosive_state));
             *ret = 1;
             return true;
@@ -709,8 +709,7 @@ uint32_t NDrone2_DSTATE_DeathByExplosion(DCVars_tag* dcv, Drone_tag* drone, obj_
             }
             drone->state_a = 1;
             DroneAnim_CallAnim(0.0f, 0x44,
-                               NDrone2_ExplosionDir(dcv, reinterpret_cast<const void*>(
-                                                             static_cast<uintptr_t>(dcv->sm->change_param))),
+                               NDrone2_ExplosionDir(dcv, nf::p32_ptr<const void>(dcv->sm->change_param)),
                                0x47, 0, 0, dcv);
             return 1;
         case 2:
@@ -840,7 +839,7 @@ uint32_t NDrone2_DSTATE_JustStand(DCVars_tag* dcv, Drone_tag* drone, obj_tag* ob
             return 1;
         }
         case 8:
-            NDrone2_BulletImpact(dcv, reinterpret_cast<HITDATA_tag*>(uintptr_t(msg->data)), 0xb6, 1);
+            NDrone2_BulletImpact(dcv, nf::p32_ptr<HITDATA_tag>(msg->data), 0xb6, 1);
             return 1;
         case 0:
         case 1:

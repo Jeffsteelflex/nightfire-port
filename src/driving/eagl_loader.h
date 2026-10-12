@@ -27,6 +27,8 @@
 #include <string>
 #include <vector>
 
+#include "platform/ptr32.h"
+
 namespace drv::eagl {
 
 struct ElfShdr {  // Elf32_Shdr (0x28 bytes); o Initialize reescreve offset/link/info como ponteiros
@@ -141,9 +143,10 @@ uint32_t elf_hash(const char* s);
 std::vector<std::string>& diagnostics();
 
 // Endereço <-> ponteiro (o port é de 32 bits: os campos de ponteiro das estruturas do EAGL têm 4 bytes).
-inline uint32_t addr_of(const void* p) { return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(p)); }
+// (Em 64 bits o deslocamento na janela da arena, platform/ptr32.h.)
+inline uint32_t addr_of(const void* p) { return nf::p32_u(p); }
 template <class T = uint8_t>
-inline T* ptr_at(uint32_t a) { return reinterpret_cast<T*>(static_cast<uintptr_t>(a)); }
+inline T* ptr_at(uint32_t a) { return nf::p32_ptr<T>(a); }
 inline uint32_t rd32(uint32_t a) { return *ptr_at<uint32_t>(a); }
 
 }  // namespace drv::eagl

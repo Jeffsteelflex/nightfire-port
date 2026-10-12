@@ -52,7 +52,7 @@ void Lights_CalcAmbientLight(obj_tag* obj) {
 DLISTINFO_tag LightList;
 
 namespace {
-light_tag* SortList_150[30];
+P32<light_tag> SortList_150[30];  // ordenada com elementos de 4 bytes (QuickSort)
 
 // Mais 32 luzes livres (0xa00 bytes, zeradas).
 void grow_lights() {
@@ -137,11 +137,11 @@ void Light_SetAmbientRadiators(uint8_t* data) {
 // switch; as que piscam alternam entre acesas (pelos quadros da máscara, até flicker_max ticks) e
 // apagadas (um intervalo sorteado), tocando o som ao acender.
 void Light_Update() {
-    light_tag* l = reinterpret_cast<light_tag*>(LightList.used.first);
+    light_tag* l = reinterpret_cast<light_tag*>(nf::raw(LightList.used.first));
     if (l == nullptr) return;
     int16_t life = l->life;
     while (true) {
-        light_tag* next = reinterpret_cast<light_tag*>(l->node.next);
+        light_tag* next = reinterpret_cast<light_tag*>(nf::raw(l->node.next));
         const int16_t old = l->life;
         bool keep = life == 0;
         if (!keep) {
@@ -184,12 +184,12 @@ void Light_Update() {
 // 2)). Pelo tipo: as de tipo 0 só iluminam objetos com a flag 0x80, as de tipo 1 não iluminam os com
 // 0x100, as de tipo 2 (lanternas) só os com 0x80 a até 4 m dela no plano, com a intensidade caindo
 // com a distância (50 a 0). Nulo sem luzes.
-light_tag** Lights_CalcClosestLights(sphere_tag* sphere, uint16_t flags, uint16_t* count) {
+P32<light_tag>* Lights_CalcClosestLights(sphere_tag* sphere, uint16_t flags, uint16_t* count) {
     if (count == nullptr) return nullptr;
     const auto* s = reinterpret_cast<const _VECTOR*>(sphere);
     uint32_t n = 0;
-    for (auto* l = reinterpret_cast<light_tag*>(LightList.used.first); l != nullptr && n < 0x1e;
-         l = reinterpret_cast<light_tag*>(l->node.next)) {
+    for (auto* l = reinterpret_cast<light_tag*>(nf::raw(LightList.used.first)); l != nullptr && n < 0x1e;
+         l = reinterpret_cast<light_tag*>(nf::raw(l->node.next))) {
         if (l->on == 0) continue;
         if (l->kind == 0 && (flags & 0x80) == 0) continue;
         if (l->kind == 1 && (flags & 0x100) != 0) continue;
@@ -235,7 +235,7 @@ obj_tag* Corona_Create(_VECTOR* pos, _VECTOR* rot, level_tag*, celglist_tag* gli
 
 // Dados de uma lâmpada que falha (tipo 0x26, 0x30 bytes).
 struct FLICKER_tag {
-    light_tag* light;   // 0x00 a luz do mapa que ela acompanha (Light_FindMapLight)
+    P32<light_tag> light;  // 0x00 a luz do mapa que ela acompanha (Light_FindMapLight)
     int16_t sparks;     // 0x04 solta faíscas apagada
     uint8_t pad[0x0a];
     _VECTOR up;         // 0x10 direção das faíscas

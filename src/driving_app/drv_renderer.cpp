@@ -17,6 +17,7 @@
 
 #include "platform/gpu_adapter.h"
 #include "render/gpu_adapters.h"
+#include "platform/fmath.h"
 
 namespace drv {
 
@@ -545,14 +546,14 @@ void DrvRenderer::draw(const CarModel& car, float yaw, float pitch, float dist) 
     t[13] = -I.center[1];
     t[14] = -I.center[2];
     mat_identity(rot);
-    rot[0] = std::cos(yaw);
-    rot[2] = -std::sin(yaw);
-    rot[8] = std::sin(yaw);
-    rot[10] = std::cos(yaw);
+    rot[0] = nf::fm::cos(yaw);
+    rot[2] = -nf::fm::sin(yaw);
+    rot[8] = nf::fm::sin(yaw);
+    rot[10] = nf::fm::cos(yaw);
     mat_mul(t, rot, world);
     // A câmera: olha a origem de uma distância em função do raio, inclinada de `pitch` (mão esquerda, y para cima).
     const float d = I.radius * 2.2f * dist;
-    const float eye[3] = {0.0f, d * std::sin(pitch), -d * std::cos(pitch)};
+    const float eye[3] = {0.0f, d * nf::fm::sin(pitch), -d * nf::fm::cos(pitch)};
     float zaxis[3] = {-eye[0], -eye[1], -eye[2]};
     const float zl = std::sqrt(zaxis[0] * zaxis[0] + zaxis[1] * zaxis[1] + zaxis[2] * zaxis[2]);
     for (float& v : zaxis) v /= zl;
@@ -569,7 +570,7 @@ void DrvRenderer::draw(const CarModel& car, float yaw, float pitch, float dist) 
         view[12 + c] = -(ax[0] * eye[0] + ax[1] * eye[1] + ax[2] * eye[2]);
     }
     const float zn = std::max(0.01f, d - I.radius * 1.5f), zf = d + I.radius * 1.5f;
-    const float ys = 1.0f / std::tan(I.opt.fov_deg * 3.14159265f / 360.0f), xs = ys * float(I.height) / float(I.width);
+    const float ys = 1.0f / nf::fm::tan(I.opt.fov_deg * 3.14159265f / 360.0f), xs = ys * float(I.height) / float(I.width);
     float proj[16] = {xs, 0, 0, 0, 0, ys, 0, 0, 0, 0, zf / (zf - zn), 1, 0, 0, -zn * zf / (zf - zn), 0};
     mat_mul(view, proj, f.view_proj);
     const CarConstants& k = car.constants();

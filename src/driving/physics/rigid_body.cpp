@@ -574,7 +574,7 @@ int TempGetHeightInformation(RigidBody* rb, const float pos[3], float out[4], WW
                 if (tries >= 2) {
                     if (wp->surface[0] != 0) {
                         result = 0;
-                        wp->face = reinterpret_cast<const void*>(uintptr_t(1));
+                        wp->face = nf::p32_ptr<const void>(1);
                     }
                     break;
                 }

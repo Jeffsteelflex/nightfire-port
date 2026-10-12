@@ -39,10 +39,10 @@ namespace {
 
 uint8_t set_214 = 0;  // Set.214 (0x0030d2fd): a gravidade zero ligada pela caixa
 
-int32_t val(const void* p) { return int32_t(reinterpret_cast<uintptr_t>(p)); }
+int32_t val(const void* p) { return int32_t(nf::p32_u(p)); }
 template <class T>
 T* ptr(int32_t v) {
-    return reinterpret_cast<T*>(uintptr_t(uint32_t(v)));
+    return nf::p32_ptr<T>(uint32_t(v));
 }
 uint32_t rd32(const uint8_t* p) {
     uint32_t v;

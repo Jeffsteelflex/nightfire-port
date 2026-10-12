@@ -35,6 +35,7 @@
 #include "engine/collide.h"
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 // Dados do quebrável (obj_tag::data, 0xc bytes; Break_Create).
 struct BREAK_tag {
@@ -47,7 +48,7 @@ static_assert(sizeof(BREAK_tag) == 0xc);
 
 // Dados do destrutível (obj_tag::data, 0x18 bytes; Destroy_Create).
 struct DESTROY_tag {
-    celglist_tag* smashed;  // 0x00 modelo depois de quebrado (celglist_tag::lod ou a entidade seguinte)
+    P32<celglist_tag> smashed;  // 0x00 modelo depois de quebrado (celglist_tag::lod ou a entidade seguinte)
     float strength;         // 0x04 parâmetro 3
     float blast;            // 0x08 parâmetro 5 / 100: raio do dano da explosão
     int32_t delay;          // 0x0c parâmetro 6 x -FRAME_RATE: ticks até ligar o canal de saída (negativo
@@ -64,7 +65,7 @@ static_assert(sizeof(DESTROY_tag) == 0x18);
 struct HURT_tag {
     float t;                // 0x00 posição no caminho, em quadros
     float speed;            // 0x04 quadros por tick: (quadros / FRAME_RATE) x FRAME_RATE / duração
-    framelist_tag* path;    // 0x08
+    P32<framelist_tag> path;  // 0x08
     uint16_t frames;        // 0x0c quadros do caminho - 1
     uint16_t pad_0e;
     float damage;           // 0x10 parâmetro 1 (Hurt_GetDamage)
@@ -96,7 +97,7 @@ static_assert(sizeof(_SHATTER_VERT_LIST) == 0xc0);
 // Estilhaço (0xa0 bytes, nó da ShardList).
 struct alignas(16) SHARD_tag {
     LLNODE_tag node;        // 0x00
-    int32_t* chain;         // 0x08 cadeia de DMA do triângulo (psiCreateShard)
+    P32<int32_t> chain;     // 0x08 cadeia de DMA do triângulo (psiCreateShard)
     uint32_t texture;       // 0x0c
     float life;             // 0x10 segundos: 25 ticks; desenhado enquanto > 0
     float delay;            // 0x14 segundos parado antes de voar: distância ao tiro x 15 ticks

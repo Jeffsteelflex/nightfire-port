@@ -63,7 +63,7 @@ TEST(lights_closest_by_relative_distance_and_kind) {
     light_tag* objects_only = point(1.0f, 4.0f, 0);  // tipo 0: só com a flag 0x80
     _VECTOR s{0.0f, 0.0f, 0.0f, 1.0f};
     uint16_t n = 0;
-    light_tag** l = Lights_CalcClosestLights(reinterpret_cast<sphere_tag*>(&s), 0, &n);
+    P32<light_tag>* l = Lights_CalcClosestLights(reinterpret_cast<sphere_tag*>(&s), 0, &n);
     CHECK(n == 2 && l != nullptr);
     if (n == 2) CHECK(l[0] == far_big && l[1] == near_small);  // crescente pela distância relativa
     CHECK_NEAR(far_big->dist, 0.6, 1e-6);
@@ -110,7 +110,7 @@ TEST(lights_ambient_radiators_from_the_map_block) {
     std::memcpy(block + 4 + 0x20, b, sizeof(b));
     Light_SetAmbientRadiators(block);
     CHECK(used_count() == 2);
-    auto* first = reinterpret_cast<light_tag*>(LightList.used.first);
+    auto* first = reinterpret_cast<light_tag*>(nf::raw(LightList.used.first));
     CHECK(first->pos.x == 1.0f && first->pos.z == 3.0f && first->radius == 4.0f);  // raiz do raio²
     CHECK(first->r == 255 && first->g == 127 && first->b == 0 && first->kind == 0 && first->life == 0);
 }
@@ -120,7 +120,7 @@ TEST(psi_lights_load_the_two_first) {
     light_tag* a = point(1.0f, 2.0f);
     light_tag* b = point(3.0f, 4.0f);
     light_tag* c = point(5.0f, 4.0f);
-    light_tag* list[3] = {a, b, c};
+    P32<light_tag> list[3] = {a, b, c};
     psiLight_SetLights(list, 3, 1.0f, 0.5f, 2.0f);
     CHECK(PS2NumLights == 2);
     CHECK(TLight[1][0] == 3.0f && TLight[1][3] == 1.0f);

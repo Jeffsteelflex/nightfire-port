@@ -13,17 +13,18 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 // Anexo desenhado junto com uma célula ou objeto (lista em cel_tag::attach e obj_tag::attach).
 // Só os campos lidos pelo View_Draw*Glist; o resto do registro ainda é desconhecido.
 // As marcas de tiro e de pé (Effect_tag, engine/effect.h) são anexos da EffectList.
 struct alignas(16) ATTACH_tag {
     LLNODE_tag node;        // 0x00 nó da EffectList (marcas)
-    ATTACH_tag* next;       // 0x08
-    ATTACH_tag* prev;       // 0x0c
-    celglist_tag* glist;    // 0x10
-    obj_tag* parent;        // 0x14 se houver, a matriz é relativa à de parent (obj_tag::matrix)
-    cel_tag* cel;           // 0x18 sala que tem a marca na lista
+    P32<ATTACH_tag> next;   // 0x08
+    P32<ATTACH_tag> prev;   // 0x0c
+    P32<celglist_tag> glist;  // 0x10
+    P32<obj_tag> parent;    // 0x14 se houver, a matriz é relativa à de parent (obj_tag::matrix)
+    P32<cel_tag> cel;       // 0x18 sala que tem a marca na lista
     uint32_t unknown_1c;
     MATRIX matrix;          // 0x20
 };
@@ -33,21 +34,22 @@ static_assert(offsetof(ATTACH_tag, matrix) == 0x20);
 // Item de uma lista de desenho (12 bytes).
 struct DRAWENTRY_tag {
     float key;      // distância² à câmera (negativa para trás-para-frente); salas usam -90000 + 10 * n
-    obj_tag* obj;
-    cel_tag* cel;
+    P32<obj_tag> obj;
+    P32<cel_tag> cel;
 };
 static_assert(sizeof(DRAWENTRY_tag) == 12);
 
 struct STACKINFO {
-    int32_t* data;
+    P32<int32_t> data;
     uint16_t count;
     uint16_t size;
 };
+static_assert(sizeof(STACKINFO) == 8, "STACKINFO: 8 bytes");
 
 struct alignas(16) viewer_tag {
-    world_tag* world;            // 0x000
-    cel_tag* cel;                // 0x004 sala da câmera
-    DRAWENTRY_tag* lists[3];     // 0x008
+    P32<world_tag> world;        // 0x000
+    P32<cel_tag> cel;            // 0x004 sala da câmera
+    P32<DRAWENTRY_tag> lists[3];  // 0x008
     uint16_t counts[3];          // 0x014 (a lista é circular: o índice é mascarado por size - 1)
     uint16_t sizes[3];           // 0x01a
     uint8_t sky_visible;         // 0x020 alguma sala visível deixa ver o céu
@@ -59,8 +61,8 @@ struct alignas(16) viewer_tag {
     uint8_t updated;             // 0x02b
     STACKINFO stack;             // 0x02c
     int32_t stack_data[12];      // 0x034
-    obj_tag* follow;             // 0x064 objeto passado à função de atualização
-    void (*updater)(obj_tag*, void*);  // 0x068
+    P32<obj_tag> follow;         // 0x064 objeto passado à função de atualização
+    F32<void(obj_tag*, void*)> updater;  // 0x068
     uint32_t unknown_6c;
     plane_equ_tag planes[4];     // 0x070 lados do frustum (Vision_InView)
     _VECTOR delta;               // 0x0b0 pos - prev_pos
@@ -83,7 +85,7 @@ struct alignas(16) viewer_tag {
     float shake;                 // 0x200
     float swing;                 // 0x204 fase do balanço da arma (Camera_ApplySwing)
     uint32_t unknown_208[7];
-    obj_tag* player;             // 0x224 jogador desta câmera (Player_Init)
+    P32<obj_tag> player;         // 0x224 jogador desta câmera (Player_Init)
     float fade;                  // 0x228
     float fade_speed;            // 0x22c
     uint8_t fade_rgba[4];        // 0x230
@@ -192,8 +194,8 @@ void Rand_FRand_MVar2_Vec(_VECTOR* v, float a, float b);
 uint32_t Sound_Play(uint32_t sound, float volume, int16_t a, uint32_t b);  // stub: 0
 void DrawAllShards();
 void DrawDrops();
-sprite** Sprite_BuildList(uint16_t camera, uint32_t* count_a, uint32_t* count_b, uint32_t* count_c);
-void View_DrawSprites(viewer_tag* viewer, sprite** list, uint32_t a, uint32_t b);
+P32<sprite>* Sprite_BuildList(uint16_t camera, uint32_t* count_a, uint32_t* count_b, uint32_t* count_c);
+void View_DrawSprites(viewer_tag* viewer, P32<sprite>* list, uint32_t a, uint32_t b);
 
 // ---- matemática usada pela visão ----
 void Concat(const MATRIX* a, MATRIX* b);

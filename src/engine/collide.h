@@ -24,6 +24,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct COLLBOX_tag {
     float min[3];        // 0x00
@@ -45,13 +46,13 @@ struct alignas(16) HITTEST_tag {
     _VECTOR dir;           // 0x40 end - start
     _VECTOR pos;           // 0x50 centro da esfera
     _VECTOR sphere;        // 0x60 centro e raio (montado por Collide_Pick)
-    obj_tag* tester;       // 0x70 objeto temporário: acertos em hits, o teste em hit_test
-    obj_tag* ignore_a;     // 0x74
-    obj_tag* ignore_b;     // 0x78
-    MATRIX* matrix;        // 0x7c na cópia local de Collide_Intersect: geometria local -> mundo
-    cel_tag* cel;          // 0x80 sala de partida
+    P32<obj_tag> tester;   // 0x70 objeto temporário: acertos em hits, o teste em hit_test
+    P32<obj_tag> ignore_a;  // 0x74
+    P32<obj_tag> ignore_b;  // 0x78
+    P32<MATRIX> matrix;    // 0x7c na cópia local de Collide_Intersect: geometria local -> mundo
+    P32<cel_tag> cel;      // 0x80 sala de partida
     uint32_t unknown_84;
-    celglist_tag* glist;   // 0x88 geometria em teste
+    P32<celglist_tag> glist;  // 0x88 geometria em teste
     float radius;          // 0x8c (raio: max(1, |dir|) depois de Collide_Pick)
     uint32_t unknown_90;   // copiado para HITDATA_tag::unknown_08
     uint16_t type;         // 0x94: 0x100/0x101 esfera, 0x200/0x201 raio, 0x400, 0x800 cápsula,
@@ -66,8 +67,8 @@ struct alignas(16) HITTEST_tag {
 static_assert(sizeof(HITTEST_tag) == 0xa0);
 
 struct alignas(16) HITDATA_tag {
-    HITDATA_tag* prev;     // 0x00
-    HITDATA_tag* next;     // 0x04
+    P32<HITDATA_tag> prev;  // 0x00
+    P32<HITDATA_tag> next;  // 0x04
     uint32_t unknown_08;
     float dist;            // 0x0c: 1e8 = descartado
     plane_equ_tag plane;   // 0x10 normal e d do triângulo atingido
@@ -77,8 +78,8 @@ struct alignas(16) HITDATA_tag {
     uint8_t surface;       // 0x50 material
     uint8_t flags;         // 0x51 (2 = não empurrar)
     uint16_t unknown_52;
-    cel_tag* cel;          // 0x54
-    obj_tag* obj;          // 0x58
+    P32<cel_tag> cel;      // 0x54
+    P32<obj_tag> obj;      // 0x58
     uint32_t unknown_5c;
 };
 static_assert(sizeof(HITDATA_tag) == 0x60);
@@ -106,8 +107,8 @@ extern int32_t TriAllocCnt;
 extern uint32_t TriOnCnt;
 
 void Coll_ResetHitHeap();
-HITDATA_tag* Coll_AddHitToList(HITDATA_tag** list, float dist, cel_tag* cel, obj_tag* obj);
-void Collide_FreeHitList(HITDATA_tag** list);
+HITDATA_tag* Coll_AddHitToList(P32<HITDATA_tag>* list, float dist, cel_tag* cel, obj_tag* obj);
+void Collide_FreeHitList(P32<HITDATA_tag>* list);
 
 cel_tag** Collide_StraddleCels(HITTEST_tag* test, uint16_t* count);
 uint32_t Intersect_Portal(HITTEST_tag* test, portal_tag* portal);
@@ -130,17 +131,17 @@ uint32_t Intersect_RayBox(const HITTEST_tag* test, const _VECTOR* min, const _VE
 bool Collide_Filter(uint16_t surface, uint16_t hit_flags, uint32_t mask, float* dist);
 // Tira da lista os acertos de projéteis cuja arma tem classe (weapon_definition_tag::stats) na máscara
 // e reordena o resto pela distância (quebráveis e destrutíveis ignoram essas armas).
-void Collide_FilterBullets(HITDATA_tag** list, uint16_t mask);
+void Collide_FilterBullets(P32<HITDATA_tag>* list, uint16_t mask);
 // Soma o dano (unknown_08) de todos os acertos da lista e junta em objs, até max, os objetos atingidos.
 float Collide_GetDamageNObjects(HITDATA_tag* list, obj_tag** objs, uint16_t* count, uint16_t max);
 
 bool Collide_SphereIntersect(_VECTOR* pos, float radius, const cel_tag* cel, const obj_tag* a, const obj_tag* b,
-                             HITDATA_tag** hits, int8_t only_cel, int8_t one_sided, uint32_t mask, uint16_t flags);
+                             P32<HITDATA_tag>* hits, int8_t only_cel, int8_t one_sided, uint32_t mask, uint16_t flags);
 bool Collide_RayIntersect(const _VECTOR* from, const _VECTOR* to, const cel_tag* cel, const obj_tag* a,
-                          const obj_tag* b, HITDATA_tag** hits, int8_t only_cel, uint32_t mask, uint16_t flags);
+                          const obj_tag* b, P32<HITDATA_tag>* hits, int8_t only_cel, uint32_t mask, uint16_t flags);
 // A cápsula do teste dado (start, end, radius) contra a geometria (os pêndulos dos corpos rígidos); o empurrão fica
 // em test->push.
-bool Collide_CylinderIntersect(HITTEST_tag* test, HITDATA_tag** hits, int8_t only_cel, uint16_t flags);
+bool Collide_CylinderIntersect(HITTEST_tag* test, P32<HITDATA_tag>* hits, int8_t only_cel, uint16_t flags);
 // Cabe um objeto de raio "radius" e meia largura "extent" no chão em pos? Ajusta pos e a matriz ao chão
 // (GT_DeployMiniGun).
 bool Collide_PlaceObject(_VECTOR* pos, MATRIX* m, float radius, float extent, obj_tag* obj);

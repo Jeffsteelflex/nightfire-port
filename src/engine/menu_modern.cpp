@@ -49,7 +49,7 @@ OptionsPrint options_print() {
 
 M_PAGE* first_page(const M_MANAGER& m) { return static_cast<M_PAGE*>(ll_first(m.pages)); }
 M_PAGE* next_page(M_PAGE* p) {
-    return p->next != nullptr ? reinterpret_cast<M_PAGE*>(reinterpret_cast<uint8_t*>(p->next) - 0xa4) : nullptr;
+    return p->next != nullptr ? reinterpret_cast<M_PAGE*>(reinterpret_cast<uint8_t*>(nf::raw(p->next)) - 0xa4) : nullptr;
 }
 M_CONTROL* first_control(M_PAGE* p) { return static_cast<M_CONTROL*>(ll_first(p->controls)); }
 
@@ -122,8 +122,8 @@ M_PAGE* base_page(M_MANAGER& m) {
     if (m.page == nullptr || (m.page->base.id != kMmBoxPage && m.page->base.id != kMmCardPage)) return m.page;
     if (m.previous != nullptr) return m.previous;
     if (Stack_IsEmpty(&m.stack) == 0) {
-        M_CONTROL** e = reinterpret_cast<M_CONTROL**>(uintptr_t(uint32_t(Stack_Top(&m.stack))));
-        if (e != nullptr && e[0] != nullptr && e[0]->type == MCT_PAGE) return reinterpret_cast<M_PAGE*>(e[0]);
+        P32<M_CONTROL>* e = nf::p32_ptr<P32<M_CONTROL>>(uint32_t(Stack_Top(&m.stack)));
+        if (e != nullptr && e[0] != nullptr && e[0]->type == MCT_PAGE) return reinterpret_cast<M_PAGE*>(nf::raw(e[0]));
     }
     return m.page;
 }
@@ -893,7 +893,7 @@ void MenuModern_Tick(M_MANAGER* m) {
                     const int32_t dir = target < s->pos ? -1 : 1;
                     s->pos += dir;
                     Menu_PlaySound(dir < 0 ? 3 : 4);
-                    __Menu_SendMessage(s->base.owner, 0x49, int32_t(reinterpret_cast<uintptr_t>(s)), 0);
+                    __Menu_SendMessage(s->base.owner, 0x49, int32_t(nf::p32_u(s)), 0);
                     ++g_menu_modern_stats.steps;
                 }
                 break;

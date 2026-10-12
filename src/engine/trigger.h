@@ -10,10 +10,11 @@
 #include "engine/map_types.h"
 #include "engine/object.h"
 #include "engine/player_stats.h"
+#include "platform/ptr32.h"
 
 // Dados de um gatilho (0x40 bytes em obj->data).
 struct alignas(16) TRIGGER_Tag {
-    framelist_tag* path;      // 0x00 caminho por onde o gatilho anda (nulo: parado)
+    P32<framelist_tag> path;  // 0x00 caminho por onde o gatilho anda (nulo: parado)
     float pos;                // 0x04 posição no caminho (quadros)
     float speed;              // 0x08 quadros por tick a 60 Hz
     uint16_t frames;          // 0x0c quadros do caminho - 1 (0: parado)

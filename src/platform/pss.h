@@ -25,6 +25,8 @@
 #include <string>
 #include <vector>
 
+#include "platform/disc_source.h"
+
 namespace nf {
 
 // ---- o program stream ----
@@ -129,9 +131,11 @@ public:
     PssFile(const PssFile&) = delete;
     PssFile& operator=(const PssFile&) = delete;
     ~PssFile();
+    // Um arquivo do disco (platform/disc_source.h: da pasta, da imagem ISO, do leitor ou da cópia pessoal) ou do PC.
+    bool open(DiscFile file);
     bool open(const std::wstring& path);
     void close();
-    bool is_open() const { return file_ != nullptr; }
+    bool is_open() const { return file_.is_open(); }
     // Volta ao começo (o laço dos fundos do menu: o PS2 fecha e reabre o arquivo).
     bool rewind();
 
@@ -148,7 +152,7 @@ public:
 private:
     bool read_more();
 
-    FILE* file_ = nullptr;
+    DiscFile file_;
     std::vector<uint8_t> buf_;
     size_t pos_ = 0;
     bool eof_ = false;

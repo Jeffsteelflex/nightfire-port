@@ -431,18 +431,18 @@ uint32_t LS_ResolveCode(const char* symbol_name, uint32_t) {
         uint32_t address;
     };
     const Entry table[] = {
-        {"LS_MakePlrSettings__FUiUsPUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_MakePlrSettings))},
-        {"LS_LoadPlrSettings__FPUcUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_LoadPlrSettings))},
-        {"LS_MakeMission__FUiUsPUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_MakeMission))},
-        {"LS_LoadMission__FPUcUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_LoadMission))},
-        {"LS_MakeMPSettings__FUiUsPUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_MakeMPSettings))},
-        {"LS_LoadMPSettings__FPUcUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_LoadMPSettings))},
-        {"LS_MakeGlobalSettings__FUiUsPUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_MakeGlobalSettings))},
-        {"LS_LoadGlobalSettings__FPUcUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_LoadGlobalSettings))},
-        {"LS_MakeCheats__FUiUsPUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_MakeCheats))},
-        {"LS_LoadCheats__FPUcUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_LoadCheats))},
-        {"LS_MakeBonus__FUiUsPUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_MakeBonus))},
-        {"LS_LoadBonus__FPUcUs", uint32_t(reinterpret_cast<uintptr_t>(&LS_LoadBonus))},
+        {"LS_MakePlrSettings__FUiUsPUs", nf::p32_fn_u(&LS_MakePlrSettings)},
+        {"LS_LoadPlrSettings__FPUcUs", nf::p32_fn_u(&LS_LoadPlrSettings)},
+        {"LS_MakeMission__FUiUsPUs", nf::p32_fn_u(&LS_MakeMission)},
+        {"LS_LoadMission__FPUcUs", nf::p32_fn_u(&LS_LoadMission)},
+        {"LS_MakeMPSettings__FUiUsPUs", nf::p32_fn_u(&LS_MakeMPSettings)},
+        {"LS_LoadMPSettings__FPUcUs", nf::p32_fn_u(&LS_LoadMPSettings)},
+        {"LS_MakeGlobalSettings__FUiUsPUs", nf::p32_fn_u(&LS_MakeGlobalSettings)},
+        {"LS_LoadGlobalSettings__FPUcUs", nf::p32_fn_u(&LS_LoadGlobalSettings)},
+        {"LS_MakeCheats__FUiUsPUs", nf::p32_fn_u(&LS_MakeCheats)},
+        {"LS_LoadCheats__FPUcUs", nf::p32_fn_u(&LS_LoadCheats)},
+        {"LS_MakeBonus__FUiUsPUs", nf::p32_fn_u(&LS_MakeBonus)},
+        {"LS_LoadBonus__FPUcUs", nf::p32_fn_u(&LS_LoadBonus)},
     };
     for (const Entry& e : table) {
         if (std::strcmp(e.name, symbol_name) == 0) return e.address;

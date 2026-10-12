@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "platform/sfx_iop.h"
+#include "platform/fmath.h"
 
 namespace nf {
 
@@ -204,7 +205,7 @@ void audio_out_close() {
         g_wav = nullptr;
         // A medida da folga para quem analisa o dump: onde a SPU2 saturou (amostras por canal).
         const Spu2::Saturation& s = spu().saturation();
-        const double peak_db = s.peak > 0 ? 20.0 * std::log10(double(s.peak) / 32768.0) : -120.0;
+        const double peak_db = s.peak > 0 ? 20.0 * nf::fm::log10(double(s.peak) / 32768.0) : -120.0;
         std::fprintf(stderr, "spu2: saturacoes vozes0 %llu vozes1 %llu nucleo0 %llu saida %llu pico_sem_corte %+.1f dB\n",
                      static_cast<unsigned long long>(s.voices[0]), static_cast<unsigned long long>(s.voices[1]),
                      static_cast<unsigned long long>(s.core0), static_cast<unsigned long long>(s.output), peak_db);
@@ -261,7 +262,7 @@ AudioOutStats audio_out_stats() {
         sumsq += m.sumsq;
         n += m.n;
     }
-    auto db = [](double v) { return v > 0.0 ? float(20.0 * std::log10(v / 32768.0)) : -120.0f; };
+    auto db = [](double v) { return v > 0.0 ? float(20.0 * nf::fm::log10(v / 32768.0)) : -120.0f; };
     s.peak_db = db(peak);
     s.rms_db = n != 0 ? db(std::sqrt(sumsq / n)) : -120.0f;
     return s;

@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "platform/ps2_float.h"
+#include "platform/fmath.h"
 
 namespace ps2 {
 
@@ -416,8 +417,8 @@ void VuMachine::lower_special(uint32_t w) {
         start_efu(rsqrt(0x3f800000, add(add(mul(s[0], s[0]), mul(s[1], s[1])), mul(s[2], s[2]))), 24);
         return;
     }
-    case 0x74: start_efu(from_double(std::atan2(value(s[1]), value(s[0]))), 54); return;  // EATANxy
-    case 0x75: start_efu(from_double(std::atan2(value(s[2]), value(s[0]))), 54); return;  // EATANxz
+    case 0x74: start_efu(from_double(nf::fm::atan2(value(s[1]), value(s[0]))), 54); return;  // EATANxy
+    case 0x75: start_efu(from_double(nf::fm::atan2(value(s[2]), value(s[0]))), 54); return;  // EATANxz
     case 0x76: start_efu(add(add(add(s[0], s[1]), s[2]), s[3]), 12); return;               // ESUM
     case 0x78: start_efu(ps2::sqrt(s[fsf]), 12); return;                                  // ESQRT
     case 0x79: start_efu(rsqrt(0x3f800000, s[fsf]), 18); return;                          // ERSQRT

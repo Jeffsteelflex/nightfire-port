@@ -135,7 +135,7 @@ void SpaceLaser_Update(obj_tag* obj) {
             Vec_Normalise(&dir, &dir);
             const _VECTOR end{l->origin.x + dir.x * 1000.0f, l->origin.y + dir.y * 1000.0f,
                               l->origin.z + dir.z * 1000.0f, l->origin.w};
-            HITDATA_tag* hits = nullptr;
+            P32<HITDATA_tag> hits = nullptr;
             if (Collide_RayIntersect(&l->origin, &end, obj->cel, obj, nullptr, &hits, 0, 8, 0)) l->target = hits->pos;
             Collide_FreeHitList(&hits);
             Sound_Play3D(0x46a, &l->origin, 100.0f, -1.0f, -1.0f, 0, 0, 0);

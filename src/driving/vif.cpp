@@ -7,6 +7,8 @@
 #include <cstring>
 #include <string>
 
+#include "platform/ptr32.h"
+
 namespace drv {
 
 float VuMemory::f(int qw, int c) const {
@@ -189,11 +191,11 @@ void Vif1::run_dma_chain(uint32_t tag_addr, int max_tags) {
     int sp = 0;
     uint32_t t = tag_addr;
     auto push_qw = [&](uint32_t a, uint32_t qwc) {
-        const uint32_t* p = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(a));
+        const uint32_t* p = nf::p32_ptr<const uint32_t>(a);
         stream.insert(stream.end(), p, p + size_t(qwc) * 4);
     };
     for (int guard = 0; guard < max_tags && t; ++guard) {
-        const uint32_t* tag = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(t));
+        const uint32_t* tag = nf::p32_ptr<const uint32_t>(t);
         const uint32_t qwc = tag[0] & 0xFFFF;
         const int id = int(tag[0] >> 28) & 7;
         const uint32_t addr = tag[1];

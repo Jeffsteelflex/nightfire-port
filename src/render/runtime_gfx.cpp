@@ -20,6 +20,7 @@
 #include "render/frame_markers.h"
 #include "render/ui_hd.h"
 #include "render/ui_hd_game.h"
+#include "platform/fmath.h"
 
 namespace nf {
 
@@ -84,7 +85,7 @@ void build_sprites(const PsiParticleList& list, const viewer_tag* camera, DrawIt
     float r[3] = {f[1] * up0[2] - f[2] * up0[1], f[2] * up0[0] - f[0] * up0[2], f[0] * up0[1] - f[1] * up0[0]};
     normalize(r);
     const float u[3] = {-(f[1] * r[2] - f[2] * r[1]), -(f[2] * r[0] - f[0] * r[2]), -(f[0] * r[1] - f[1] * r[0])};
-    const float cot = camera->fov > 0.0f ? 1.0f / std::tan(camera->fov * 0.5f) : 1.0f;
+    const float cot = camera->fov > 0.0f ? 1.0f / nf::fm::tan(camera->fov * 0.5f) : 1.0f;
     const float aspect = camera->aspect > 0.0f ? camera->aspect : 1.0f;
     const float s = list.half_size;
     item.sprites.reserve(size_t(list.count) * 4);
@@ -293,7 +294,7 @@ int RuntimeGfx::on_entity(void* user, const celglist_tag* glist, const map_tag* 
         const uint32_t size = mh & 0xffffff;
         try {
             if ((mh >> 24) != 0x2b || size < 4) throw FormatError("cabeçalho do bloco de morph");
-            mesh.morph = decode_morph(ByteView(glist->gfx->morph, size - 4));
+            mesh.morph = decode_morph(ByteView(nf::raw(glist->gfx->morph), size - 4));
             for (const SkinnedVertex& v : mesh.skin_vertices) {
                 if (v.morph >= 0 && size_t(v.morph) + mesh.morph.targets > mesh.morph.elements()) {
                     throw FormatError("vértice com morph fora do bloco");
@@ -535,7 +536,7 @@ void describe_faces(const std::vector<DrawItem>& items, const float eye[3], std:
             continue;
         }
         const auto* o = static_cast<const obj_tag*>(d.interp.owner);
-        const auto* a = reinterpret_cast<const ANIMOBJ_tag*>(o->sphere_src);
+        const auto* a = reinterpret_cast<const ANIMOBJ_tag*>(nf::raw(o->sphere_src));
         if (a == nullptr || a->skin == nullptr || a->skin->n_morphs == 0) continue;
         bool any = false;
         for (const float w : d.morph) any = any || w != 0.0f;
@@ -549,7 +550,7 @@ void describe_faces(const std::vector<DrawItem>& items, const float eye[3], std:
     int n = std::snprintf(buf, sizeof(buf), "rosto desenhados %zu com_pesos %d", faces.size(), weighted);
     for (size_t i = 0; i < faces.size() && i < 4 && n < int(sizeof(buf)) - 256; ++i) {
         const Face& f = faces[i];
-        const auto* a = reinterpret_cast<const ANIMOBJ_tag*>(f.obj->sphere_src);
+        const auto* a = reinterpret_cast<const ANIMOBJ_tag*>(nf::raw(f.obj->sphere_src));
         int tags[3] = {0, 0, 0};
         for (const ANIMSCRIPT_tag* s = a->scripts; s != nullptr; s = s->next) {
             if (s->tag >= 0xe0000000u && s->tag <= 0xe0000002u) ++tags[s->tag - 0xe0000000u];
@@ -576,7 +577,7 @@ void describe_faces(const std::vector<DrawItem>& items, const float eye[3], std:
     const char* want = std::getenv("NF_FACE_SKIN");
     const uint32_t want_skin = want != nullptr ? uint32_t(std::strtoul(want, nullptr, 16)) : 0;
     for (const Face& f : faces) {
-        const auto* a = reinterpret_cast<const ANIMOBJ_tag*>(f.obj->sphere_src);
+        const auto* a = reinterpret_cast<const ANIMOBJ_tag*>(nf::raw(f.obj->sphere_src));
         if (want_skin != 0 ? a->skin->hash == want_skin : f.weighted) {
             best = &f;
             break;
@@ -587,7 +588,7 @@ void describe_faces(const std::vector<DrawItem>& items, const float eye[3], std:
         *columns = "\t\t\t";
         return;
     }
-    const auto* a = reinterpret_cast<const ANIMOBJ_tag*>(best->obj->sphere_src);
+    const auto* a = reinterpret_cast<const ANIMOBJ_tag*>(nf::raw(best->obj->sphere_src));
     char col[512];
     int m = std::snprintf(col, sizeof(col), "%.3f\t%08x\t%u\t", double(best->dist), unsigned(a->skin->hash),
                           unsigned(a->face_state));

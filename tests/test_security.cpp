@@ -38,6 +38,7 @@
 #include "engine/weapons.h"
 #include "platform/psi.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -167,8 +168,8 @@ TEST(sensor_create_reads_cone_range_channels_and_joins_the_camera_list) {
     CHECK(c != nullptr && c->type == 0x37 && c->glist == &model && c->flags == 0x80);
     const SENSOR* s = static_cast<const SENSOR*>(c->data);
     // Metade do cone: 15 graus (PS2Sinf, polinômio da VU0: perto do cosseno e do seno de verdade).
-    CHECK_NEAR(s->cos_half, std::cos(15.0f * kPi / 180.0f), 1e-4f);
-    CHECK_NEAR(s->sin_half, std::sin(15.0f * kPi / 180.0f), 1e-4f);
+    CHECK_NEAR(s->cos_half, nf::fm::cos(15.0f * kPi / 180.0f), 1e-4f);
+    CHECK_NEAR(s->sin_half, nf::fm::sin(15.0f * kPi / 180.0f), 1e-4f);
     CHECK(s->range == 10.0f && s->alarm == 0x30 && s->off == 0x31 && s->group == 3 && s->broken == &broken);
     CHECK(CameraList.first == &s->node && s->obj == c && c->state == 0);
     CHECK(g_security_stats.sensors == 1);
@@ -236,8 +237,8 @@ TEST(sensor_turns_to_follow_the_player) {
     for (int t = 0; t < 200; ++t) Sensor_Update(c);
     _VECTOR dir;
     Mat_GetDir(&dir, &c->matrix);
-    const float want = std::atan2(4.0f, 5.0f);
-    CHECK_NEAR(std::atan2(dir.x, dir.z), want, 0.02f);
+    const float want = nf::fm::atan2(4.0f, 5.0f);
+    CHECK_NEAR(nf::fm::atan2(dir.x, dir.z), want, 0.02f);
     CHECK(c->state == 1);
 }
 

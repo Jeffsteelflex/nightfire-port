@@ -35,6 +35,7 @@
 #include "engine/vecmath.h"
 #include "engine/view.h"
 #include "engine/weapons.h"
+#include "platform/fmath.h"
 
 obj_tag* ShellCasings[kShellCasings];
 int16_t NextCasing = 0;
@@ -51,6 +52,7 @@ constexpr float kPi = 3.1415927f;
 
 template <typename T>
 T rd(const uint8_t* p, uint32_t offset) {
+    static_assert(!nf::is_native_ptr_v<T>, "ponteiro de 4 bytes: use P32<...>");
     T v;
     std::memcpy(&v, p + offset, sizeof(T));
     return v;
@@ -507,7 +509,7 @@ void Bullet_DoTrails(obj_tag* obj, BU_tag* b, _VECTOR* old_pos, float) {
                 Camera_Shake(pos, 2.0f);
                 play3d(0x16, pos);
                 Light_Create(pos, 0xff, 0xff, 0xff, 10.0f, 0, 10, 1, 5.0f, 0, 0, 0, 0xffff);
-                HITDATA_tag* hits = nullptr;
+                P32<HITDATA_tag> hits = nullptr;
                 Collide_SphereIntersect(matrix_pos(obj), 30.0f, obj->cel, obj, nullptr, &hits, 0, 1, 0xca, 4);
                 for (HITDATA_tag* h = hits; h != nullptr; h = h->next) {
                     obj_tag* o = h->obj;
@@ -525,7 +527,7 @@ void Bullet_DoTrails(obj_tag* obj, BU_tag* b, _VECTOR* old_pos, float) {
                         if (obj->pos.x == o->pos.x && obj->pos.z == o->pos.z) {
                             k *= 1.0f;
                         } else {
-                            const float a = std::atan2(obj->pos.x - o->pos.x, obj->pos.z - o->pos.z);
+                            const float a = nf::fm::atan2(obj->pos.x - o->pos.x, obj->pos.z - o->pos.z);
                             float facing = 1.0f - (std::fabs(Vec_AngleDifference(a, o->rot.y)) - 0.5235988f) *
                                                       0.818511069f;
                             if (facing < 0.0f) {
@@ -729,7 +731,7 @@ void Bullet_update(obj_tag* obj) {
                 Mat_SetTrans(&trans, m);
                 obj->rot.z = angles.z * 0.965f;
                 Mat_GetDir(&b->dir, m);
-                HITDATA_tag* hits = nullptr;
+                P32<HITDATA_tag> hits = nullptr;
                 obj_tag* ignore = 1.0f < b->dist ? nullptr : b->from;
                 Collide_SphereIntersect(matrix_pos(obj), 0.1f, obj->cel, obj, ignore, &hits, 0, 0, 0xa0a, 4);
                 const bool touched = hits != nullptr;
@@ -801,7 +803,7 @@ void Bullet_update(obj_tag* obj) {
                 end.x = obj->pos.x + end.x * -200.0f;
                 end.y = obj->pos.y + end.y * -200.0f;
                 end.z = obj->pos.z + end.z * -200.0f;
-                HITDATA_tag* hits = nullptr;
+                P32<HITDATA_tag> hits = nullptr;
                 Collide_RayIntersect(pos, &end, obj->cel, obj, nullptr, &hits, 0, 0x20a, 0);
                 if (hits != nullptr) {
                     end = hits->pos;

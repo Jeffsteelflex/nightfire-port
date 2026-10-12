@@ -102,7 +102,7 @@ struct MenuFile {
     }
 };
 
-uint32_t ptr32(const void* p) { return uint32_t(reinterpret_cast<uintptr_t>(p)); }
+uint32_t ptr32(const void* p) { return nf::p32_u(p); }
 void put32(uint8_t* p, uint32_t v) { std::memcpy(p, &v, 4); }
 M_ITEM* missions() { return reinterpret_cast<M_ITEM*>(sp_level); }
 
@@ -137,7 +137,7 @@ char kOpponents[] = "Opponents";
 char kDispatched[] = "Dispatched";
 char kAccuracy[] = "Accuracy Rating";
 char kRewardNames[16][8];
-char* g_bank[0x400];
+P32<char> g_bank[0x400];
 uint32_t g_fixups[2] = {0, 0};
 
 // O heap, a camada 2D, os menus com a ponte instalada, o cartão em memória e as tabelas do menu principal.
@@ -152,7 +152,7 @@ struct World {
         hashtable_debug_power_on();
         hashtable_initialise();
         txt_debug_power_on();
-        for (char*& s : g_bank) s = kEmptyText;
+        for (P32<char>& s : g_bank) s = kEmptyText;
         for (int i = 0; i < 4; ++i) g_bank[0x280 + i] = kSectionNames[i];
         for (int i = 0; i < 4; ++i) g_bank[0x306 + i] = kMedals[i];
         g_bank[0x302] = kHighScore;

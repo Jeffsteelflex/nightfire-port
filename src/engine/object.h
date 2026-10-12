@@ -11,18 +11,20 @@
 #include <cstdint>
 
 #include "engine/map_types.h"
+#include "platform/ptr32.h"
 
 struct HITDATA_tag;  // lista de colisões (módulo Collide, ainda não portado)
 
 // Nó das listas LList_*: os dois primeiros campos de qualquer estrutura que entre numa delas.
 struct LLNODE_tag {
-    LLNODE_tag* prev;  // +0 em direção a "first"
-    LLNODE_tag* next;  // +4 em direção a "last"
+    P32<LLNODE_tag> prev;  // +0 em direção a "first"
+    P32<LLNODE_tag> next;  // +4 em direção a "last"
 };
+static_assert(sizeof(LLNODE_tag) == 8, "LLNODE_tag: 8 bytes");
 
 struct LLISTINFO_tag {
-    LLNODE_tag* first;
-    LLNODE_tag* last;
+    P32<LLNODE_tag> first;
+    P32<LLNODE_tag> last;
     uint16_t count;
     uint16_t node_size;
 };
@@ -30,13 +32,13 @@ static_assert(sizeof(LLISTINFO_tag) == 12);
 
 struct alignas(16) obj_tag {
     LLNODE_tag forced;          // 0x00 nó da ForcedList
-    obj_tag* cel_next;          // 0x08 lista da célula (a célula guarda a cabeça em cel_tag::objects)
-    void* cel_prev;             // 0x0c objeto anterior, ou a própria célula no primeiro
-    ATTACH_tag* attach;         // 0x10 anexos desenhados junto (View_DrawObjectGlist)
-    obj_tag* next;              // 0x14 DynamicObjList
-    obj_tag* prev;              // 0x18
-    obj_tag* owner;             // 0x1c (Control_CreateObjEx)
-    cel_tag* cel;               // 0x20 sala onde o objeto está
+    P32<obj_tag> cel_next;      // 0x08 lista da célula (a célula guarda a cabeça em cel_tag::objects)
+    P32<void> cel_prev;         // 0x0c objeto anterior, ou a própria célula no primeiro
+    P32<ATTACH_tag> attach;     // 0x10 anexos desenhados junto (View_DrawObjectGlist)
+    P32<obj_tag> next;          // 0x14 DynamicObjList
+    P32<obj_tag> prev;          // 0x18
+    P32<obj_tag> owner;         // 0x1c (Control_CreateObjEx)
+    P32<cel_tag> cel;           // 0x20 sala onde o objeto está
     uint32_t unknown_24[3];
     _VECTOR pos;                // 0x30
     _VECTOR old_pos;            // 0x40
@@ -45,12 +47,12 @@ struct alignas(16) obj_tag {
     _VECTOR old_sphere;         // 0x70
     _VECTOR sphere;             // 0x80 esfera no mundo (centro e raio)
     MATRIX matrix;              // 0x90 (linha 3 em 0xc0 = posição)
-    HITDATA_tag* hits;          // 0xd0
-    struct HITTEST_tag* hit_test;  // 0xd4 teste de colisão em andamento (objeto temporário do Collide)
-    celglist_tag* glist;        // 0xd8 modelo
-    uint8_t* sphere_src;        // 0xdc com o bit 8 de mode: esfera tirada de sphere_src + 0x80
-    void* data;                 // 0xe0 dados do tipo (logo depois do cabeçalho)
-    void* script;               // 0xe4 (SP_RemoveObj)
+    P32<HITDATA_tag> hits;      // 0xd0
+    P32<struct HITTEST_tag> hit_test;  // 0xd4 teste de colisão em andamento (objeto temporário do Collide)
+    P32<celglist_tag> glist;    // 0xd8 modelo
+    P32<uint8_t> sphere_src;    // 0xdc com o bit 8 de mode: esfera tirada de sphere_src + 0x80
+    P32<void> data;             // 0xe0 dados do tipo (logo depois do cabeçalho)
+    P32<void> script;           // 0xe4 (SP_RemoveObj)
     float scale;                // 0xe8
     uint32_t created;           // 0xec GameState.frame no momento da criação
     uint32_t flags;             // 0xf0 (celglist_tag::flags + bits de controle, ex. 0x10000000 forçado)
@@ -155,10 +157,10 @@ void View_RotTransScaleMatrix(const _VECTOR* rot, const _VECTOR* pos, const _VEC
 // Um elemento pode ter o modelo normal e o de relâmpago (View_DrawSky troca um pelo outro de vez em
 // quando e toca o trovão depois).
 struct SKYOBJ_tag {
-    celglist_tag* glist;        // 0x00 modelo normal
-    celglist_tag* glist_flash;  // 0x04 modelo durante o relâmpago
-    obj_tag* obj;               // 0x08
-    obj_tag* obj_flash;         // 0x0c
+    P32<celglist_tag> glist;    // 0x00 modelo normal
+    P32<celglist_tag> glist_flash;  // 0x04 modelo durante o relâmpago
+    P32<obj_tag> obj;           // 0x08
+    P32<obj_tag> obj_flash;     // 0x0c
     _VECTOR pos;                // 0x10
     _VECTOR rot;                // 0x20
     int16_t flash_period;       // 0x30 intervalo máximo entre relâmpagos, em quadros (param * FRAME_RATE)

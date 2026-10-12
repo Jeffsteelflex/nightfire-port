@@ -19,6 +19,7 @@
 
 #include "campaign_audit.h"
 #include "sights_measure.h"
+#include "platform/arena.h"
 #include "data/elf.h"
 #include "platform/sfx_iop.h"
 #include "platform/crash_report.h"
@@ -83,6 +84,7 @@
 #include "platform/psi_file.h"
 #include "platform/psi_gfx.h"
 #include "platform/psi_shard.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -276,7 +278,7 @@ DestructionStats destruction_test(int ticks) {
                         _VECTOR p{o->sphere.x + dx * 2.5f, o->sphere.y, o->sphere.z + dz * 2.5f, 0.0f};
                         if (build_FindCel(&p, glb_world) == nullptr) continue;
                         st.target = true;
-                        st.aim = {p.x, p.y, p.z, std::atan2(-dx, -dz)};
+                        st.aim = {p.x, p.y, p.z, nf::fm::atan2(-dx, -dz)};
                         break;
                     }
                 }
@@ -349,7 +351,7 @@ ShotStats fire_bullets(int weapon, int count, int ticks) {
     std::vector<Shot> shots;
     for (int i = 0; i < count; ++i) {
         const float yaw = (float(i) - float(count - 1) * 0.5f) * 0.1f;
-        const float c = std::cos(yaw), s = std::sin(yaw);
+        const float c = nf::fm::cos(yaw), s = nf::fm::sin(yaw);
         _VECTOR dir{fwd.x * c + fwd.z * s, fwd.y - ((i & 1) != 0 ? 0.15f : 0.0f), fwd.z * c - fwd.x * s, 0.0f};
         _VECTOR from = eye;
         // Conta o disparo nas estatísticas como Player_WeaponInitBullet.
@@ -556,7 +558,7 @@ int use_doors(int* tried, _VECTOR* first) {
         _VECTOR fwd;
         Mat_GetDir(&fwd, &door->matrix);
         _VECTOR pos{door->sphere.x + fwd.x * 1.3f, door->sphere.y, door->sphere.z + fwd.z * 1.3f, 1.0f};
-        _VECTOR rot{0.0f, std::atan2(-fwd.x, -fwd.z), 0.0f, 0.0f};
+        _VECTOR rot{0.0f, nf::fm::atan2(-fwd.x, -fwd.z), 0.0f, 0.0f};
         Player_StandAtNewPosition(p, &pos, &rot, 0);
         Control_BuildWorldSph(p);
         Camera_Update(0);
@@ -835,7 +837,7 @@ int decode_entity(void*, const celglist_tag* glist, const map_tag* map) {
             const bool first = g_face_meshes_all.insert(hash).second;
             try {
                 if ((mh >> 24) != 0x2b || (mh & 0xffffff) < 4) throw nf::FormatError("cabeçalho do bloco de morph");
-                const nf::MorphTargets m = nf::decode_morph(nf::ByteView(glist->gfx->morph, (mh & 0xffffff) - 4));
+                const nf::MorphTargets m = nf::decode_morph(nf::ByteView(nf::raw(glist->gfx->morph), (mh & 0xffffff) - 4));
                 size_t with = 0, header = 0;
                 for (const nf::SkinnedVertex& v : mesh.skin_vertices) {
                     if (v.morph < 0) continue;
@@ -869,8 +871,13 @@ std::vector<std::string> g_drone_state_names;
 
 // Construtores estáticos do ACTION.ELF (no PS2, o __main): o que cada um escreve e as tabelas que
 // o port copia (weapon_data, ammo_data). Falha alto se o interpretador parar.
-bool check_static_constructors(const std::wstring& wdir) {
-    const nf::Elf elf(nf::read_file(wdir + L"\\ACTION.ELF"));
+bool check_static_constructors(const nf::DiscSource& disc) {
+    nf::Bytes elf_bytes;
+    if (!disc.read("ACTION.ELF", elf_bytes)) {
+        std::printf("não li ACTION.ELF de %s\n", disc.describe().c_str());
+        return false;
+    }
+    const nf::Elf elf(std::move(elf_bytes));
     // Nomes das funções de estado da IA (NDrone2_StateFuncs), para o relatório dos não portados.
     if (const auto table = elf.find("NDrone2_StateFuncs")) {
         const nf::ByteView v = elf.at(table->value, kDroneStateCount * 4);
@@ -1389,7 +1396,7 @@ ForcedSpawnStats forced_spawners(const std::set<uint32_t>& groups, int ticks, in
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int main_body(int argc, char** argv) {
     nf::install_crash_report();
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     const std::string dir = argc > 1 ? argv[1] : ".";
@@ -1415,7 +1422,14 @@ int main(int argc, char** argv) {
         }
     }
     const std::wstring wdir(dir.begin(), dir.end());
-    nf::FilesBin files(wdir);
+    // O disco do jogador: a pasta com os arquivos extraídos, uma imagem .iso, uma unidade (platform/disc_source.h).
+    std::string disc_error;
+    const std::shared_ptr<nf::DiscSource> disc = nf::open_disc(wdir, &disc_error);
+    if (disc == nullptr) {
+        std::printf("não abri os dados em %s: %s\n", dir.c_str(), disc_error.c_str());
+        return 2;
+    }
+    nf::FilesBin files(disc);
 
     // FileList vem do ACTION.ELF, como no PS2.
     std::memset(FileList, 0, sizeof(FileList));
@@ -1425,13 +1439,13 @@ int main(int argc, char** argv) {
         FileList[i].offset = e.offset;
         FileList[i].size = e.size;
     }
-    if (!psiFileSetup((wdir + L"\\FILES.BIN").c_str())) {
+    if (!psiFileSetup(disc->open("FILES.BIN"))) {
         std::printf("não abri FILES.BIN em %s\n", dir.c_str());
         return 2;
     }
-    if (!check_static_constructors(wdir)) return 3;
+    if (!check_static_constructors(*disc)) return 3;
     // O som: o driver do IOP lê os bancos da pasta PS2 (a mistura anda com os VBlanks e é descartada).
-    nf::sfx_iop_set_root(std::filesystem::path(wdir));
+    nf::sfx_iop_set_disc(disc);
     // No lugar do menu (como nightfire.exe com --level): o idioma americano e as legendas ligadas. O idioma pedido
     // também, como no main do PS2: o menu principal (07000048) roda P_LANGUAGE_Handler, que carrega LanguageToLoad.
     SelLang = TXTLANG_USA;
@@ -1442,7 +1456,7 @@ int main(int argc, char** argv) {
 
     pending_reset();
     nf::TexturePack hd_pack;
-    hd_pack.open(wdir + L"\\textures\\SLUS-20579\\replacements");
+    hd_pack.open(disc->folder() + L"\\textures\\SLUS-20579\\replacements");
     if (!hd_pack.empty()) std::printf("pacote HD: %zu arquivos\n", hd_pack.files());
     int levels = 0, failures = 0, hd_found = 0, hd_total = 0;
     g_psi_gfx_backend.create_entity = &decode_entity;
@@ -1610,7 +1624,7 @@ int main(int argc, char** argv) {
                 ++items;
                 const uint32_t hash = uint32_t(std::stoul(item.name, nullptr, 16));
                 const auto* def = static_cast<const SCRIPTDEF_tag*>(hashtable_getitem(hash));
-                if (def != nullptr && def != reinterpret_cast<const SCRIPTDEF_tag*>(uintptr_t(0xffffffffu)) &&
+                if (def != nullptr && def != nf::p32_ptr<const SCRIPTDEF_tag>(0xffffffffu) &&
                     def->hash == hash) {
                     ++registered;
                 }
@@ -1777,7 +1791,7 @@ int main(int argc, char** argv) {
         if (glb_players[0] != nullptr) {
             const obj_tag* p = glb_players[0];
             std::printf(" jogador_fim=%.2f,%.2f,%.2f andou=%.3f chão=%d", p->pos.x, p->pos.y, p->pos.z, moved,
-                        (reinterpret_cast<const ANIMOBJ_tag*>(p->sphere_src)->flags & 8) != 0 ? 1 : 0);
+                        (reinterpret_cast<const ANIMOBJ_tag*>(nf::raw(p->sphere_src))->flags & 8) != 0 ? 1 : 0);
         }
         g_bullet_guards = {};
         // A pistola (arma 2): 8 tiros em leque e um segundo de jogo. em_inimigos: acertos que os
@@ -2066,4 +2080,9 @@ int main(int argc, char** argv) {
     std::printf("\n%d fases carregadas pelo carregador original, %d com diferenças\n", levels, failures);
     psiFileShutdown();
     return failures ? 1 : 0;
+}
+
+int main(int argc, char** argv) {
+    // 64 bits: na pilha da arena (platform/arena.h); 32 bits: direto.
+    return nf::run_main([&] { return main_body(argc, argv); });
 }

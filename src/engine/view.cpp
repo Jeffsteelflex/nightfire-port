@@ -32,6 +32,7 @@
 #include "engine/vecmath.h"
 #include "platform/psi.h"
 #include "platform/psi_draw.h"
+#include "platform/fmath.h"
 
 viewer_tag* glb_viewer[kViewerCount];
 uint32_t object_display_mask = 0;
@@ -53,7 +54,7 @@ namespace {
 
 // Lista de salas visíveis (VisCelList, 64 entradas de 8 bytes).
 struct VISCEL_tag {
-    cel_tag* cel;
+    P32<cel_tag> cel;
     uint16_t depth;  // portais atravessados até a sala
     uint16_t pad;
 };
@@ -76,7 +77,7 @@ constexpr uint32_t b_319 = 0x78b7;
 const uint16_t AllocSizes_147[3] = {0x200, 0x200, 0x80};
 
 // GfxList + 4: primeira sala da lista de visíveis do quadro (ligadas por cel_tag::vis_next).
-cel_tag*& vis_head() { return *reinterpret_cast<cel_tag**>(GfxList.unknown_00 + 4); }
+P32<cel_tag>& vis_head() { return *reinterpret_cast<P32<cel_tag>*>(GfxList.unknown_00 + 4); }
 
 // Distância com sinal ao plano, na ordem de soma da VU0 (vmul.xyz e vaddy/vaddz/vaddw no x).
 float dot_plane(const _VECTOR& p, const plane_equ_tag& n) { return ((p.x * n.a + p.y * n.b) + p.z * n.c) + n.d; }
@@ -340,7 +341,7 @@ void Camera_CalcViewAngles(uint16_t index, float fov) {
     const uint32_t bits = DrawInfo[1] == 0 ? 0x3faaaaabu : 0x3fe38e39u;
     std::memcpy(&v->aspect, &bits, 4);
     if (cameras != 1 && cameras == 2) v->aspect = DrawInfo[0] == 1 ? v->aspect * 0.5f : v->aspect + v->aspect;
-    const float t = std::tan(fov * 0.5f);
+    const float t = nf::fm::tan(fov * 0.5f);
     const float a = 0.2f - MAX_VIEW_CONE;
     const float b = MAX_VIEW_CONE + 0.2f;
     v->lod_scale = 1.0f;
@@ -358,7 +359,7 @@ void Camera_Enable(uint32_t index, int8_t active, int8_t sprites, _VECTOR* pos) 
     v->active = uint8_t(active);
     v->sprites = uint8_t(sprites);
     if (active == 0) {
-        if (v->lists[0] != nullptr) Mem_Free(reinterpret_cast<void**>(&v->lists[0]));
+        if (v->lists[0] != nullptr) Mem_Free(&v->lists[0]);
         std::memset(v->lists, 0, 0x1c);
     } else if (v->lists[0] == nullptr) {
         std::memset(v->lists, 0, 0x1c);
@@ -698,7 +699,7 @@ void Camera_CheckLocation(uint16_t index) {
         cel_tag* old = v->cel;
         v->cel = build_FindCel(&v->pos, v->world);
         if (v->cel == nullptr) {
-            v->cel = old != nullptr ? old : glb_world->first;
+            v->cel = old != nullptr ? old : nf::raw(glb_world->first);
             return;
         }
         v->cel->misc[0xa0 - 0x98] = 1;
@@ -711,7 +712,7 @@ void Camera_CheckLocation(uint16_t index) {
 uint32_t Camera_UpdateGlbVars(uint16_t index) {
     viewer_tag* v = glb_viewer[index];
     if (v == nullptr) return 1;
-    const auto cel = [v]() { return uint32_t(reinterpret_cast<uintptr_t>(v->cel)); };
+    const auto cel = [v]() { return nf::p32_u(v->cel); };
     if (v->fade_state == 1) {
         const float f = v->fade + v->fade_speed * FRAME_RATE_MUL;
         v->fade = f;
@@ -745,7 +746,7 @@ void Camera_UpdateAll() {
 // fica o do ponto local), os cinco planos da profundidade 0 e os quatro lados copiados para a
 // câmera (Vision_InView).
 void Vision_Calculate_View_Fustrum(viewer_tag* v) {
-    const float t = std::tan(v->fov * 0.5f);
+    const float t = nf::fm::tan(v->fov * 0.5f);
     const float y = t * 200.0f;
     const float x = t * v->aspect * 200.0f;
     const _VECTOR local[5] = {{0, 0, 0, 0}, {-x, -y, 200, 0}, {x, -y, 200, 0}, {-x, y, 200, 0}, {x, y, 200, 0}};
@@ -822,7 +823,7 @@ void Vision_Recurse(cel_tag* cel, int32_t depth) {
     for (; p != nullptr; p = p->next) {
         if (p->flag == 0) continue;
         if (!(dot_plane(ViewPoints[0], p->plane) < 0.0f)) continue;
-        if (Door_IsClosed(reinterpret_cast<const obj_tag*>(uintptr_t(p->unknown_0c)))) continue;
+        if (Door_IsClosed(nf::p32_ptr<const obj_tag>(p->unknown_0c))) continue;
         PortalsIn.count = 4;
         for (int i = 0; i < 4; ++i) PortalsIn.v[i] = p->verts[i];
         for (int i = 0; i < NumPortalPlanes[depth]; ++i) {
@@ -1021,7 +1022,7 @@ void View_SetupRenderModes(viewer_tag* v, obj_tag* obj) {
     if (obj == nullptr) return;
     View_SetupRenderModes_Tweak(v, obj);
     uint16_t count = 0;
-    light_tag** lights = Lights_CalcClosestLights(reinterpret_cast<sphere_tag*>(&obj->sphere), uint16_t(obj->flags), &count);
+    P32<light_tag>* lights = Lights_CalcClosestLights(reinterpret_cast<sphere_tag*>(&obj->sphere), uint16_t(obj->flags), &count);
     psiLight_SetLights(lights, count, 1.0f, 1.0f, 1.0f);
 }
 
@@ -1033,7 +1034,7 @@ void View_SetupRenderModes2(viewer_tag* v, obj_tag* obj) {
     View_SetupRenderModes_Tweak(v, v->player);
     _VECTOR eye{v->pos.x, v->pos.y, v->pos.z, 2.0f};
     uint16_t count = 0;
-    light_tag** lights = Lights_CalcClosestLights(reinterpret_cast<sphere_tag*>(&eye), uint16_t(obj->flags), &count);
+    P32<light_tag>* lights = Lights_CalcClosestLights(reinterpret_cast<sphere_tag*>(&eye), uint16_t(obj->flags), &count);
     psiLight_SetLights(lights, count, 1.0f, 1.0f, 1.0f);
 }
 
@@ -1108,7 +1109,7 @@ void View_DrawCelGlist(cel_tag* cel, viewer_tag* v) {
     }
     psiSetTweakARGB(alpha, 0xff, 0xff, 0xff);
     uint16_t nlights = 0;
-    light_tag** lights =
+    P32<light_tag>* lights =
         Lights_CalcClosestLights(reinterpret_cast<sphere_tag*>(&cel->sphere), uint16_t(cel->glist_flags), &nlights);
     psiLight_SetLights(lights, nlights, 1.0f, 1.0f, 1.0f);
     MATRIX m{};
@@ -1185,11 +1186,11 @@ void View_DrawObjList(viewer_tag* v, uint16_t list) {
         }
         View_SetupRenderModes_Tweak(v, o);
         uint16_t nlights = 0;
-        light_tag** lights =
+        P32<light_tag>* lights =
             Lights_CalcClosestLights(reinterpret_cast<sphere_tag*>(&o->sphere), uint16_t(o->flags), &nlights);
         psiLight_SetLights(lights, nlights, 1.0f, 1.0f, 1.0f);
         if ((o->mode & 0x10) != 0) {
-            psiDrawParticles(uint32_t(reinterpret_cast<uintptr_t>(o->data)));
+            psiDrawParticles(nf::p32_u(o->data));
         } else if ((o->mode & 0x100) != 0) {
             Emitter_Draw(o, v);
         } else {
@@ -1311,7 +1312,7 @@ uint32_t View_PortLightnings() { return port_lightnings; }
 // sprites e fade); depois as câmeras especiais 4-9, cada uma completa. psiUseCamera só é chamado
 // quando a câmera muda.
 void Game_Draw() {
-    sprite** sprites = nullptr;
+    P32<sprite>* sprites = nullptr;
     int current = -1;
     uint32_t count_a = 0, count_b = 0, count_c = 0;
     ++GameState.draws;

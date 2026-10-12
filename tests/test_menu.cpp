@@ -132,7 +132,7 @@ struct MenuFile {
     }
 };
 
-uint32_t ptr32(const void* p) { return uint32_t(reinterpret_cast<uintptr_t>(p)); }
+uint32_t ptr32(const void* p) { return nf::p32_u(p); }
 
 char kRetry[] = "TRY AGAIN";
 char kQuit[] = "QUIT";
@@ -475,7 +475,7 @@ TEST(menu_component_pieces_fill_the_control) {
     CHECK(b != nullptr && b->sprite_count == 3);
     const M_COMPONENT* k = Component_GetHandle(b);
     CHECK(k->left == 4 && k->top == 2 && k->right == 4 && k->bottom == 2 && k->count == 3);
-    sprite** s = b->sprites;
+    P32<sprite>* s = b->sprites;
     CHECK(s[0]->x == b->x && s[0]->w == 8);
     CHECK(s[1]->x == b->x + b->w - 8 && s[1]->w == 8);
     CHECK(s[2]->x == b->x + 8 && s[2]->w == b->w - 16);

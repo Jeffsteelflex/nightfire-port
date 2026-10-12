@@ -215,7 +215,7 @@ obj_tag* Pickup_Create(_VECTOR* pos, _VECTOR* rot, MATRIX* m, celglist_tag* glis
         _VECTOR dir;
         Mat_GetDir(&dir, &obj->matrix);
         Mat_Align2Up(&obj->matrix, &CONSTANT_UP1, &dir);
-        HITDATA_tag* hits = nullptr;
+        P32<HITDATA_tag> hits = nullptr;
         _VECTOR centre = obj->sphere;
         Collide_SphereIntersect(&centre, obj->sphere.w, obj->cel, obj, nullptr, &hits, 0, 0, 0x50d, 8);
         Collide_FreeHitList(&hits);
@@ -260,7 +260,7 @@ void Pickup_Update(obj_tag* obj) {
         obj->mode |= 0x20;
         _VECTOR end = row3(obj->matrix);
         end.y = end.y - std::fabs(obj->glist->box_min.y);
-        HITDATA_tag* hits = nullptr;
+        P32<HITDATA_tag> hits = nullptr;
         if (Collide_RayIntersect(&obj->old_pos, &end, obj->cel, obj, nullptr, &hits, 0, 0x50d, 0)) {
             const float below = obj->matrix.m[3][1] - hits->pos.y;
             bool riding = false;
@@ -320,7 +320,7 @@ void Pickup_Update(obj_tag* obj) {
     if (mp_u32(0x184) != 0) {
         for (uint16_t i = 0; i < 4; ++i) {
             obj_tag* bot;
-            std::memcpy(&bot, MPGame + (i + 4) * 0x30 + 0x1c, 4);
+            bot = nf::p32_load<obj_tag>(MPGame + (i + 4) * 0x30 + 0x1c);
             if (bot == nullptr || bot->type == 0x11) continue;
             const Drone_tag* d = static_cast<const Drone_tag*>(bot->data);
             uint32_t flags;
@@ -628,7 +628,7 @@ void Check_Target(obj_tag* obj) {
     Mat_GetDir(&dir, &b->gun->matrix);
     // vmulx.xyz: o w do produto fica com o lixo da pilha (aqui 0).
     const _VECTOR end{head.x + dir.x * 50.0f, head.y + dir.y * 50.0f, head.z + dir.z * 50.0f, head.w};
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     Collide_RayIntersect(&head, &end, obj->cel, obj, nullptr, &hits, 0, 0xc, 0);
     const auto mark = [b] {
         b->unknown_132 = 1;

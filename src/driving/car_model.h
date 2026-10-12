@@ -89,8 +89,10 @@ class CarModel {
 public:
     CarModel();
     ~CarModel();
-    // `root` = a pasta com DRIVING/; `viv` = o arquivo da missão ("MIS01.VIV"); `name` = o carro ("vanquish").
+    // `root` = o disco do jogador (a pasta com DRIVING/, uma imagem .iso, uma unidade: nf::open_disc); `viv` = o arquivo
+    // da missão ("MIS01.VIV"); `name` = o carro ("vanquish").
     bool load(const std::string& root, const std::string& viv, const std::string& name, std::string& error);
+    bool load(const nf::DiscSource& disc, const std::string& viv, const std::string& name, std::string& error);
     // Antes do load: cada lote da família também roda no interpretador da VU1 e é comparado (mat_car_verify.h).
     void set_verify(bool on) { verify_ = on; }
     const CarVerifyStats& verify_stats() const { return verify_stats_; }

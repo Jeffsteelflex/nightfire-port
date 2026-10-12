@@ -22,6 +22,7 @@
 #include "engine/resetmap.h"
 #include "platform/psi.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 

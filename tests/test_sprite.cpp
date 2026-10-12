@@ -25,7 +25,7 @@ pstex_tag g_image_rec, g_font_rec;
 maptex_tag g_image{&g_image_rec, 64, 32}, g_font_tex{&g_font_rec, 256, 64};
 CHARDATA_tag g_glyphs[2];
 FONT_tag g_font;
-char* g_bank[3];
+P32<char> g_bank[3];
 uint32_t g_fix[1] = {0};
 char kEmpty[] = "", kText[] = "AB";
 
@@ -59,7 +59,7 @@ struct SpriteWorld {
         g_font = FONT_tag{0, nullptr, 0x21, 0xff, 2, g_glyphs, 6.0f, 4.0f};
         FontTable[0] = {kFontTex, &g_font};
         psi_2d_debug_power_on();
-        FontList[0] = uint32_t(reinterpret_cast<uintptr_t>(&g_font_rec));
+        FontList[0] = nf::p32_u(&g_font_rec);
         txt_debug_power_on();
         g_bank[0] = kEmpty;
         g_bank[1] = kText;
@@ -134,7 +134,7 @@ TEST(sprite_create_image_and_text) {
     SpriteInfo info = image_info(10, 20);
     sprite* s = Sprite_Create2(&info);
     CHECK(s != nullptr && s->viewer == 0 && s->priority == 5 && s->created == 77);
-    CHECK(s->texture == uint32_t(reinterpret_cast<uintptr_t>(&g_image_rec)));
+    CHECK(s->texture == nf::p32_u(&g_image_rec));
     // Tamanho e recorte 0 = os da textura (o recorte é inclusivo: largura - 1).
     CHECK(s->tex_w == 64 && s->tex_h == 32 && s->w == 64 && s->h == 32 && s->uw == 63 && s->vh == 31);
     CHECK(s->x == 10 && s->y == 20 && s->text == nullptr && s->scale.x == 1.0f);
@@ -178,7 +178,7 @@ TEST(sprite_build_list_sorts_and_counts_background) {
     other.viewer = 3;
     Sprite_Create2(&other);
     uint32_t a = 9, b = 9, c = 9;
-    sprite** list = Sprite_BuildList(0, &a, &b, &c);
+    P32<sprite>* list = Sprite_BuildList(0, &a, &b, &c);
     CHECK(c == 4 && a == 0);
     CHECK(list[0]->priority == 60 && list[1]->priority == 55 && list[2]->priority == 10 && list[3]->priority == 0);
     // Comportamento original: count_b é o índice do último de fundo (>= 50), um a menos que eles.
@@ -193,7 +193,7 @@ TEST(sprite_draw_image_records_quads_with_origin) {
     SpriteInfo info = image_info(10, 20, 0x80402080u);
     info.flags = SPRF_ADDITIVE;
     sprite* s = Sprite_Create2(&info);
-    sprite* list[1] = {s};
+    P32<sprite> list[1] = {s};
     View_DrawSprites(&w.viewer, list, 0, 1);
     CHECK(SprCnt == 0 && g_psi_frame.lists2d.size() == 1 && g_psi_frame.quads2d.size() == 1);
     const Psi2DQuad& q = g_psi_frame.quads2d[0];
@@ -214,7 +214,7 @@ TEST(sprite_draw_shadow_and_tiles) {
     SpriteInfo info = image_info(0, 0, 0x808080ffu);
     info.flags = SPRF_SHADOW;
     sprite* s = Sprite_Create2(&info);
-    sprite* list[1] = {s};
+    P32<sprite> list[1] = {s};
     View_DrawSprites(&w.viewer, list, 0, 1);
     // A sombra (preta, no lugar) vem antes; a imagem desce e anda clamp(64 / 64, 1, 5) = 1 pixel.
     CHECK(g_psi_frame.quads2d.size() == 2);
@@ -241,7 +241,7 @@ TEST(sprite_draw_text_glyphs_from_font) {
     sprite* s = Sprite_CreateLink(0);
     Sprite_SetParams(s, 1, 100, 50, 0, 0x7d6d59ffu);
     Sprite_SetTextNFmt(s, kText, fmt, 0);
-    sprite* list[1] = {s};
+    P32<sprite> list[1] = {s};
     View_DrawSprites(&w.viewer, list, 0, 1);
     CHECK(g_psi_frame.quads2d.size() == 2);
     const Psi2DQuad& a = g_psi_frame.quads2d[0];

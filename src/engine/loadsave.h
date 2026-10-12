@@ -24,13 +24,14 @@
 // tomam as opções lidas como referência de platform/game_options.h (as de um codinome não vão para o nightfire.ini).
 
 #include <cstdint>
+#include "platform/ptr32.h"
 
 // Uma entrada de SaveIFFBlocks (0x002c74d8, 16 bytes).
 struct SAVEIFFBLOCK {
     uint32_t mask;                                              // 0x00 bit na máscara de LS_Save/LS_Load
     uint32_t id;                                                // 0x04 rótulo ("PLRS"...)
-    uint8_t* (*make)(uint32_t id, uint16_t no, uint16_t* size);  // 0x08 monta o bloco
-    void (*load)(uint8_t* block, uint16_t no);                  // 0x0c lê o bloco
+    F32<uint8_t*(uint32_t id, uint16_t no, uint16_t* size)> make;  // 0x08 monta o bloco
+    F32<void(uint8_t* block, uint16_t no)> load;                // 0x0c lê o bloco
 };
 static_assert(sizeof(SAVEIFFBLOCK) == 16);
 

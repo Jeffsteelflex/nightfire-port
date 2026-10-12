@@ -39,6 +39,7 @@
 #include "engine/explode.h"
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct BLData;
 struct weapon_definition_tag;
@@ -48,12 +49,12 @@ struct alignas(16) BU_tag {
     _VECTOR dir;              // 0x00 direção de voo, normalizada (com gravidade, renormalizada a cada tick)
     _VECTOR start;            // 0x10 ponto de partida
     uint32_t unknown_20[4];   // 0x20
-    obj_tag* from;            // 0x30 quem atirou (zerado quando ele é apagado: Bullet_init liga o mode 0x400)
-    obj_tag* owner;           // 0x34 ignorado pelo teste de colisão (HITTEST_tag::ignore_a)
-    obj_tag* trail;           // 0x38 rastro (Swoosh_Create) ou o feixe do laser de armadilha
-    obj_tag* occluder;        // 0x3c fumaça que tapa a visão (Occlude_Create)
-    obj_tag* target;          // 0x40 onde grudou (0x70 bit 0x100) ou o alvo do teleguiado
-    weapon_definition_tag* weapon;  // 0x44 definição da arma (uma entrada de weapon_data)
+    P32<obj_tag> from;        // 0x30 quem atirou (zerado quando ele é apagado: Bullet_init liga o mode 0x400)
+    P32<obj_tag> owner;       // 0x34 ignorado pelo teste de colisão (HITTEST_tag::ignore_a)
+    P32<obj_tag> trail;       // 0x38 rastro (Swoosh_Create) ou o feixe do laser de armadilha
+    P32<obj_tag> occluder;    // 0x3c fumaça que tapa a visão (Occlude_Create)
+    P32<obj_tag> target;      // 0x40 onde grudou (0x70 bit 0x100) ou o alvo do teleguiado
+    P32<weapon_definition_tag> weapon;  // 0x44 definição da arma (uma entrada de weapon_data)
     uint32_t unknown_48[2];
     HITTEST_tag hit_test;     // 0x50 teste de colisão do tick (obj_tag::hit_test aponta para cá)
     uint32_t sound;           // 0xf0 som em andamento (Sound_Play3D), 0 nenhum
@@ -79,7 +80,7 @@ struct alignas(16) CASING_tag {
     _VECTOR spin;         // 0x10 somado a obj_tag::rot por tick
     float floor_y;        // 0x20 altura do chão: ao passar dela toca o som (depois vira -1e6)
     float timer;          // 0x24 estado 3: ticks até sair da arma; depois, idade em ticks
-    obj_tag* shooter;     // 0x28
+    P32<obj_tag> shooter;  // 0x28
     uint32_t entity;      // 0x2c modelo (ammo_data + 4 do tipo de munição da arma)
     uint16_t surface;     // 0x30 material do chão sob o atirador (escolhe o som)
     uint8_t pad_32[14];

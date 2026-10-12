@@ -13,7 +13,7 @@ DroneAnimState DroneAnimStates[kDroneAnimStateCount];
 uint8_t DroneAnimStateCalls[kDroneAnimCallsSize];
 DroneDataFunc DroneData_AnimFunc[2];
 DroneDataFunc DroneData_DAStateFunc[2];
-DroneStateFunc NDrone2_StateFuncs[kDroneStateCount];
+F32<DroneStateFuncSig> NDrone2_StateFuncs[kDroneStateCount];
 uint8_t bitDescs[182];
 uint32_t bitMasks[35];
 float DroneCaptain_Mod_BulletDamage = 2.0f;
@@ -30,7 +30,7 @@ namespace {
 
 template <class F>
 uint32_t code(F* fn) {
-    return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(fn));
+    return nf::p32_fn_u(fn);
 }
 
 struct CodeName {

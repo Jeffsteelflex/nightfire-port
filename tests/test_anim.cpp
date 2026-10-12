@@ -19,6 +19,7 @@
 #include "platform/pending.h"
 #include "platform/psi.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -133,8 +134,8 @@ TEST(anim_frame_blend_lerps_and_slerps) {
     a[4] = 1.0f;
     b[4] = 3.0f;
     a[11] = 1.0f;
-    b[9] = std::sin(0.7853982f);
-    b[11] = std::cos(0.7853982f);
+    b[9] = nf::fm::sin(0.7853982f);
+    b[11] = nf::fm::cos(0.7853982f);
     a[15] = 1.0f;
     b[15] = 1.0f;
     obj_tag obj{};
@@ -144,8 +145,8 @@ TEST(anim_frame_blend_lerps_and_slerps) {
     CHECK_NEAR(out[0], 1.0f, 1e-6f);
     CHECK_NEAR(out[4], 2.0f, 1e-6f);
     // Metade de 90 graus: 45 graus em y.
-    CHECK_NEAR(out[9], std::sin(0.3926991f), 1e-4f);
-    CHECK_NEAR(out[11], std::cos(0.3926991f), 1e-4f);
+    CHECK_NEAR(out[9], nf::fm::sin(0.3926991f), 1e-4f);
+    CHECK_NEAR(out[11], nf::fm::cos(0.3926991f), 1e-4f);
     AnimFrameBlend(&obj, out, a, b, 2, 0.0f, nullptr);
     CHECK(std::memcmp(out, a, sizeof(a)) == 0);
     AnimFrameBlend(&obj, out, a, b, 2, 1.0f, nullptr);
@@ -184,7 +185,7 @@ namespace {
 struct AnimObject {
     Skel2 skel;
     uint8_t parents[2] = {0xff, 0x80};
-    celglist_tag* meshes[1] = {nullptr};
+    P32<celglist_tag> meshes[1] = {nullptr};
     alignas(16) MATRIX inv[2];
     ANIMSKIN_tag skin{};
     obj_tag* obj = nullptr;
@@ -224,11 +225,11 @@ TEST(anim_bones_chain_and_palette) {
     AnimObject o;
     ANIMOBJ_tag* anim = anim_of(o.obj);
     // Raiz girada 90 graus em y, filho a (1, 0, 0) da raiz e sem rotação local.
-    auto* t = reinterpret_cast<_VECTOR*>(anim->frame);
+    auto* t = reinterpret_cast<_VECTOR*>(nf::raw(anim->frame));
     auto* q = reinterpret_cast<quaternion_tag*>(anim->frame + 2 * 16);
     t[0] = {0, 0, 0, 0};
     t[1] = {1, 0, 0, 0};
-    q[0] = {0.0f, std::sin(0.7853982f), 0.0f, std::cos(0.7853982f)};
+    q[0] = {0.0f, nf::fm::sin(0.7853982f), 0.0f, nf::fm::cos(0.7853982f)};
     q[1] = {0.0f, 0.0f, 0.0f, 1.0f};
     anim->anim_flags |= 1;  // pose resolvida
     psiBuildMatrixPalette(o.obj, anim_state(anim), 1);

@@ -45,6 +45,8 @@
 //   pilha no original) é 0.
 // - DroneWeap_ChangeWeapon com um personagem sem objeto de animação escreveria no endereço 0x62: aqui
 //   não troca a arma (contado em g_drone_weapon_guards; nunca acontece nos dados reais).
+// - DroneWeap_DropWeapon de um personagem sem pose: a translação da matriz da mão era lixo da pilha (a arma caía num
+//   ponto qualquer, às vezes para sempre); aqui começa na posição do personagem.
 // - BOT_getAggressionMul (módulo dos bots) foi portada porque o tiro no modo história também a usa
 //   (DroneWeap_NextBulletTime encolhe as rajadas por ela); o stub devolvia sempre 1.
 
@@ -71,6 +73,7 @@
 #include "engine/vecmath.h"
 #include "engine/view.h"
 #include "engine/weapons.h"
+#include "platform/fmath.h"
 
 DroneFiringSettings DroneFiring;
 uint32_t g_drone_weapon_guards = 0;
@@ -88,6 +91,7 @@ bool bots_on() { return mp_word(0x184) != 0; }
 
 template <class T>
 T rd(const void* base, uint32_t offset) {
+    static_assert(!nf::is_native_ptr_v<T>, "ponteiro de 4 bytes: use P32<...>");
     T v;
     std::memcpy(&v, static_cast<const uint8_t*>(base) + offset, sizeof(T));
     return v;
@@ -323,7 +327,7 @@ uint32_t DroneWeap_Ready2Fire(DCVars_tag* dcv) {
     const float dot = to.x * dir.x + to.y * dir.y + to.z * dir.z;
     if (0.9998f < dot) return 1;
     const float limit = d->type == 0xd ? 0.5235988f : 0.34906587f;
-    if (std::fabs(std::acos(dot)) < limit) return 1;
+    if (std::fabs(nf::fm::acos(dot)) < limit) return 1;
     if (d->health <= 0.0f) return 1;
     return 0;
 }
@@ -622,7 +626,7 @@ void DroneWeap_ThrowGrenade(DCVars_tag* dcv) {
     _VECTOR tilt{0.0f, 0.0f, 0.0f, 0.0f};
     const _VECTOR delta = sub4(d->target_pos, obj->pos);
     const float dist = Vec_Magnitude(&delta);
-    const _VECTOR heading{0.0f, std::atan2(delta.x, delta.z), 0.0f, 0.0f};  // port: w é lixo da pilha no original
+    const _VECTOR heading{0.0f, nf::fm::atan2(delta.x, delta.z), 0.0f, 0.0f};  // port: w é lixo da pilha no original
     RotMatrix(&heading, &m);
     MATRIX r;
     if (dist < 10.0f) {
@@ -723,10 +727,14 @@ void DroneWeap_DropWeapon(DCVars_tag* dcv) {
     if (rd<uint32_t>(def, 0x80) != 0) {
         const int32_t bone = AnimDatumGetWeaponInfo(obj, nullptr, nullptr, nullptr);
         _VECTOR hand;
-        MATRIX m;
+        // Sem pose (anim_flags bit 0), AnimGetBoneWorldTrans só põe a identidade no 3x3 e a translação de m fica o que
+        // havia na pilha: o original solta a arma ali, ou na posição do personagem se o raio até lá bater em algo.
+        // Divergência: m começa com a posição do personagem (a arma cai aos pés dele, sem depender da pilha).
+        MATRIX m{};
+        std::memcpy(m.m[3], &d->obj->pos, sizeof(m.m[3]));
         AnimGetBoneWorldTrans(dcv->obj, uint32_t(-1 < bone ? bone : 0), 0, &hand, &m);
         _VECTOR* at = reinterpret_cast<_VECTOR*>(m.m[3]);
-        HITDATA_tag* hits = nullptr;
+        P32<HITDATA_tag> hits = nullptr;
         if (Collide_RayIntersect(&d->obj->pos, at, d->obj->cel, d->obj, nullptr, &hits, 0, 0x125, 0)) {
             Collide_FreeHitList(&hits);
             *at = d->obj->pos;

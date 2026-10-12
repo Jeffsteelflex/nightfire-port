@@ -7,6 +7,7 @@
 #include <cmath>
 
 #include "engine/vecmath.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -43,7 +44,7 @@ void slerp_weights(const float* a, const float* b, float f, float* wa, float* wb
     const bool flip = d < 0.0f;
     if (flip) d = -d;
     if (0.01f < 1.0f - d) {
-        const float angle = std::acos(d);
+        const float angle = nf::fm::acos(d);
         const float af = angle * f;
         const float s = PS2Sinf(angle);
         *wb = PS2Sinf(af) * (1.0f / s);

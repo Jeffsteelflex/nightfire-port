@@ -20,6 +20,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct BLData;
 
@@ -32,7 +33,7 @@ struct LOCK_tag {
     uint16_t channel;       // 0x08 parâmetro 5: ligado ao abrir
     uint16_t menu;          // 0x0a o gerente do teclado (MenuManager_Create; 0xffff nenhum)
     uint32_t param2;        // 0x0c parâmetro 2
-    framelist_tag* path;    // 0x10 o caminho por onde o cadeado anda ao abrir
+    P32<framelist_tag> path;  // 0x10 o caminho por onde o cadeado anda ao abrir
     float t;                // 0x14 posição no caminho, em quadros
     float speed;            // 0x18 quadros por tick a 60 Hz
     uint32_t frames;        // 0x1c quadros do caminho - 1 (0: parado)

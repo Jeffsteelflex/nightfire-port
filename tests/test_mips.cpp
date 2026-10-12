@@ -1037,7 +1037,7 @@ TEST(static_init_runs_constructors_and_copies_tables) {
     CHECK(any_line(log, "weapon_data[5]+0x104", "Gadget_Fire"));
     // Ponteiro para dentro de outra tabela copiada e o segundo campo de código.
     CHECK(DroneAnimStates[1].calls == DroneAnimStateCalls + 0x10 && DroneAnimStates[0].calls == nullptr);
-    CHECK(reinterpret_cast<uintptr_t>(DroneModeSettings[0].init) == 0xc0de0001u);
+    CHECK(nf::p32_fn_u(nf::raw(DroneModeSettings[0].init)) == 0xc0de0001u);
     std::memset(DroneModeSettings, 0, sizeof(DroneModeSettings));
     std::memset(DroneAnimStates, 0, sizeof(DroneAnimStates));
     CHECK(any_line(log, "weapon_data[6]+0x10", "ammo_data"));  // ponteiro de dados avisado

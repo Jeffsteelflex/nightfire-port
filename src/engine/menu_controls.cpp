@@ -40,13 +40,13 @@ char kMemoFormat[] = "\xff\x02";                      // 0x0030d628
 char kMemoEmpty[] = "";                               // 0x0030d630
 char kAlphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-int32_t val(const void* p) { return int32_t(reinterpret_cast<uintptr_t>(p)); }
+int32_t val(const void* p) { return int32_t(nf::p32_u(p)); }
 template <class T>
 T* ptr(int32_t v) {
-    return reinterpret_cast<T*>(uintptr_t(uint32_t(v)));
+    return nf::p32_ptr<T>(uint32_t(v));
 }
 
-M_MANAGER* manager_of(M_PAGE* page) { return reinterpret_cast<M_MANAGER*>(page->base.owner); }
+M_MANAGER* manager_of(M_PAGE* page) { return reinterpret_cast<M_MANAGER*>(nf::raw(page->base.owner)); }
 
 // A cor com o pulso dos destaques somado aos três bytes altos.
 uint32_t pulse(uint32_t c) {
@@ -134,7 +134,7 @@ void Label_Init(M_LABEL* l, NEW_CONTROL* desc, M_CONTROL* owner) {
     l->mode = 3;
     l->outline = 1;
     l->faded = 0;
-    char* text = reinterpret_cast<char*>(uintptr_t(desc->unknown_08));
+    char* text = nf::p32_ptr<char>(desc->unknown_08);
     l->label = 0xffffffffu;
     l->colour_throb = 0x808080ffu;
     l->string = text;
@@ -227,7 +227,7 @@ int32_t Label_SendMessage(M_LABEL* l, uint32_t message, int32_t a, int32_t b) {
             return 1;
         case 0x21:
             if (uint32_t(a) >= 7) return 0;
-            reinterpret_cast<M_SCRIPT**>(l->base.defaults)[a] = Script_Select(&l->base, uint32_t(b));
+            reinterpret_cast<P32<M_SCRIPT>*>(l->base.defaults)[a] = Script_Select(&l->base, uint32_t(b));
             return 1;
         case 0x23:
             // Só no port: limitado a format_buf.
@@ -426,7 +426,7 @@ void Button_Init(M_BUTTON* b, NEW_CONTROL* desc, M_CONTROL* owner) {
     b->base.depth = desc->depth;
     b->unknown_1aa = 0;
     b->base.flags = 0;
-    b->unknown_1a8 = int16_t(reinterpret_cast<uintptr_t>(desc->format));
+    b->unknown_1a8 = int16_t(nf::p32_u(desc->format));
     NEW_CONTROL label;
     amemcpy(&label, desc, sizeof(NEW_CONTROL));
     label.depth = uint16_t(label.depth - 1);
@@ -452,7 +452,7 @@ int32_t Button_SendMessage(M_BUTTON* b, uint32_t message, int32_t a, int32_t bb)
             return 1;
         case 0x21:
             if (uint32_t(a) >= 7) return 0;
-            reinterpret_cast<M_SCRIPT**>(b->base.defaults)[a] = Script_Select(&b->base, uint32_t(bb));
+            reinterpret_cast<P32<M_SCRIPT>*>(b->base.defaults)[a] = Script_Select(&b->base, uint32_t(bb));
             return 1;
         case 0x2b:
             b->base.state = uint8_t(a);
@@ -549,9 +549,9 @@ void Checkbox_Init(M_CHECKBOX* c, NEW_CONTROL* desc, M_CONTROL* owner) {
     c->base.tag = desc->unknown_0c;
     c->base.depth = desc->depth;
     c->base.flags = 0;
-    c->checked = uint8_t(reinterpret_cast<uintptr_t>(desc->format));
+    c->checked = uint8_t(nf::p32_u(desc->format));
     float width = 0.0f;
-    char* text = reinterpret_cast<char*>(uintptr_t(desc->unknown_08));
+    char* text = nf::p32_ptr<char>(desc->unknown_08);
     if (text != nullptr) {
         GPOINT e{};
         Font_GetTextExtent(text, kCheckFormat, &e, nullptr, -1);
@@ -582,7 +582,7 @@ int32_t Checkbox_SendMessage(M_CHECKBOX* c, uint32_t message, int32_t a, int32_t
             return Script_Play(&c->base, uint32_t(a), int8_t(b));
         case 0x21:
             if (uint32_t(a) >= 7) return 0;
-            reinterpret_cast<M_SCRIPT**>(c->base.defaults)[a] = Script_Select(&c->base, uint32_t(b));
+            reinterpret_cast<P32<M_SCRIPT>*>(c->base.defaults)[a] = Script_Select(&c->base, uint32_t(b));
             return 1;
         case 0x2b:
             c->base.state = uint8_t(a);
@@ -658,7 +658,7 @@ void Scroll_Init(M_SCROLL* s, NEW_CONTROL* desc, M_CONTROL* owner) {
     s->base.id = desc->id;
     s->mode = 0;
     s->base.depth = desc->depth;
-    const int32_t lo = int32_t(reinterpret_cast<uintptr_t>(desc->format));
+    const int32_t lo = int32_t(nf::p32_u(desc->format));
     const int32_t hi = int32_t(desc->unknown_08);
     s->range = hi - lo + 1;
     s->min = lo;
@@ -738,7 +738,7 @@ int32_t Scroll_SendMessage(M_SCROLL* s, uint32_t message, int32_t a, int32_t b) 
             return 1;
         case 0x21:
             if (6 < uint32_t(a)) return 0;
-            reinterpret_cast<M_SCRIPT**>(s->base.defaults)[a] = Script_Select(&s->base, uint32_t(b));
+            reinterpret_cast<P32<M_SCRIPT>*>(s->base.defaults)[a] = Script_Select(&s->base, uint32_t(b));
             return 1;
         case 0x25:
             if (a < s->min) return 0;
@@ -814,7 +814,7 @@ void Scroll_Update(M_MANAGER* m, M_PAGE* page, M_SCROLL* s) {
     alignas(4) uint8_t raw[0x24]{};
     NEW_CONTROL& nc = *reinterpret_cast<NEW_CONTROL*>(raw);
     nc.id = s->base.id;
-    nc.format = reinterpret_cast<char*>(uintptr_t(uint32_t(s->min)));
+    nc.format = nf::p32_ptr<char>(uint32_t(s->min));
     nc.unknown_08 = uint32_t(s->max);
     nc.unknown_10 = 0xff;
     nc.owner = uint16_t(s->base.component >> 16);
@@ -1092,7 +1092,7 @@ void List_Init(M_LISTBOX* l, NEW_CONTROL* desc, M_CONTROL* owner) {
     l->colour = 0xff;
     l->colour2 = 0x80;
     l->colour_off = 0x404040ffu;
-    l->highlight_mode = uint8_t(reinterpret_cast<uintptr_t>(desc->format));
+    l->highlight_mode = uint8_t(nf::p32_u(desc->format));
     l->colour_sel = 0x7f7f7fffu;
     LinkedList_Init(&l->rows, 0);
     std::memset(l->cells, 0, sizeof(l->cells));
@@ -1318,7 +1318,7 @@ int32_t List_SendMessage(M_LISTBOX* l, uint32_t message, int32_t a, int32_t b) {
             return 1;
         case 0x21:
             if (uint32_t(a) >= 7) return 0;
-            reinterpret_cast<M_SCRIPT**>(l->base.defaults)[a] = Script_Select(&l->base, uint32_t(b));
+            reinterpret_cast<P32<M_SCRIPT>*>(l->base.defaults)[a] = Script_Select(&l->base, uint32_t(b));
             return 1;
         case 0x23: {
             if (a == 1) {
@@ -1534,7 +1534,7 @@ void List_Update(M_MANAGER* m, M_PAGE* page, M_LISTBOX* l) {
                     for (int32_t k = 0; k < col; ++k) {
                         offset = uint32_t(int32_t(float(offset) + float(l->widths[k]) * float(l->base.w - 0x10) * 0.01f)) & 0xffff;
                     }
-                    sprite*& cell = l->cells[this_slot][col];
+                    P32<sprite>& cell = l->cells[this_slot][col];
                     if (cell == nullptr) cell = Menu_CreateSprite(nullptr, 3);
                     char* text = r->cells[col].text;  // nunca nulo (a imagem é um caminho morto no original)
                     GPOINT ext{};
@@ -1741,7 +1741,7 @@ int32_t Radio_SendMessage(M_RADIO* r, uint32_t message, int32_t a, int32_t b) {
         }
         case 0x21:
             if (6 < uint32_t(a)) return 0;
-            reinterpret_cast<M_SCRIPT**>(r->base.defaults)[a] = Script_Select(&r->base, uint32_t(b));
+            reinterpret_cast<P32<M_SCRIPT>*>(r->base.defaults)[a] = Script_Select(&r->base, uint32_t(b));
             return 1;
         case 0x2b:
             r->base.state = uint8_t(a);
@@ -1840,7 +1840,7 @@ void Memo_Init(M_MEMOBOX* mm, NEW_CONTROL* desc, M_CONTROL* owner) {
     mm->format = kMemoFormat;
     mm->centre = 1;
     mm->used = 0;
-    for (sprite*& s : mm->lines) s = nullptr;
+    for (P32<sprite>& s : mm->lines) s = nullptr;
     mm->base.x = desc->x;
     mm->base.y = desc->y;
     mm->base.w = desc->w;
@@ -1887,7 +1887,7 @@ int32_t Memo_SendMessage(M_MEMOBOX* mm, uint32_t message, int32_t a, int32_t b) 
             return 1;
         case 0x21:
             if (uint32_t(a) >= 7) return 0;
-            reinterpret_cast<M_SCRIPT**>(mm->base.defaults)[a] = Script_Select(&mm->base, uint32_t(b));
+            reinterpret_cast<P32<M_SCRIPT>*>(mm->base.defaults)[a] = Script_Select(&mm->base, uint32_t(b));
             return 1;
         case 0x23:
             mm->format = ptr<char>(a);
@@ -2007,7 +2007,7 @@ void Memo_Update(M_MANAGER* m, M_PAGE* page, M_MEMOBOX* mm) {
             const int16_t indent = mm->centre == 1 ? int16_t(int32_t((float(mm->base.w) - e.x) * 0.5f)) : 0;
             if (mm->count < mm->top + mm->visible) ++mm->visible;
             if (mm->top <= mm->count && mm->used < 32) {
-                sprite*& s = mm->lines[mm->used];
+                P32<sprite>& s = mm->lines[mm->used];
                 if (s == nullptr) s = Sprite_Create();
                 const M_COMPONENT* kk = Component_GetHandle(&mm->base);
                 const int16_t x = int16_t(kk->left + mm->base.x + indent + page->base.x + 2);

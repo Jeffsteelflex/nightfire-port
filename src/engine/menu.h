@@ -36,12 +36,13 @@
 #include "engine/sprite.h"
 #include "engine/text.h"
 #include "engine/view.h"
+#include "platform/ptr32.h"
 
 // ---- lista ligada genérica (LinkedList_*, 0x00219280) ----
 // Cada item tem um nó {next, prev} em `offset` palavras do começo; head/tail apontam para o nó.
 struct LINKEDLIST {
-    void* head;        // 0x00 nó do primeiro item
-    void* tail;        // 0x04 nó do último
+    P32<void> head;    // 0x00 nó do primeiro item
+    P32<void> tail;    // 0x04 nó do último
     uint32_t count;    // 0x08
     uint32_t offset;   // 0x0c posição do nó no item, em palavras
 };
@@ -68,8 +69,8 @@ struct M_KEYFRAME;
 // ---- scripts de menu (Script_*, 0x002201c8-0x002214f0) ----
 // Uma mensagem de um quadro-chave (0x18 bytes).
 struct M_MESSAGE {
-    M_MESSAGE* next;    // 0x00
-    M_MESSAGE* prev;    // 0x04
+    P32<M_MESSAGE> next;  // 0x00
+    P32<M_MESSAGE> prev;  // 0x04
     uint32_t target;    // 0x08 identificador do controle; 0xfffffffd o gerente, 0xfffffffe o dono do script
     uint32_t message;   // 0x0c mensagem (0xe1 e acima: processo de cor, Process_Create)
     int32_t a;          // 0x10 (-4: o resultado da mensagem anterior)
@@ -79,8 +80,8 @@ static_assert(sizeof(M_MESSAGE) == 0x18);
 
 // Um quadro-chave (0x28 bytes): posição e tamanho do controle num quadro do script.
 struct M_KEYFRAME {
-    M_KEYFRAME* next;     // 0x00
-    M_KEYFRAME* prev;     // 0x04
+    P32<M_KEYFRAME> next;  // 0x00
+    P32<M_KEYFRAME> prev;  // 0x04
     LINKEDLIST messages;  // 0x08 M_MESSAGE
     uint32_t frame;       // 0x18
     uint32_t flags;       // 0x1c 1 spline (no script), 2 começo do laço, 4 fim do laço, 0x20 fixo
@@ -93,8 +94,8 @@ static_assert(sizeof(M_KEYFRAME) == 0x28);
 
 // Um script (0x20 bytes): quadros-chave em ordem de quadro.
 struct M_SCRIPT {
-    M_SCRIPT* next;       // 0x00
-    M_SCRIPT* prev;       // 0x04
+    P32<M_SCRIPT> next;   // 0x00
+    P32<M_SCRIPT> prev;   // 0x04
     LINKEDLIST keys;      // 0x08 M_KEYFRAME
     uint32_t id;          // 0x18
     uint32_t flags;       // 0x1c 1 interpola por spline, 8 laço ativo
@@ -103,8 +104,8 @@ static_assert(sizeof(M_SCRIPT) == 0x20);
 
 // Um processo (0x24 bytes): uma mensagem 0xe1 (troca de cor gradual) rodando por `duration` ticks.
 struct M_PROCESS {
-    M_PROCESS* next;      // 0x00
-    M_PROCESS* prev;      // 0x04
+    P32<M_PROCESS> next;  // 0x00
+    P32<M_PROCESS> prev;  // 0x04
     uint32_t frame;       // 0x08
     uint32_t message;     // 0x0c
     uint32_t colour;      // 0x10 cor final (0xRRGGBBAA, byte baixo = R... na ordem da memória)
@@ -118,10 +119,10 @@ static_assert(sizeof(M_PROCESS) == 0x24);
 // ---- controles ----
 // Cabeçalho comum (0x94 bytes).
 struct M_CONTROL {
-    M_CONTROL* next;          // 0x00 nó na lista da página
-    M_CONTROL* prev;          // 0x04
-    sprite** sprites;         // 0x08 sprites do componente (Component_SetupInstance)
-    M_CONTROL* owner;         // 0x0c página, lista, botão...
+    P32<M_CONTROL> next;      // 0x00 nó na lista da página
+    P32<M_CONTROL> prev;      // 0x04
+    P32<P32<sprite>> sprites;  // 0x08 sprites do componente (Component_SetupInstance)
+    P32<M_CONTROL> owner;     // 0x0c página, lista, botão...
     uint32_t unknown_10;
     uint32_t component;       // 0x14 conjunto << 16 | índice do componente no conjunto
     uint32_t id;              // 0x18 identificador (escolhe o tratador)
@@ -129,9 +130,9 @@ struct M_CONTROL {
     uint32_t tag;             // 0x20 distingue controles de mesmo id
     uint32_t focus_ticks;     // 0x24 ticks com o foco (Page_Update)
     LINKEDLIST scripts;       // 0x28 M_SCRIPT
-    M_SCRIPT* script;         // 0x38 script atual
-    M_KEYFRAME* key;          // 0x3c quadro-chave atual (nulo: parado)
-    M_KEYFRAME* loop_key;     // 0x40 começo do laço
+    P32<M_SCRIPT> script;     // 0x38 script atual
+    P32<M_KEYFRAME> key;      // 0x3c quadro-chave atual (nulo: parado)
+    P32<M_KEYFRAME> loop_key;  // 0x40 começo do laço
     int32_t loop_step;        // 0x44
     uint32_t unknown_48;
     int32_t step;             // 0x4c índice do quadro-chave
@@ -147,7 +148,7 @@ struct M_CONTROL {
     uint16_t depth;           // 0x78 prioridade dos sprites (menor fica na frente)
     uint8_t state;            // 0x7a 1 escondido, 2 desabilitado, 4 liberado
     uint8_t type;             // 0x7b
-    M_SCRIPT* defaults[6];    // 0x7c scripts por evento (0x21): entrar, sair, escolher, mudar, foco, voltar
+    P32<M_SCRIPT> defaults[6];  // 0x7c scripts por evento (0x21): entrar, sair, escolher, mudar, foco, voltar
 };
 static_assert(sizeof(M_CONTROL) == 0x94);
 static_assert(offsetof(M_CONTROL, scripts) == 0x28 && offsetof(M_CONTROL, processes) == 0x5c);
@@ -174,10 +175,10 @@ enum : uint8_t {
 struct M_PAGE {
     M_CONTROL base;           // 0x00 tipo 8; base.owner = o gerente
     LINKEDLIST controls;      // 0x94
-    M_PAGE* next;             // 0xa4 nó na lista de páginas do gerente
-    M_PAGE* prev;             // 0xa8
-    M_CONTROL* focus;         // 0xac controle com o foco
-    M_CONTROL* player_focus[4];  // 0xb0 foco de cada jogador (multijogador, 0x5a)
+    P32<M_PAGE> next;         // 0xa4 nó na lista de páginas do gerente
+    P32<M_PAGE> prev;         // 0xa8
+    P32<M_CONTROL> focus;     // 0xac controle com o foco
+    P32<M_CONTROL> player_focus[4];  // 0xb0 foco de cada jogador (multijogador, 0x5a)
     uint32_t navigation;      // 0xc0 1 quatro direções, 2 cima/baixo, 3 esquerda/direita (0x56)
     uint32_t movie;           // 0xc4 filme de fundo
     uint32_t ticks;           // 0xc8 ticks desde que apareceu
@@ -188,7 +189,7 @@ static_assert(sizeof(M_PAGE) == 0xd0);
 // Janela (0x9c bytes): o primeiro controle de cada página, com os scripts de entrada e saída.
 struct M_WINDOW {
     M_CONTROL base;           // 0x00 tipo 13
-    M_PAGE* page;             // 0x94 a página atual do gerente na criação
+    P32<M_PAGE> page;         // 0x94 a página atual do gerente na criação
     uint32_t unknown_98;
 };
 static_assert(sizeof(M_WINDOW) == 0x9c);
@@ -196,16 +197,16 @@ static_assert(sizeof(M_WINDOW) == 0x9c);
 // Gerente (0x1d8 bytes).
 struct M_MANAGER {
     M_CONTROL base;           // 0x00 tipo 7
-    sprite* cursor;           // 0x094 sprite do cursor (CursorInfo)
+    P32<sprite> cursor;       // 0x094 sprite do cursor (CursorInfo)
     LINKEDLIST pages;         // 0x098 M_PAGE (nó em +0xa4)
     STACKINFO stack;          // 0x0a8 páginas anteriores (voltar)
     int32_t stack_data[64];   // 0x0b0
     uint32_t movie;           // 0x1b0 filme de fundo tocando
     uint32_t status;          // 0x1b4 MenuManager_GetStatus: 3 pausa, 4 fim de missão, 5 menu principal
     uint32_t first_page;      // 0x1b8
-    M_PAGE* page;             // 0x1bc página atual
-    M_PAGE* previous;         // 0x1c0 página saindo (transição)
-    M_PAGE* overlay;          // 0x1c4 página por cima (0x45)
+    P32<M_PAGE> page;         // 0x1bc página atual
+    P32<M_PAGE> previous;     // 0x1c0 página saindo (transição)
+    P32<M_PAGE> overlay;      // 0x1c4 página por cima (0x45)
     uint32_t close_action;    // 0x1c8 ação que fecha o menu (0x28: nenhuma)
     int16_t player;           // 0x1cc jogador (-1 todos)
     uint8_t player_byte;      // 0x1ce
@@ -227,10 +228,10 @@ struct M_LABEL {
     M_CONTROL base;           // 0x000 tipo 5
     char format_buf[0x10];    // 0x094 formato próprio (0x23: o do arquivo + escala 100%)
     sprite text;              // 0x0a4 modelo do sprite (copiado para `sprite` a cada tick)
-    sprite* spr;              // 0x0e8
+    P32<sprite> spr;          // 0x0e8
     uint32_t sprite_flags;    // 0x0ec (0x6c)
     uint32_t label;           // 0x0f0 rótulo do texto (0xffffffff: texto direto)
-    char* string;             // 0x0f4
+    P32<char> string;         // 0x0f4
     uint32_t image;           // 0x0f8 textura da imagem (0x24)
     uint32_t colour;          // 0x0fc cor com foco (0x1b)
     uint32_t colour_off;      // 0x100 cor sem foco (0x1c)
@@ -293,13 +294,13 @@ static_assert(sizeof(LIST_CELL) == 0x8c);
 
 // Linha de lista ou opção de rádio (0x2d0 bytes).
 struct LIST_ROW {
-    LIST_ROW* next;           // 0x000
-    LIST_ROW* prev;           // 0x004
+    P32<LIST_ROW> next;       // 0x000
+    P32<LIST_ROW> prev;       // 0x004
     LIST_CELL cells[5];       // 0x008
     int32_t data;             // 0x2c4 valor (0x35)
     uint8_t continuation;     // 0x2c8 linha quebrada do texto anterior
     uint8_t pad[3];
-    sprite* stripe;           // 0x2cc listras de fundo
+    P32<sprite> stripe;       // 0x2cc listras de fundo
 };
 static_assert(sizeof(LIST_ROW) == 0x2d0);
 
@@ -309,7 +310,7 @@ struct M_LISTBOX {
     M_CONTROL highlight;      // 0x094 destaque da linha escolhida (tipo 0x72)
     M_SCROLL scroll;          // 0x128
     LINKEDLIST rows;          // 0x270 LIST_ROW
-    sprite* cells[32][5];     // 0x280 sprites das linhas visíveis
+    P32<sprite> cells[32][5];  // 0x280 sprites das linhas visíveis
     int32_t visible;          // 0x500 linhas que cabem
     int32_t columns;          // 0x504
     int32_t widths[5];        // 0x508 largura de cada coluna, em % (0x28)
@@ -321,9 +322,9 @@ struct M_LISTBOX {
     uint32_t colour_sel;      // 0x540 linha escolhida (0x29)
     uint32_t colour2;         // 0x544 (0x58)
     uint32_t stripe;          // 0x548 cor das listras (0x73)
-    char* format;             // 0x54c
+    P32<char> format;         // 0x54c
     char format_sel[0x10];    // 0x550 formato da linha escolhida
-    LIST_ROW* selected;       // 0x560
+    P32<LIST_ROW> selected;   // 0x560
     uint16_t highlight_mode;  // 0x564 1 destaque + cor, 2 só a cor (0x2a)
     uint8_t unknown_566;
     uint8_t outline;          // 0x567 (0x62)
@@ -343,7 +344,7 @@ struct M_RADIO {
     M_SCROLL scroll;          // 0x1a8
     LINKEDLIST options;       // 0x2f0 LIST_ROW
     uint32_t unknown_300;
-    LIST_ROW* selected;       // 0x304
+    P32<LIST_ROW> selected;   // 0x304
 };
 static_assert(sizeof(M_RADIO) == 0x308);
 
@@ -351,9 +352,9 @@ static_assert(sizeof(M_RADIO) == 0x308);
 struct M_MEMOBOX {
     M_CONTROL base;           // 0x000 tipo 200
     M_SCROLL scroll;          // 0x094
-    char* text;               // 0x1dc
-    char* format;             // 0x1e0
-    sprite* lines[32];        // 0x1e4
+    P32<char> text;           // 0x1dc
+    P32<char> format;         // 0x1e0
+    P32<sprite> lines[32];    // 0x1e4
     int32_t visible;          // 0x264
     int32_t count;            // 0x268 linhas
     float line_height;        // 0x26c
@@ -389,15 +390,15 @@ struct M_COMPONENT {
     int16_t right;            // 0x0a
     int16_t bottom;           // 0x0c
     uint16_t pad;
-    MenuSpriteInfo* pieces;   // 0x10
+    P32<MenuSpriteInfo> pieces;  // 0x10
 };
 static_assert(sizeof(M_COMPONENT) == 0x14);
 using M_COMPONENTHANDLE = M_COMPONENT;  // o nome antigo (text.cpp)
 
 // Um conjunto de componentes (0x128 bytes).
 struct M_COMPONENTSET {
-    M_COMPONENTSET* next;     // 0x000
-    M_COMPONENTSET* prev;     // 0x004
+    P32<M_COMPONENTSET> next;  // 0x000
+    P32<M_COMPONENTSET> prev;  // 0x004
     M_COMPONENT items[14];    // 0x008
     uint32_t id;              // 0x120
     uint8_t manager;          // 0x124

@@ -242,7 +242,7 @@ TEST(parsemap_builds_runtime_structures_from_synthetic_item) {
     CHECK(g0->lod == g1 && g1->lod == nullptr);
 
     // Colisão: só a primeira caixa cresce, uma vez por caixa (2 x 0,01).
-    const float* boxes = reinterpret_cast<const float*>(g1->coll->boxes);
+    const float* boxes = reinterpret_cast<const float*>(nf::raw(g1->coll->boxes));
     CHECK(g1->coll->box_count == 2 && g1->coll->boxes == file + coll_at + 0x10);
     CHECK_NEAR(boxes[0], -0.02, 1e-6);
     CHECK_NEAR(boxes[4], 1.02, 1e-6);

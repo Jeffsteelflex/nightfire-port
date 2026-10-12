@@ -96,7 +96,7 @@ struct MenuFile {
     }
 };
 
-uint32_t ptr32(const void* p) { return uint32_t(reinterpret_cast<uintptr_t>(p)); }
+uint32_t ptr32(const void* p) { return nf::p32_u(p); }
 
 char kMission[] = "MISSION";
 char kObjectives[] = "OBJECTIVES";

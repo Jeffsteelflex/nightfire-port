@@ -27,6 +27,7 @@
 #include "platform/pending.h"
 #include "platform/psi.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -355,7 +356,7 @@ TEST(bullet_spread_stays_in_its_cone) {
     Weapon exact(1.0f, 100.0f);
     Weapon loose(1.0f, 100.0f);
     loose.def.spread = 100.0f;  // perturbação de até 100 x 0,0014 = 0,14
-    const float cos_max = std::cos(std::asin(0.14f));
+    const float cos_max = nf::fm::cos(nf::fm::asin(0.14f));
     int deviated = 0;
     for (int i = 0; i < 50; ++i) {
         obj_tag* a = fire(exact, {0, 1, 0, 1}, aim);
@@ -391,7 +392,7 @@ TEST(bullet_homing_turns_toward_the_target) {
         tick();
         _VECTOR to{car->pos.x - o->pos.x, car->pos.y - o->pos.y, car->pos.z - o->pos.z, 0};
         Vec_Normalise(&to, &to);
-        const float angle = std::acos(std::fmin(1.0f, dot3(b->dir, to)));
+        const float angle = nf::fm::acos(std::fmin(1.0f, dot3(b->dir, to)));
         CHECK(angle < prev_angle);
         prev_angle = angle;
         // No máximo 0,01 por componente por tick (mais o efeito de renormalizar).

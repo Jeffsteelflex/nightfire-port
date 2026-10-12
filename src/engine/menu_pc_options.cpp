@@ -25,10 +25,10 @@ MenuPcStats g_menu_pc_stats;
 
 namespace {
 
-int32_t val(const void* p) { return int32_t(reinterpret_cast<uintptr_t>(p)); }
+int32_t val(const void* p) { return int32_t(nf::p32_u(p)); }
 template <class T>
 T* ptr(int32_t v) {
-    return reinterpret_cast<T*>(uintptr_t(uint32_t(v)));
+    return nf::p32_ptr<T>(uint32_t(v));
 }
 M_MANAGER* mgr(uint8_t index) { return &menu_manager[index]; }
 
@@ -110,7 +110,7 @@ char g_box_text[256];
 uint32_t g_pause_generation = 0;
 
 M_PAGE* next_page(M_PAGE* p) {
-    return p->next != nullptr ? reinterpret_cast<M_PAGE*>(reinterpret_cast<uint8_t*>(p->next) - 0xa4) : nullptr;
+    return p->next != nullptr ? reinterpret_cast<M_PAGE*>(reinterpret_cast<uint8_t*>(nf::raw(p->next)) - 0xa4) : nullptr;
 }
 
 M_PAGE* find_page(M_MANAGER* m, uint32_t id) {
@@ -1213,12 +1213,12 @@ M_CONTROL* MenuPc_AddControl(M_MANAGER* m, uint32_t id, uint8_t type, int16_t x,
     desc.depth = depth;
     desc.unknown_0c = tag;
     desc.owner = set;
-    desc.format = reinterpret_cast<char*>(a);
+    desc.format = nf::p32_ptr<char>(uint32_t(a));  // um número no campo de ponteiro, como nos registros do arquivo
     desc.unknown_08 = uint32_t(b);
     if (type != MCT_WINDOW) FixupResolution(&desc);
     M_CONTROL* c = ptr<M_CONTROL>(Manager_SendMessage(m, 0x42, val(&desc), 0));
     if (c != nullptr) {
-        for (M_SCRIPT*& s : c->defaults) s = nullptr;
+        for (P32<M_SCRIPT>& s : c->defaults) s = nullptr;
     }
     return c;
 }

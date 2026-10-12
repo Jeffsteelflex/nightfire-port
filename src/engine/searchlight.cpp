@@ -26,6 +26,7 @@
 #include "engine/sound.h"
 #include "engine/vecmath.h"
 #include "engine/view.h"
+#include "platform/fmath.h"
 
 SearchlightStats g_searchlight_stats;
 
@@ -35,7 +36,7 @@ SEARCHLIGHT_tag* sl_of(obj_tag* obj) { return static_cast<SEARCHLIGHT_tag*>(obj-
 
 light_tag* light_of(obj_tag* spot) {
     light_tag* l;
-    std::memcpy(&l, &sl_of(spot)->parts[2], sizeof(l));
+    l = nf::p32_load<light_tag>(&sl_of(spot)->parts[2]);
     return l;
 }
 
@@ -76,7 +77,7 @@ float place_spot(obj_tag* lamp, obj_tag* spot, obj_tag* player) {
     to.x = d.x + lamp->pos.x;
     to.y = d.y + lamp->pos.y;
     to.z = d.z + lamp->pos.z;
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     if (!Collide_RayIntersect(&lamp->pos, &to, lamp->cel, lamp, nullptr, &hits, 0, 0x18, 0)) {
         View_SetDrawInNoViews(spot);
     } else {
@@ -169,7 +170,7 @@ obj_tag* Searchlight_Create(_VECTOR* pos, _VECTOR* rot, level_tag* level, celgli
         l->pos = obj->pos;
         l->handle = psiLight_Create(l);
         l->obj = obj;
-        std::memcpy(&d->parts[2], &l, sizeof(l));
+        nf::p32_store(&d->parts[2], l);
         obj->pos.x = obj->pos.x - 10000.0f;
         obj->pos.y = obj->pos.y - 10000.0f;
         obj->pos.z = obj->pos.z - 10000.0f;
@@ -208,10 +209,10 @@ void Searchlight_Update(obj_tag* obj) {
             const float ly = obj->pos.y, py = player->pos.y;
             const float dx = player->pos.x - obj->pos.x;
             const float dz = player->pos.z - obj->pos.z;
-            obj->rot.y = obj->rot.y + Vec_AngleDifference(obj->rot.y, std::atan2(dx, dz)) * 0.15f;
+            obj->rot.y = obj->rot.y + Vec_AngleDifference(obj->rot.y, nf::fm::atan2(dx, dz)) * 0.15f;
             if (d->half < Vec_AngleDifference(obj->rot.y, d->rot.y)) obj->rot.y = d->rot.y - d->half;
             if (Vec_AngleDifference(obj->rot.y, d->rot.y) < -d->half) obj->rot.y = d->rot.y + d->half;
-            const float up = std::atan2((py - ly) - 1.0f, std::sqrt(dx * dx + dz * dz));
+            const float up = nf::fm::atan2((py - ly) - 1.0f, std::sqrt(dx * dx + dz * dz));
             obj->rot.x = obj->rot.x + Vec_AngleDifference(obj->rot.x, -up) * 0.15f;
             if (d->half < Vec_AngleDifference(obj->rot.x, d->pitch)) obj->rot.x = d->pitch - d->half;
             if (Vec_AngleDifference(obj->rot.x, d->pitch) < -d->half) obj->rot.x = d->pitch + d->half;

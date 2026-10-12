@@ -145,7 +145,7 @@ bool impact_messages(DCVars_tag* dcv, MsgObject* msg, uint32_t state, int8_t fla
 }
 
 uint32_t explosive_message(DCVars_tag* dcv, MsgObject* msg, uint32_t state) {
-    DroneFunc_ConsiderExplosive(dcv, reinterpret_cast<obj_tag*>(static_cast<uintptr_t>(msg->data)),
+    DroneFunc_ConsiderExplosive(dcv, nf::p32_ptr<obj_tag>(msg->data),
                                 static_cast<int16_t>(state));
     return 1;
 }
@@ -2294,7 +2294,7 @@ uint32_t NDrone2_DSTATE_RollRightCrouch(DCVars_tag* dcv, Drone_tag*, obj_tag*, M
 // ---- cobertura: animações, giro e falas ----
 
 uint16_t CCModeTables[kCCModeTableSize / 2];
-uint16_t* CCModes[10];
+P32<uint16_t> CCModes[10];
 uint16_t LCModeCrouch[6];
 uint16_t* LCModes = LCModeCrouch;
 
@@ -4668,13 +4668,13 @@ bool ninja_hit(DCVars_tag* dcv, MsgObject* msg, float mul, uint32_t* ret) {
         case 6: death = 0x42; break;
         case 8: death = 0x44; break;
         case 9:
-            NDrone2_ExplosiveImpact(dcv, reinterpret_cast<DroneImpact_tag*>(static_cast<uintptr_t>(msg->data)), 0, 1);
+            NDrone2_ExplosiveImpact(dcv, nf::p32_ptr<DroneImpact_tag>(msg->data), 0, 1);
             *ret = 1;
             return true;
         default:
             return false;
     }
-    NDrone2_DoHitEffects(dcv, reinterpret_cast<HITDATA_tag*>(static_cast<uintptr_t>(msg->data)), mul);
+    NDrone2_DoHitEffects(dcv, nf::p32_ptr<HITDATA_tag>(msg->data), mul);
     if (0.0f < dcv->drone->health) {
         NDrone2_PainTalk(dcv);
         *ret = 1;
@@ -5350,7 +5350,7 @@ uint32_t NDrone2_DSTATE_AstronautCombatMove(DCVars_tag* dcv, Drone_tag* drone, o
 
 namespace {
 
-HITDATA_tag* msg_hit(MsgObject* msg) { return reinterpret_cast<HITDATA_tag*>(static_cast<uintptr_t>(msg->data)); }
+HITDATA_tag* msg_hit(MsgObject* msg) { return nf::p32_ptr<HITDATA_tag>(msg->data); }
 
 // A animação de se recompor (0x76) termina no ataque, ou, para civis, no estado de volta da máquina.
 uint32_t recover_end_state(DCVars_tag* dcv) {
@@ -5377,7 +5377,7 @@ uint32_t DroneFunc_RecoverTime(DCVars_tag* dcv, HITDATA_tag* hit) {
     if (hit != nullptr && hit->obj != nullptr && hit->obj->type == 5) {
         const BU_tag* bu = static_cast<const BU_tag*>(hit->obj->data);
         int32_t k = -1;
-        switch (*reinterpret_cast<const uint16_t*>(bu->weapon)) {
+        switch (*reinterpret_cast<const uint16_t*>(nf::raw(bu->weapon))) {
             case 0x35: k = 0x1e; break;
             case 0x43: k = 0x3c; break;
             case 0x44: k = 0x78; break;
@@ -5469,7 +5469,7 @@ uint32_t NDrone2_DSTATE_ExplosiveImpact(DCVars_tag* dcv, Drone_tag*, obj_tag*, M
             return 1;
         case 1:
             dcv->drone->flags |= 0x10000;
-            NDrone2_ExplosiveImpact(dcv, reinterpret_cast<DroneImpact_tag*>(static_cast<uintptr_t>(msg->data)), 0, 1);
+            NDrone2_ExplosiveImpact(dcv, nf::p32_ptr<DroneImpact_tag>(msg->data), 0, 1);
             return 1;
         case 3:
             NDrone2_SeenAndAttacking(dcv);
@@ -6631,7 +6631,7 @@ uint32_t NDrone2_DSTATE_HangUp(DCVars_tag* dcv, Drone_tag*, obj_tag*, MsgObject*
         case 1: {
             if (dcv->drone->script != nullptr) dcv->drone->script->speed = 0.0f;
             ANIMSCRIPT_tag* second;
-            std::memcpy(&second, dcv->drone->unknown_534, sizeof(second));
+            second = nf::p32_load<ANIMSCRIPT_tag>(dcv->drone->unknown_534);
             if (second != nullptr) second->speed = 0.0f;
             return 1;
         }

@@ -8,15 +8,37 @@ if(NOT WIN32)
     message(FATAL_ERROR "Por enquanto o port só compila para Windows (Direct3D 11).")
 endif()
 
-# 32 bits, como o PS2: as estruturas do jogo guardam ponteiros de 4 bytes, inclusive dentro dos
-# dados carregados, e o código decompilado depende desse layout.
-if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
-    message(FATAL_ERROR "O port compila em 32 bits (x86). Use build.bat, que chama o vcvarsamd64_x86.")
+# 32 bits (x86), como o PS2, é a versão de referência: as estruturas do jogo guardam ponteiros de 4 bytes, inclusive
+# dentro dos dados carregados, e o código decompilado depende desse layout. A versão de 64 bits (NF_ARCH64, build.bat
+# Release x64) mantém o mesmo layout: os campos de ponteiro do jogo são deslocamentos de 32 bits dentro de uma janela de
+# 4 GB que contém a imagem do programa e a arena (platform/ptr32.h, platform/arena.h; docs/port.md, "64 bits").
+option(NF_ARCH64 "Compila a versão de 64 bits (x64) com ponteiros de 32 bits nas estruturas do jogo" OFF)
+if(NF_ARCH64)
+    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "NF_ARCH64 pede um compilador de 64 bits (x64). Use build.bat Release x64, que chama o vcvars64.")
+    endif()
+    # A verificação dos ponteiros na janela (NF_P32_CHECK): um ponteiro nativo fora dela guardado num campo do jogo
+    # para o programa com a pilha de chamadas. Barata (uma comparação por escrita de ponteiro); ligada por padrão.
+    option(NF_P32_CHECK "x64: confere cada ponteiro guardado num campo de 32 bits" ON)
+    enable_language(ASM_MASM)
+    # Um só C runtime (estático): o operator new do port (platform/arena_new.cpp) serve também a biblioteca padrão.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    add_compile_definitions(NF_P32_CHECK=$<BOOL:${NF_P32_CHECK}>)
+    # Um ponteiro truncado para 32 bits (ou um inteiro de 32 bits virando ponteiro) é erro: todo campo de ponteiro do
+    # jogo passa por nf::P32/nf::p32_u/nf::p32_ptr (platform/ptr32.h).
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/we4311> $<$<COMPILE_LANGUAGE:CXX>:/we4312>
+                        $<$<COMPILE_LANGUAGE:CXX>:/we4302> $<$<COMPILE_LANGUAGE:CXX>:/diagnostics:column>)
+elseif(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+    message(FATAL_ERROR "O port compila em 32 bits (x86), ou em 64 bits com NF_ARCH64. Use build.bat, que chama o vcvarsamd64_x86 (ou o vcvars64 com x64).")
+else()
+    add_link_options(/LARGEADDRESSAWARE)
 endif()
-add_link_options(/LARGEADDRESSAWARE)
 # PDB também no Release, para o relatório de falhas (platform/crash_report.h) nomear as funções.
 add_compile_options($<$<CONFIG:Release>:/Zi>)
 add_link_options($<$<CONFIG:Release>:/DEBUG:FULL> $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF>)
+# O executável guarda só o nome do PDB, sem a pasta da compilação (o zip de lançamento não leva caminhos desta máquina);
+# o relatório de falhas o procura ao lado do executável.
+add_link_options($<$<CONFIG:Release>:/PDBALTPATH:%_PDB%>)
 
 set(NF_DEFINES UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 set(NF_OPTIONS /W4 /utf-8 /permissive-)
@@ -26,6 +48,8 @@ add_library(nf_platform STATIC
     src/platform/pending.cpp
     src/platform/psi.cpp
     src/platform/psi_file.cpp
+    src/platform/disc_source.cpp
+    src/platform/disc_pack.cpp
     src/platform/psi_card.cpp
     src/platform/psi_gfx.cpp
     src/platform/psi_draw.cpp
@@ -57,9 +81,16 @@ add_library(nf_platform STATIC
     src/core/json.cpp
 )
 target_include_directories(nf_platform PUBLIC src)
+# A versão de 64 bits: a arena (a janela dos ponteiros de 32 bits do jogo) e a troca de pilha; o operator new dela entra
+# direto em cada executável (NF_EXE_SOURCES).
+set(NF_EXE_SOURCES)
+if(NF_ARCH64)
+    target_sources(nf_platform PRIVATE src/platform/arena.cpp src/platform/arena_stack_x64.asm)
+    set(NF_EXE_SOURCES src/platform/arena_new.cpp)
+endif()
 target_compile_definitions(nf_platform PUBLIC ${NF_DEFINES})
 target_compile_options(nf_platform PRIVATE ${NF_OPTIONS})
-target_link_libraries(nf_platform PUBLIC dbghelp xinput xaudio2 ole32 mfplat mfuuid)
+target_link_libraries(nf_platform PUBLIC dbghelp xinput xaudio2 ole32 shell32 mfplat mfuuid)
 
 # Código portado do ACTION.ELF (independente de plataforma, testável sem janela nem dados).
 add_library(nf_engine STATIC
@@ -202,6 +233,7 @@ add_library(nf_ui_modern STATIC
     src/ui/modern_front.cpp
     src/ui/modern_dossier.cpp
     src/ui/modern_wheel.cpp
+    src/ui/modern_setup.cpp
 )
 target_link_libraries(nf_ui_modern PUBLIC nf_engine nf_ui_hd)
 target_compile_options(nf_ui_modern PRIVATE ${NF_OPTIONS})
@@ -226,6 +258,7 @@ add_executable(nf_driving WIN32
     src/driving_app/drv_renderer.cpp
     src/platform/window.cpp
     src/render/gpu_adapters.cpp
+    ${NF_EXE_SOURCES}
 )
 target_link_libraries(nf_driving PRIVATE nf_drv d3d11 dxgi d3dcompiler windowscodecs shell32 psapi)
 target_compile_options(nf_driving PRIVATE ${NF_OPTIONS})
@@ -235,6 +268,10 @@ execute_process(COMMAND git rev-parse --short HEAD WORKING_DIRECTORY ${CMAKE_SOU
                 OUTPUT_VARIABLE NF_GIT_HASH OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 if(NOT NF_GIT_HASH)
     set(NF_GIT_HASH "dev")
+endif()
+# Para comparar capturas entre builds de commits diferentes: o hash fixo na barra dos menus Modern.
+if(NF_BUILD_HASH)
+    set(NF_GIT_HASH "${NF_BUILD_HASH}")
 endif()
 
 add_executable(nightfire WIN32
@@ -250,9 +287,16 @@ add_executable(nightfire WIN32
     src/render/ui_hd_game.cpp
     src/render/ui_modern_app.cpp
     src/render/ui_modern_draw.cpp
+    src/render/setup_app.cpp
+    ${NF_EXE_SOURCES}
 )
 target_link_libraries(nightfire PRIVATE nf_data nf_ui_hd nf_ui_modern nf_frame_interp d3d11 dxgi d3dcompiler windowscodecs d2d1 dwrite shlwapi)
 target_compile_definitions(nightfire PRIVATE NF_PORT_BUILD="${NF_GIT_HASH}")
+# A versão de 64 bits grava nightfire64.pdb: no zip de lançamento (tools/make_release.py) as duas ficam na mesma pasta,
+# nightfire.exe com nightfire.pdb e nightfire64.exe com nightfire64.pdb (o relatório de falhas acha o PDB pelo nome).
+if(NF_ARCH64)
+    set_target_properties(nightfire PROPERTIES PDB_NAME nightfire64)
+endif()
 target_compile_options(nightfire PRIVATE ${NF_OPTIONS})
 
 enable_testing()
@@ -327,6 +371,9 @@ add_executable(nf_tests
     tests/test_dossier.cpp
     tests/test_sound.cpp
     tests/test_frame_interp.cpp
+    tests/test_ptr32.cpp
+    tests/test_disc.cpp
+    ${NF_EXE_SOURCES}
 )
 # Os testes das missões de carro (tests/test_driving_*.cpp) entram sozinhos.
 file(GLOB NF_DRV_TESTS CONFIGURE_DEPENDS tests/test_driving_*.cpp)
@@ -338,17 +385,23 @@ target_compile_options(nf_tests PRIVATE ${NF_OPTIONS})
 add_test(NAME nf_tests COMMAND nf_tests)
 
 # Regressão com os dados do jogo (fora do ctest: precisa de ACTION.ELF e FILES.BIN).
-add_executable(nf_level_check tests/level_check.cpp)
+add_executable(nf_level_check tests/level_check.cpp ${NF_EXE_SOURCES})
 target_link_libraries(nf_level_check PRIVATE nf_data)
 target_compile_options(nf_level_check PRIVATE ${NF_OPTIONS})
 
+# O disco do jogo entre duas fontes, arquivo por arquivo (a imagem .iso contra os arquivos extraídos, o leitor de DVD, a
+# cópia pessoal; platform/disc_source.h). Fora do ctest: precisa dos dados do usuário.
+add_executable(nf_disc_check tests/disc_check.cpp ${NF_EXE_SOURCES})
+target_link_libraries(nf_disc_check PRIVATE nf_data)
+target_compile_options(nf_disc_check PRIVATE ${NF_OPTIONS})
+
 # Regressão do carregador original portado (LoaderLoad/parsemap_*) com os dados do jogo.
-add_executable(nf_loader_check tests/loader_check.cpp tests/campaign_audit.cpp tests/sights_measure.cpp)
+add_executable(nf_loader_check tests/loader_check.cpp tests/campaign_audit.cpp tests/sights_measure.cpp ${NF_EXE_SOURCES})
 target_link_libraries(nf_loader_check PRIVATE nf_data)
 target_compile_options(nf_loader_check PRIVATE ${NF_OPTIONS})
 
 # A física das missões de carro conferida contra o DRIVING.ELF (docs/driving.md, seção 11): o microcódigo da VU0 no
 # interpretador contra o porte à mão, o passo inteiro dos dois jeitos, as funções do EE no interpretador MIPS.
-add_executable(nf_driving_check tests/driving_check.cpp tests/driving_check_ee.cpp)
+add_executable(nf_driving_check tests/driving_check.cpp tests/driving_check_ee.cpp ${NF_EXE_SOURCES})
 target_link_libraries(nf_driving_check PRIVATE nf_data nf_drv)
 target_compile_options(nf_driving_check PRIVATE ${NF_OPTIONS})

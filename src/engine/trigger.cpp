@@ -280,7 +280,7 @@ uint32_t Trigger_Hit(obj_tag* obj, TRIGGER_Tag* t) {
             for (HITDATA_tag* h = obj->hits; h != nullptr; h = h->next) {
                 obj_tag* o = h->obj;
                 if (o == nullptr || o->type != 5) continue;
-                const uint8_t* weapon = reinterpret_cast<const uint8_t*>(static_cast<const BU_tag*>(o->data)->weapon);
+                const uint8_t* weapon = reinterpret_cast<const uint8_t*>(nf::raw(static_cast<const BU_tag*>(o->data)->weapon));
                 int16_t ammo;
                 std::memcpy(&ammo, weapon + 2, 2);
                 ok = prev;

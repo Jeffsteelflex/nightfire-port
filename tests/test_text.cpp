@@ -171,14 +171,14 @@ TEST(txt_pc_overrides_replace_ps2_hardware_texts) {
     // os outros, e os que não têm o trecho esperado (outra versão do arquivo), passam direto; só com o USATxt.dat.
     txt_debug_power_on();
     static uint32_t fix[2] = {0, 0x3d0};
-    static char* bank[0x3d2];
+    static P32<char> bank[0x3d2];
     static char other[] = "Door";
     static char no_card[] = "No memory card (8MB) (for PlayStation\xae" "2) in MEMORY CARD slot %s.";
     static char space[] = "Insufficient space on memory card (8MB) (for PlayStation\xae" "2) in MEMORY CARD slot %s. "
                           "NightFire requires %dKB of free space to save data.";
     static char pad[] = "analog controller (DUALSHOCK\xae" "2) is not inserted into controller port %s";
     static char moved[] = "Save Successful";  // um rótulo da tabela com outra string: outra versão do arquivo
-    for (char*& b : bank) b = other;
+    for (P32<char>& b : bank) b = other;
     bank[0x26b] = no_card;
     bank[0x26a] = space;
     bank[0x3c9] = pad;
@@ -269,7 +269,7 @@ TEST(font_parse_format_codes) {
     char centre[] = "\xff\x02\xfe\x03";
     Font_ParseFormat(centre, flags, scale);
     CHECK(flags == 0x102);  // alinhamento: zera o byte baixo e põe 2 (centrado); a flag 1 (só medir) não estava
-    CHECK(Font == &g_font && CharInfo.texture == uint32_t(reinterpret_cast<uintptr_t>(&g_font_rec)));
+    CHECK(Font == &g_font && CharInfo.texture == nf::p32_u(&g_font_rec));
     CHECK(CharInfo.inv_w == 1.0f / 256.0f && CharInfo.inv_h == 1.0f / 64.0f);
     char right[] = "\xfa\x10\x20\x30\x00\xfe\x02";
     flags = 0;
@@ -388,17 +388,17 @@ TEST(text_add_msg_queues_lines_by_priority_and_time) {
     Text_AddMsg(0, 2, 1, heap_text("AB"), 0, 10);
     Text_AddMsg(0, 1, 1, heap_text("BA"), 0, 200);
     Text_AddMsg(0, 2, 6, heap_text("A"), 0, 120);
-    auto* m = reinterpret_cast<TXT_MSG*>(MsgQueue.used.first);
+    auto* m = reinterpret_cast<TXT_MSG*>(nf::raw(MsgQueue.used.first));
     // Ordem de prioridade crescente; iguais na ordem de chegada.
     CHECK(m != nullptr && std::strcmp(m->text, "BA") == 0 && m->time == 200.0f && m->priority == 1);
-    m = reinterpret_cast<TXT_MSG*>(m->node.next);
+    m = reinterpret_cast<TXT_MSG*>(nf::raw(m->node.next));
     CHECK(m != nullptr && std::strcmp(m->text, "AB") == 0 && m->time == 60.0f && m->type == 1 && m->player == 0);
-    m = reinterpret_cast<TXT_MSG*>(m->node.next);
+    m = reinterpret_cast<TXT_MSG*>(nf::raw(m->node.next));
     CHECK(m != nullptr && m->type == 6 && m->time == 120.0f);
     // A linha fica travada no StringHeap.
     CHECK(StringHeapLock[(m->text - &StringHeap[0][0]) / kStringHeapSize] == 1);
     // Text_UpdateMsg: a primeira do tipo, depois o tempo corre e ela sai.
-    TXT_MSG* cur = nullptr;
+    P32<TXT_MSG> cur = nullptr;
     CHECK(Text_UpdateMsg(0, 1, &cur) == 1 && cur != nullptr && std::strcmp(cur->text, "BA") == 0);
     for (int t = 0; t < 199; ++t) CHECK(Text_UpdateMsg(0, 1, &cur) == 0);
     CHECK(Text_UpdateMsg(0, 1, &cur) == 1 && cur != nullptr && std::strcmp(cur->text, "AB") == 0);
@@ -413,7 +413,7 @@ TEST(text_add_msg_splits_long_messages_and_shares_time) {
     TextMsgFormats[1].width = 30;  // cabe "AB " por linha (ver font_word_wrap_breaks_after_last_space)
     Text_AddMsg(0, 0, 1, heap_text("AB AB AB"), 0, 800);
     TextMsgFormats[1].width = 0x1e0;
-    auto* a = reinterpret_cast<TXT_MSG*>(MsgQueue.used.first);
+    auto* a = reinterpret_cast<TXT_MSG*>(nf::raw(MsgQueue.used.first));
     CHECK(a != nullptr && a->next != nullptr && a->next->next != nullptr && a->next->next->next == nullptr);
     if (a == nullptr || a->next == nullptr || a->next->next == nullptr) return;
     TXT_MSG* const second = a->next;
@@ -423,7 +423,7 @@ TEST(text_add_msg_splits_long_messages_and_shares_time) {
     // As linhas seguem uma depois da outra na fila.
     CHECK(a->node.next == &second->node && second->node.next == &second->next->node);
     // A mensagem segue linha a linha no Text_UpdateMsg.
-    TXT_MSG* cur = nullptr;
+    P32<TXT_MSG> cur = nullptr;
     Text_UpdateMsg(0, 1, &cur);
     for (int t = 0; t < 300; ++t) Text_UpdateMsg(0, 1, &cur);
     CHECK(cur == second);
@@ -438,7 +438,7 @@ TEST(text_subtitles_need_the_option_and_show_on_sprites) {
     Text_AddMsg(-1, 0xff, 4, heap_text("AB"), 0, 90);
     CHECK(MsgQueue.used.first != nullptr);
     // Sem cena (câmera 4 desligada, sem filme): vira a legenda de duas linhas (tipo 5).
-    auto* m = reinterpret_cast<TXT_MSG*>(MsgQueue.used.first);
+    auto* m = reinterpret_cast<TXT_MSG*>(nf::raw(MsgQueue.used.first));
     CHECK(m->type == 5 && m->time == 90.0f);
     Text_Update2Line();
     CHECK(SubTitleMsg == m && SubTitleSpr1 != nullptr && SubTitleSpr1->priority == 0);
@@ -471,7 +471,7 @@ TEST(text_speech_subtitles_from_sounds) {
     std::memcpy(SFXOutputData + 345 * 0x18 + 0x10, &seconds, 4);
     g_fSubtitleDurationModification = 0.92f;
     static uint32_t fix[1] = {0};
-    static char* bank[2] = {nullptr, nullptr};
+    static P32<char> bank[2] = {nullptr, nullptr};
     static char line[] = "AB";
     bank[1] = line;
     FixupTable = fix;
@@ -483,7 +483,7 @@ TEST(text_speech_subtitles_from_sounds) {
     Sound_DoSubtitle(344);
     CHECK(MsgQueue.used.first == nullptr);
     Sound_DoSubtitle(345);
-    auto* m = reinterpret_cast<TXT_MSG*>(MsgQueue.used.first);
+    auto* m = reinterpret_cast<TXT_MSG*>(nf::raw(MsgQueue.used.first));
     // 0.92 * 2 s * 60 = 110 ticks, legenda (sem cena: tipo 5), prioridade 0.
     CHECK(m != nullptr && m->type == 5 && m->time == 110.0f && m->priority == 0 && m->text != nullptr &&
           std::strcmp(m->text, "AB") == 0);

@@ -189,7 +189,7 @@ void Check_Target(obj_tag* obj);  // portada (pickup.cpp)
 uint32_t GT_DeployMiniGun(_VECTOR* pos, MATRIX* m, obj_tag* player);  // portada (turret.cpp)
 void Draw_LaserBeam(BLData* b, _VECTOR* to);  // portada (player_weapon.cpp)
 void Draw_TaserBeam(BLData* b, _VECTOR* to);  // portada (player_weapon.cpp)
-void FractalThing(obj_tag** objs, int16_t from, int16_t to, _VECTOR* a, _VECTOR* b, uint8_t sqrt_mode);  // portada
+void FractalThing(P32<obj_tag>* objs, int16_t from, int16_t to, _VECTOR* a, _VECTOR* b, uint8_t sqrt_mode);  // portada
 // Globais de módulos ainda não portados (zeradas).
 // NPCGlobals (lista dos drones e o resto da IA) está em engine/npc.h.
 extern uint8_t SSysItems[40];       // engine/sensor.h

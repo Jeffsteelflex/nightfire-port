@@ -32,6 +32,9 @@ uintptr_t A(const void* p) { return reinterpret_cast<uintptr_t>(p); }
 MemBlock* B(uintptr_t a) { return reinterpret_cast<MemBlock*>(a); }
 uint32_t U32(uintptr_t a) { return static_cast<uint32_t>(a); }
 uint8_t U8(uintptr_t a) { return static_cast<uint8_t>(a); }
+// O endereço do bloco anterior no cabeçalho (+0, 32 bits): em x64 o deslocamento na janela (platform/ptr32.h).
+uint32_t ADDR32(uintptr_t a) { return nf::p32_u(reinterpret_cast<void*>(a)); }
+uintptr_t ADDR(uint32_t v) { return reinterpret_cast<uintptr_t>(nf::p32_ptr(v)); }
 
 // Fim do último bloco: PtrHeap + HeapByteSize - 0xc.
 uintptr_t heap_limit() { return A(PtrHeap) + HeapByteSize - 0xc; }
@@ -54,12 +57,12 @@ void Mem_Free(void** ptr) {
         uintptr_t h = p - 0xc;
         B(h)->free = 1;
         B(h)->tag = 4;
-        const uintptr_t prev = B(h)->prev;
+        const uintptr_t prev = ADDR(B(h)->prev);
         bool merge_next = true;
         if (prev != h && B(prev)->free) {
             const uintptr_t next = h + B(h)->size;
             if (next < limit) {
-                B(next)->prev = U32(prev);
+                B(next)->prev = ADDR32(prev);
                 B(prev)->size += B(h)->size;
                 h = prev;
             } else {
@@ -72,7 +75,7 @@ void Mem_Free(void** ptr) {
             if (next < limit && B(next)->free) {
                 B(h)->size += B(next)->size;
                 const uintptr_t after = h + B(h)->size;
-                if (after < limit) B(after)->prev = U32(h);
+                if (after < limit) B(after)->prev = ADDR32(h);
             }
         }
         if (QuickBlock < h) QuickBlock = h;
@@ -80,6 +83,14 @@ void Mem_Free(void** ptr) {
     }
     *ptr = nullptr;
 }
+
+#if NF_PTR64
+void Mem_Free(P32<void>* ptr) {
+    void* p = *ptr;
+    Mem_Free(&p);
+    *ptr = nullptr;
+}
+#endif
 
 // [decomp] 0x001cf688 Mem_Malloc
 void* Mem_Malloc(uint32_t size, uint32_t tag, uint32_t align) {
@@ -106,7 +117,7 @@ void* Mem_Malloc(uint32_t size, uint32_t tag, uint32_t align) {
                     found = quick = b;
                     break;
                 }
-                const uintptr_t prev = B(b)->prev;
+                const uintptr_t prev = ADDR(B(b)->prev);
                 if (prev == b) break;
                 b = prev;
             }
@@ -154,7 +165,7 @@ void* Mem_Malloc(uint32_t size, uint32_t tag, uint32_t align) {
         if (((found + 0xc) & mask) != 0) {
             const uintptr_t aligned = (found + mask + 0x18) & ~uintptr_t(mask);
             const uintptr_t h = aligned - 0xc;
-            B(h)->prev = U32(found);
+            B(h)->prev = ADDR32(found);
             B(found)->tag = 4;
             B(found)->size = U32(h - found);
             B(found)->free = 1;
@@ -166,12 +177,12 @@ void* Mem_Malloc(uint32_t size, uint32_t tag, uint32_t align) {
         B(tail)->slack = 0;
         B(tail)->size = U32(next - tail);
         B(tail)->tag = 4;
-        B(tail)->prev = U32(found);
+        B(tail)->prev = ADDR32(found);
         B(found)->free = 0;
         B(found)->slack = 0;
         B(found)->size = U32(tail - found);
         B(found)->tag = static_cast<uint16_t>(tag);
-        if (next < limit) B(next)->prev = U32(tail);
+        if (next < limit) B(next)->prev = ADDR32(tail);
         return reinterpret_cast<void*>(found + 0xc);
     }
 
@@ -183,10 +194,10 @@ void* Mem_Malloc(uint32_t size, uint32_t tag, uint32_t align) {
     B(h)->free = 0;
     B(h)->size = U32(end - h);
     B(h)->tag = static_cast<uint16_t>(tag);
-    B(h)->prev = U32(found);
+    B(h)->prev = ADDR32(found);
     B(h)->slack = static_cast<uint8_t>(U8(B(h)->size) - U8(size) - 0xc);
     B(found)->size = U32(h - found);
-    if (end < limit) B(end)->prev = U32(h);
+    if (end < limit) B(end)->prev = ADDR32(h);
     return reinterpret_cast<void*>(user);
 }
 
@@ -211,12 +222,12 @@ void Mem_Shrink(void** ptr, uint32_t size) {
             const uintptr_t t = (p + (size - 0xc)) & ~uintptr_t(3);
             B(t)->free = 0;
             B(t)->size = U32(next - t);
-            B(t)->prev = U32(blk);
+            B(t)->prev = ADDR32(blk);
             B(t)->slack = static_cast<uint8_t>(b->slack + 0xc + (U8(p) - U8(t)));
             B(t)->tag = b->tag;
             b->slack = 0;
             b->size = U32(t - blk);
-            if (next < limit) B(next)->prev = U32(t);
+            if (next < limit) B(next)->prev = ADDR32(t);
             void* front = reinterpret_cast<void*>(user);
             Mem_Free(&front);
             *ptr = nullptr;
@@ -229,10 +240,10 @@ void Mem_Shrink(void** ptr, uint32_t size) {
             B(h)->free = 0;
             B(h)->slack = 0;
             B(h)->size = U32(next - h);
-            B(h)->prev = U32(blk);
+            B(h)->prev = ADDR32(blk);
             b->slack = static_cast<uint8_t>(h - p);
             b->size = U32(h - blk);
-            if (next < limit) B(next)->prev = U32(h);
+            if (next < limit) B(next)->prev = ADDR32(h);
             void* tail = reinterpret_cast<void*>(h + 0xc);
             Mem_Free(&tail);
         }
@@ -244,15 +255,15 @@ void Mem_Shrink(void** ptr, uint32_t size) {
             B(h1)->free = 0;
             B(h1)->slack = 0;
             B(h1)->size = U32(h2 - h1);
-            B(h1)->prev = U32(blk);
+            B(h1)->prev = ADDR32(blk);
             B(h2)->free = 0;
             B(h2)->size = U32(next - h2);
-            B(h2)->prev = U32(h1);
+            B(h2)->prev = ADDR32(h1);
             B(h2)->slack = static_cast<uint8_t>(b->slack + U8(p + size) - 0xc - U8(h2));
             B(h2)->tag = b->tag;
             b->slack = static_cast<uint8_t>(h1 - p);
             b->size = U32(h1 - blk);
-            if (next < limit) B(next)->prev = U32(h2);
+            if (next < limit) B(next)->prev = ADDR32(h2);
             void* hole = reinterpret_cast<void*>(h1 + 0xc);
             Mem_Free(&hole);
         }
@@ -317,7 +328,7 @@ void Mem_Init() {
     first->tag = 4;
     QuickBlock = A(PtrHeap);
     first->size = HeapByteSize - 0xc;
-    first->prev = U32(A(PtrHeap));
+    first->prev = ADDR32(A(PtrHeap));
     MallocSize = 0;
     psiAllocateLoadingBlobs();
 }
@@ -340,10 +351,10 @@ void Mem_ShrinkToEndOfBlock(void** ptr) {
     B(h)->free = 0;
     B(h)->slack = 0;
     B(h)->size = U32(next - h);
-    B(h)->prev = U32(blk);
+    B(h)->prev = ADDR32(blk);
     B(blk)->slack = static_cast<uint8_t>(h - p);
     B(blk)->size = U32(h - blk);
-    if (next < heap_limit()) B(next)->prev = U32(h);
+    if (next < heap_limit()) B(next)->prev = ADDR32(h);
     void* tail = reinterpret_cast<void*>(h + 0xc);
     Mem_Free(&tail);
 }

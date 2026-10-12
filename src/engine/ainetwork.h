@@ -46,6 +46,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct DCVars_tag;  // variáveis de controle de um drone (módulo NDrone2, ainda não portado)
 struct Drone_tag;   // dados de um drone (obj_tag::data de um objeto tipo 2; engine/drone.h)
@@ -53,7 +54,7 @@ struct Drone_tag;   // dados de um drone (obj_tag::data de um objeto tipo 2; eng
 // Posição com a sala onde está.
 struct alignas(16) CelPos_tag {
     _VECTOR pos;          // 0x00
-    cel_tag* cel;         // 0x10
+    P32<cel_tag> cel;     // 0x10
     uint32_t unknown_14[3];
 };
 static_assert(sizeof(CelPos_tag) == 0x20);
@@ -73,7 +74,7 @@ struct alignas(16) MAPNODE_tag {
     uint32_t flags;       // 0x04: kNode*, bits 16-19 ações do nó, e os bits das buscas: mask de
                           //       AITarget_tag (achado) e mask << 1 (visto mas inalcançável)
     float unknown_08;     // 0x08 lixo do editor
-    cel_tag* cel;         // 0x0c sala (AIPath_Link2Cel)
+    P32<cel_tag> cel;     // 0x0c sala (AIPath_Link2Cel)
     _VECTOR pos;          // 0x10 (y + 0,4 na carga)
     uint32_t unknown_20[8];
 };
@@ -81,9 +82,9 @@ static_assert(sizeof(MAPNODE_tag) == 0x40);
 
 // Estado de busca de um nó (0x30 bytes, alocado por AIPath_Parse).
 struct NODE_tag {
-    NODE_tag* next;           // 0x00 lista da sala (cel_tag::ai_nodes)
-    MAPNODE_tag* node;        // 0x04
-    NODE_tag* sorted_next;    // 0x08 lista ordenada por dist (AINetwork_NodeSearchCel)
+    P32<NODE_tag> next;       // 0x00 lista da sala (cel_tag::ai_nodes)
+    P32<MAPNODE_tag> node;    // 0x04
+    P32<NODE_tag> sorted_next;  // 0x08 lista ordenada por dist (AINetwork_NodeSearchCel)
     float dist;               // 0x0c distância 2D até a posição buscada
     uint8_t parent_link;      // 0x10 posição, na lista de ligações do pai, da ligação usada
     uint8_t link_count;       // 0x11 (AIPath_Prepare)
@@ -91,9 +92,9 @@ struct NODE_tag {
     float g;                  // 0x14 custo desde a origem
     float h;                  // 0x18 estimativa até o destino
     float f;                  // 0x1c g + h: ordem da lista aberta
-    NODE_tag* parent;         // 0x20
-    NODE_tag* list_next;      // 0x24 lista aberta ou fechada
-    obj_tag* door;            // 0x28 porta (nó de porta) ou objeto do chute (nó de chute)
+    P32<NODE_tag> parent;     // 0x20
+    P32<NODE_tag> list_next;  // 0x24 lista aberta ou fechada
+    P32<obj_tag> door;        // 0x28 porta (nó de porta) ou objeto do chute (nó de chute)
     uint32_t unknown_2c;
 };
 static_assert(sizeof(NODE_tag) == 0x30);
@@ -119,15 +120,15 @@ static_assert(sizeof(LINK_tag) == 0x10);
 struct AIPath_tag {
     int16_t index;            // 0x00
     uint16_t unknown_02;
-    uint8_t* header;          // 0x04 no arquivo: nome (0x80 bytes) e cabeçalho
+    P32<uint8_t> header;      // 0x04 no arquivo: nome (0x80 bytes) e cabeçalho
     uint32_t flags;           // 0x08: 0x2 rede de navegação, 0x4 patrulha, 0x8 rota (bit 0: é limite)
     uint32_t unknown_0c[8];   // 0x0c palavras 0x21-0x28 do cabeçalho (zero no disco)
     uint32_t node_count;      // 0x2c
-    MAPNODE_tag* map_nodes;   // 0x30 no arquivo
-    NODE_tag* nodes;          // 0x34 node_count entradas
+    P32<MAPNODE_tag> map_nodes;  // 0x30 no arquivo
+    P32<NODE_tag> nodes;      // 0x34 node_count entradas
     uint32_t link_count;      // 0x38
-    LINK_tag* links;          // 0x3c no arquivo
-    uint16_t* node_links;     // 0x40 ligações de cada nó, em sequência (AIPath_Prepare)
+    P32<LINK_tag> links;      // 0x3c no arquivo
+    P32<uint16_t> node_links;  // 0x40 ligações de cada nó, em sequência (AIPath_Prepare)
     uint32_t found;           // 0x44 masks de AITarget_tag com nó achado (bit) ou só visto (bit << 1)
 };
 static_assert(sizeof(AIPath_tag) == 0x48);
@@ -145,15 +146,15 @@ struct alignas(16) BMAPNODE_tag {
     int16_t bounds;       // 0x02 índice do limite (reescrito)
     uint32_t unknown_04;
     float height;         // 0x08 altura do limite acima do nó: teto (raio de 256 para cima), mínimo 2
-    cel_tag* cel;         // 0x0c sala (AIBounds_Link2Cel)
+    P32<cel_tag> cel;     // 0x0c sala (AIBounds_Link2Cel)
     _VECTOR pos;          // 0x10 (y + 0,4 na carga)
 };
 static_assert(sizeof(BMAPNODE_tag) == 0x20);
 
 // Lista de nós de limite de uma sala (8 bytes, alocado por AIPath_Parse).
 struct BNODE_tag {
-    BNODE_tag* next;      // 0x00 cel_tag::ai_bnodes
-    BMAPNODE_tag* node;   // 0x04
+    P32<BNODE_tag> next;  // 0x00 cel_tag::ai_bnodes
+    P32<BMAPNODE_tag> node;  // 0x04
 };
 static_assert(sizeof(BNODE_tag) == 8);
 
@@ -164,8 +165,8 @@ struct BLINK_tag {
     uint32_t flags;       // 0x04 kBound* (zerado na carga)
     uint16_t a;           // 0x08 nós
     uint16_t b;           // 0x0a
-    BLINK_tag* next_a;    // 0x0c próximo na lista da sala do nó a (cel_tag::ai_blinks)
-    BLINK_tag* next_b;    // 0x10 próximo na lista da sala do nó b
+    P32<BLINK_tag> next_a;  // 0x0c próximo na lista da sala do nó a (cel_tag::ai_blinks)
+    P32<BLINK_tag> next_b;  // 0x10 próximo na lista da sala do nó b
 };
 static_assert(sizeof(BLINK_tag) == 0x14);
 
@@ -173,14 +174,14 @@ static_assert(sizeof(BLINK_tag) == 0x14);
 struct AIBounds_tag {
     int16_t index;            // 0x00
     uint16_t unknown_02;
-    uint8_t* header;          // 0x04
+    P32<uint8_t> header;      // 0x04
     uint32_t flags;           // 0x08 (bit 0)
     uint32_t unknown_0c[8];
     uint32_t node_count;      // 0x2c
-    BMAPNODE_tag* map_nodes;  // 0x30
-    BNODE_tag* nodes;         // 0x34
+    P32<BMAPNODE_tag> map_nodes;  // 0x30
+    P32<BNODE_tag> nodes;     // 0x34
     uint32_t link_count;      // 0x38
-    BLINK_tag* links;         // 0x3c
+    P32<BLINK_tag> links;     // 0x3c
 };
 static_assert(sizeof(AIBounds_tag) == 0x40);
 
@@ -209,14 +210,14 @@ extern AINETWORK_tag AINetwork;
 
 // Parâmetros e resultado de AINetwork_NodeSearch/NodeSearchCel (0x30 bytes, na pilha).
 struct AINodeSearch_tag {
-    CelPos_tag* pos;          // 0x00 posição buscada (com a sala)
-    _VECTOR* goal;            // 0x04 destino para a estimativa h, ou nulo
-    AIPath_tag* path;         // 0x08
+    P32<CelPos_tag> pos;      // 0x00 posição buscada (com a sala)
+    P32<_VECTOR> goal;        // 0x04 destino para a estimativa h, ou nulo
+    P32<AIPath_tag> path;     // 0x08
     int8_t to_node;           // 0x0c 1: testa posição -> nó e põe o nó na lista aberta; 0: nó -> posição
     uint8_t unknown_0d[3];
-    NODE_tag* open;           // 0x10 cabeça falsa da lista aberta (só list_next), ou nulo
-    obj_tag* obj_a;           // 0x14 repassados aos testes de movimento
-    obj_tag* obj_b;           // 0x18
+    P32<NODE_tag> open;       // 0x10 cabeça falsa da lista aberta (só list_next), ou nulo
+    P32<obj_tag> obj_a;       // 0x14 repassados aos testes de movimento
+    P32<obj_tag> obj_b;       // 0x18
     uint32_t mask;            // 0x1c bits postos nas flags do nó (achado; inalcançável: mask << 1)
     float radius_sq;          // 0x20 raio da busca ao quadrado (0: 15 m e sem filtro)
     int16_t node;             // 0x24 nó achado (modo to_node)
@@ -230,7 +231,7 @@ static_assert(sizeof(AINodeSearch_tag) == 0x30);
 // os dois de NPCGlobals ficam em +0x1c0 e +0x220).
 struct alignas(16) AITarget_tag {
     uint32_t mask;            // 0x00 bit das buscas (0x10000000 nas rotas)
-    obj_tag* obj;             // 0x04 objeto seguido, ou nulo
+    P32<obj_tag> obj;         // 0x04 objeto seguido, ou nulo
     uint32_t unknown_08[2];
     CelPos_tag pos;           // 0x10
     CelPos_tag last;          // 0x30 posição da última busca (AINetwork_BuildAITarget)
@@ -245,12 +246,12 @@ static_assert(offsetof(AITarget_tag, frame) == 0x54);
 
 // Emissor: distância de cada nó de um caminho até um ponto (0x50 bytes).
 struct alignas(16) AIEmitter_tag {
-    obj_tag* owner;           // 0x00
+    P32<obj_tag> owner;       // 0x00
     uint32_t unknown_04[3];
     CelPos_tag pos;           // 0x10
-    AIPath_tag* path;         // 0x30
+    P32<AIPath_tag> path;     // 0x30
     uint32_t size;            // 0x34 bytes em dist (node_count do caminho)
-    uint8_t* dist;            // 0x38 por nó: distância * 255 / 256 (0xff = além do alcance)
+    P32<uint8_t> dist;        // 0x38 por nó: distância * 255 / 256 (0xff = além do alcance)
     int16_t start;            // 0x3c nó do caminho mais perto do ponto
     uint16_t unknown_3e;
     uint8_t allocated;        // 0x40
@@ -290,8 +291,8 @@ struct alignas(16) CoverNode_tag {
     float angle;              // 0x08 quina: abertura (parâmetro 3 em graus; 45 se zero)
     uint32_t flags;           // 0x0c quina: lados (4/8 = parâmetro 0, 0x20/0x40 = 1, 0x80/0x100 = 2);
                               //       baixa: 1, 2; 0x10 em ambos (usado por Drone_IsCoverNodeUsable)
-    cel_tag* cel;             // 0x10
-    obj_tag* user;            // 0x14 drone que a ocupa
+    P32<cel_tag> cel;         // 0x10
+    P32<obj_tag> user;        // 0x14 drone que a ocupa
     uint32_t unknown_18[2];
     _VECTOR pos;              // 0x20
     _VECTOR rot;              // 0x30 (rot.y = para onde a cobertura olha)
@@ -304,7 +305,7 @@ static_assert(offsetof(CoverNode_tag, emitter) == 0x40);
 // Volume de IA (dados de um objeto tipo 0x3e, 0x120 bytes; nó da lista AIBoxList).
 struct alignas(16) AIVolume_tag {
     LLNODE_tag node;          // 0x00
-    obj_tag* obj;             // 0x08 (a matriz do objeto orienta a caixa)
+    P32<obj_tag> obj;         // 0x08 (a matriz do objeto orienta a caixa)
     uint32_t unknown_0c;
     _VECTOR half;             // 0x10 meias medidas: |caixa do modelo| / 2 * escala
     float value;              // 0x20 parâmetro 0 * 0,01
@@ -358,7 +359,7 @@ struct alignas(16) AIRoute_tag {
     CelPos_tag next;          // 0x60 próximo ponto a andar
     int16_t current;          // 0x80 posição atual em list (-1 antes do primeiro)
     uint16_t count;           // 0x82 nós em list
-    AITarget_tag* target;     // 0x84
+    P32<AITarget_tag> target;  // 0x84
     float distance;           // 0x88 comprimento da rota
     float arrive;             // 0x8c distância de chegada (AINetwork_SetupRouteToPosition)
     float creep_max;          // 0x90 LinkCreep_Increment: distância máxima ao próximo passo
@@ -369,7 +370,7 @@ struct alignas(16) AIRoute_tag {
     int8_t unknown_a3;
     int16_t creep_link;       // 0xa4 ligação em uso (kLinkCreeping)
     uint16_t unknown_a6;
-    AIPath_tag* creep_path;   // 0xa8
+    P32<AIPath_tag> creep_path;  // 0xa8
     int16_t creep_from;       // 0xac posições em list
     int16_t creep_to;         // 0xae
     int16_t creep_step;       // 0xb0
@@ -378,10 +379,10 @@ struct alignas(16) AIRoute_tag {
     _VECTOR creep_dir;        // 0xc0 passo (0,4 m na direção da ligação)
     _VECTOR creep_origin;     // 0xd0
     _VECTOR creep_end;        // 0xe0
-    uint16_t* list;           // 0xf0 nós da rota (alocado pelo drone: AINetwork.max_nodes entradas)
-    AIPath_tag* path;         // 0xf4
-    obj_tag* owner;           // 0xf8
-    obj_tag* target_obj;      // 0xfc
+    P32<uint16_t> list;       // 0xf0 nós da rota (alocado pelo drone: AINetwork.max_nodes entradas)
+    P32<AIPath_tag> path;     // 0xf4
+    P32<obj_tag> owner;       // 0xf8
+    P32<obj_tag> target_obj;  // 0xfc
 };
 static_assert(sizeof(AIRoute_tag) == 0x100);
 static_assert(offsetof(AIRoute_tag, target) == 0x84 && offsetof(AIRoute_tag, creeping) == 0xa0);

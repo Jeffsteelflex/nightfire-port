@@ -14,6 +14,7 @@
 #include <map>
 #include <unordered_map>
 #include <vector>
+#include "platform/fmath.h"
 
 namespace nf {
 
@@ -381,7 +382,7 @@ struct UiModernDevice::Impl {
         const D2D1_RECT_F r = R(c.r);
         const float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
         const float ro = (r.right - r.left) * 0.5f, ri = c.radius * scale;
-        const auto at = [&](float rad, float a) { return D2D1::Point2F(cx + rad * std::sin(a), cy - rad * std::cos(a)); };
+        const auto at = [&](float rad, float a) { return D2D1::Point2F(cx + rad * nf::fm::sin(a), cy - rad * nf::fm::cos(a)); };
         const D2D1_ARC_SIZE size = c.a1 - c.a0 > 3.14159265f ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL;
         Com<ID2D1PathGeometry> g;
         Com<ID2D1GeometrySink> sink;

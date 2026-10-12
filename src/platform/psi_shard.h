@@ -27,6 +27,7 @@
 #include <cstdint>
 
 #include "engine/map_types.h"
+#include "platform/ptr32.h"
 
 struct obj_tag;
 struct _SHATTER_VERT_LIST;
@@ -43,8 +44,8 @@ static_assert(sizeof(BREAKTRI_tag) == 0xc);
 // Dados de estilhaçar (0x18 bytes, no terceiro campo do cabeçalho do bloco 0x2d).
 struct BREAKGFX_tag {
     uint32_t unknown_00[4];  // não escritos
-    BREAKTRI_tag* tris;      // 0x10 caixa + 0x30 entradas
-    SHATTER_VERT* verts;     // 0x14 caixa + 0x2c entradas
+    P32<BREAKTRI_tag> tris;  // 0x10 caixa + 0x30 entradas
+    P32<SHATTER_VERT> verts;  // 0x14 caixa + 0x2c entradas
 };
 static_assert(sizeof(BREAKGFX_tag) == 0x18);
 
@@ -52,8 +53,8 @@ static_assert(sizeof(BREAKGFX_tag) == 0x18);
 struct TRILIST_tag {
     int32_t tri_count;   // 0x00 caixa + 0x30 (0 sem dados)
     int32_t vert_count;  // 0x04 caixa + 0x2c
-    BREAKTRI_tag* tris;  // 0x08
-    SHATTER_VERT* verts; // 0x0c
+    P32<BREAKTRI_tag> tris;  // 0x08
+    P32<SHATTER_VERT> verts;  // 0x0c
 };
 static_assert(sizeof(TRILIST_tag) == 0x10);
 
@@ -69,7 +70,7 @@ extern ShardGuards g_shard_guards;
 void psiCreateBreakableData(celglist_tag* glist);
 TRILIST_tag* psiGetTriList(obj_tag* obj);
 int32_t* psiCreateShard(_SHATTER_VERT_LIST* list);
-void psiDeleteShard(int32_t* chain_field);
+void psiDeleteShard(P32<int32_t>* chain_field);
 void psiFinishedObjectShatter();
 void psiDrawShard(int32_t* chain, MATRIX* m, uint32_t texture);
 // pstex_tag* da entrada de Tex cujo pacote de registradores é dma (0 se nenhuma).

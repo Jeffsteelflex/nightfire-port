@@ -33,6 +33,7 @@
 #include "engine/txt.h"
 #include "engine/vecmath.h"
 #include "engine/view.h"
+#include "platform/fmath.h"
 
 obj_tag* ThirdPersonCameras[kThirdPersonCameras];
 uint32_t oldhash = 0;
@@ -678,7 +679,7 @@ void Player_CollCreepWall(obj_tag* obj, BLData* b, obj_tag* wall) {
     obj->rot.x = 0.0f;
     obj->pos.x = at.x;
     obj->pos.z = at.z;
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     if (Collide_RayIntersect(&from, &to, obj->cel, obj, wall, &hits, 0, 0x62d, 0)) obj->pos.y = hits->pos.y + 1.0f;
     Collide_FreeHitList(&hits);
     Player_WeaponNone(obj);
@@ -873,13 +874,13 @@ void camera_tracking(obj_tag* obj, viewer_tag* v) {
         }
     }
     if (aim == 0) return;
-    const float ty = std::atan2(at.x - v->pos.x, at.z - v->pos.z);
+    const float ty = nf::fm::atan2(at.x - v->pos.x, at.z - v->pos.z);
     v->rot.y = v->rot.y + (ty - v->rot.y);
     View_RotTransMatrix(&v->rot, &v->pos, &v->camera);
     v->updated = 0;
     const float dx = at.x - v->pos.x;
     const float dz = at.z - v->pos.z;
-    const float tx = std::atan2(at.y - v->pos.y, std::sqrt(dx * dx + dz * dz));
+    const float tx = nf::fm::atan2(at.y - v->pos.y, std::sqrt(dx * dx + dz * dz));
     v->rot.x = v->rot.x + (-tx - v->rot.x);
     View_RotTransMatrix(&v->rot, &v->pos, &v->camera);
     v->updated = 0;
@@ -907,7 +908,7 @@ void CamSubject_Update(obj_tag* obj) {
         const obj_tag* o = h->obj;
         if (o == nullptr || o->type != 5) continue;
         const weapon_definition_tag* w;
-        std::memcpy(&w, static_cast<const uint8_t*>(o->data) + 0x44, 4);
+        w = nf::p32_load<const weapon_definition_tag>(static_cast<const uint8_t*>(o->data) + 0x44);
         if (w->klass != 0x54) continue;
         switch_channels[int16_t(obj->unknown_f6) & 0xff] = 1;
         obj->life |= 1;

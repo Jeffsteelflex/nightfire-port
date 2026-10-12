@@ -17,7 +17,7 @@
 
 namespace {
 
-int32_t val(const void* p) { return int32_t(reinterpret_cast<uintptr_t>(p)); }
+int32_t val(const void* p) { return int32_t(nf::p32_u(p)); }
 
 std::string g_status_utf8;
 std::string g_device_utf8;

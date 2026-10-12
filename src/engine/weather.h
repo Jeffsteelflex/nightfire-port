@@ -30,6 +30,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 constexpr int kMaxDrops = 0x1000;
 
@@ -45,7 +46,7 @@ static_assert(sizeof(RAINBOX_tag) == 0x1c);
 
 // Dados do raio (Lightning_Create, 0x50 bytes, tipo 0x33).
 struct LIGHTNING_tag {
-    obj_tag* seg[8];      // 0x00 os segmentos (seg[0] o próprio raio, seg[7] o par); seg[0] nulo: sem par
+    P32<obj_tag> seg[8];  // 0x00 os segmentos (seg[0] o próprio raio, seg[7] o par); seg[0] nulo: sem par
     _VECTOR start;        // 0x20 a posição deste
     _VECTOR end;          // 0x30 a do par
     uint32_t param0;      // 0x40 parâmetro 0

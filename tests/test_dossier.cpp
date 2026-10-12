@@ -137,7 +137,7 @@ char kSniperLine[] = "Upgrade: scope";
 char kGrappleText[] = "Shoots a wire.";
 char kPistolText[] = "Standard handgun.";
 char kRewardNames[16][8];  // os textos das recompensas (0x2d0 + entrada x 4 + medalha)
-char* g_bank[0x400];
+P32<char> g_bank[0x400];
 uint32_t g_fixups[1] = {0};
 
 struct DossierWorld {
@@ -151,7 +151,7 @@ struct DossierWorld {
         hashtable_debug_power_on();
         hashtable_initialise();
         txt_debug_power_on();
-        for (char*& s : g_bank) s = kEmptyText;
+        for (P32<char>& s : g_bank) s = kEmptyText;
         g_bank[0x307] = kGold;
         g_bank[0x3b3] = kUpgradeLine;
         g_bank[0x3b1] = kSniperLine;
@@ -662,7 +662,7 @@ struct MoveWorld {
         b.zoom = 1.0f;
         saved = glb_viewer[0];
         glb_viewer[0] = &viewer;
-        viewer.cel = reinterpret_cast<cel_tag*>(uintptr_t(0x1234));
+        viewer.cel = nf::p32_ptr<cel_tag>(0x1234);
         std::memset(PlayerSetting, 0, sizeof(PlayerSetting));
     }
     ~MoveWorld() {

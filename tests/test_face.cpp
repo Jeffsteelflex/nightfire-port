@@ -78,7 +78,7 @@ void fresh() {
 struct Face {
     alignas(16) uint8_t skel_data[0x10 + 6 * 12] = {};
     uint8_t parents[6] = {0xff, 0x80, 0x81, 0x82, 0x83, 0x84};
-    celglist_tag* meshes[1] = {nullptr};
+    P32<celglist_tag> meshes[1] = {nullptr};
     alignas(16) MATRIX inv[6]{};
     ANIMSKIN_tag skin{};
     obj_tag* obj = nullptr;
@@ -105,7 +105,7 @@ struct Face {
         Mat_Identity(&obj->matrix);
         // Os homens têm anim_flags 0x400 (esqueleto diferente de 1).
         if (male) anim->anim_flags |= 0x400;
-        auto* t = reinterpret_cast<_VECTOR*>(anim->frame);
+        auto* t = reinterpret_cast<_VECTOR*>(nf::raw(anim->frame));
         auto* q = reinterpret_cast<quaternion_tag*>(anim->frame + 6 * 16);
         for (int i = 0; i < 6; ++i) {
             t[i] = {0.0f, i == 0 ? 0.0f : 0.2f, 0.0f, 0.0f};
@@ -260,7 +260,7 @@ TEST(face_sequence_single_channel) {
     if (s == nullptr || s->seq[1] == nullptr) return;
     AnimObjectUpdate(f.obj);
     CHECK((s->flags & 0x40000u) != 0 && s->seq[1]->hash == 0x4000300);
-    const float* face = reinterpret_cast<const float*>(s->seq[1]->frame);
+    const float* face = reinterpret_cast<const float*>(nf::raw(s->seq[1]->frame));
     CHECK_NEAR(face[5], 0.05f, 1e-6f);
 }
 
@@ -378,9 +378,9 @@ TEST(face_blend_layers_and_eyes) {
     base->tag = 0xe0000000u;
     blink->tag = 0xe0000001u;
     talk->tag = 0xe0000002u;
-    auto* fb = reinterpret_cast<float*>(base->seq[1]->frame);
-    auto* fk = reinterpret_cast<float*>(blink->seq[1]->frame);
-    auto* ft = reinterpret_cast<float*>(talk->seq[1]->frame);
+    auto* fb = reinterpret_cast<float*>(nf::raw(base->seq[1]->frame));
+    auto* fk = reinterpret_cast<float*>(nf::raw(blink->seq[1]->frame));
+    auto* ft = reinterpret_cast<float*>(nf::raw(talk->seq[1]->frame));
     for (int k = 0; k < 22; ++k) fb[k] = 0.1f * float(k);
     fk[10] = 1.0f;
     fk[3] = 0.005f;  // abaixo de 0,01: não cobre

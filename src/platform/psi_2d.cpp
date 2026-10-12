@@ -155,7 +155,7 @@ void psi_2d_find_font_textures() {
     const uint32_t hashes[3] = {0x3000005, 0x3000003, 0x30000d8};
     for (int k = 0; k < 3; ++k) {
         const auto* t = static_cast<const maptex_tag*>(hashtable_getitem(hashes[k]));
-        if (t != nullptr) FontList[k] = uint32_t(reinterpret_cast<uintptr_t>(t->rec));
+        if (t != nullptr) FontList[k] = nf::p32_u(t->rec);
     }
 }
 

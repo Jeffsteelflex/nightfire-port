@@ -26,6 +26,7 @@
 #include "platform/psi_loading.h"
 #include "platform/psi_movie.h"
 #include "platform/vu1.h"
+#include "platform/fmath.h"
 
 PsiFrame g_psi_frame;
 static_assert(kPsiMorphs == kMaxMorphs, "os pesos registrados por desenho são os Morph_Weight do motor");
@@ -89,7 +90,7 @@ template <typename T>
 T* ptr_at(const void* base, size_t offset) {
     uint32_t v;
     std::memcpy(&v, static_cast<const uint8_t*>(base) + offset, 4);
-    return reinterpret_cast<T*>(uintptr_t(v));
+    return nf::p32_ptr<T>(v);
 }
 
 // Recorte de psiDrawSkinObjectMatrix. O PS2 (CheckObjectClip, 0x00121a60) leva os 8 cantos do cubo
@@ -256,7 +257,7 @@ namespace {
 // matrizes de recorte de PS2WorldViewVU1Kick2 (0x244540 e 0x244580); aqui, do campo de visão e da
 // proporção do viewer_tag, no espaço da câmera.
 int32_t box_clip(const float* box, const MATRIX& m, const viewer_tag& cam) {
-    const float ty = std::tan(cam.fov * 0.5f);
+    const float ty = nf::fm::tan(cam.fov * 0.5f);
     const float tx = ty * cam.aspect;
     uint32_t all_out = 0x1f, any_out2 = 0;
     for (int k = 0; k < 8; ++k) {
@@ -456,7 +457,7 @@ void psiLight_Delete(uint32_t) {}
 // TColor0/TColor1 (cor da luz x intensidade x o multiplicador do canal; w = 1 / raio²). As cores
 // começam zeradas (w 1) e PS2NumLights conta as luzes carregadas. Cada desenho registrado guarda a
 // cópia em vigor.
-void psiLight_SetLights(light_tag** lights, uint16_t count, float r, float g, float b) {
+void psiLight_SetLights(P32<light_tag>* lights, uint16_t count, float r, float g, float b) {
     PS2NumLights = 0;
     for (int i = 0; i < 3; ++i) {
         TColor0[i] = 0.0f;
@@ -622,7 +623,7 @@ void psiDrawParticleList(_VECTOR4* positions, int32_t count, uint32_t, uint32_t 
     PsiParticleList list;
     list.first = uint32_t(g_psi_frame.particles.size());
     list.count = n > 0 ? uint32_t(n) : 0u;
-    const auto* tex = reinterpret_cast<const pstex_tag*>(uintptr_t(texture));
+    const auto* tex = nf::p32_ptr<const pstex_tag>(texture);
     list.texture = tex != nullptr ? int32_t(tex->tex_index) : -1;
     list.half_size = psi_particle_half_size(size, colours != nullptr);
     const auto* rgba = reinterpret_cast<const uint8_t*>(colours);

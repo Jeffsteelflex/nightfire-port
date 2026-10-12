@@ -20,6 +20,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct viewer_tag;
 
@@ -35,9 +36,9 @@ static_assert(sizeof(KEYED_CLR) == 0x14);
 // u32 tipo (byte baixo 4, o resto vai para flags), u32 hashcode, u32 textura, u32 modelo, u16 count,
 // u16 rate, float size, nove floats (0x0c..0x2c), u32 key_count e as chaves (r, g, b, a, time).
 struct EMITTERDEF_tag {
-    KEYED_CLR* keys;       // 0x00 logo depois da definição
-    pstex_tag* texture;    // 0x04 primeira palavra do item 0x03 da textura (maptex_tag::rec), ou nulo
-    celglist_tag* glist;   // 0x08 modelo de cada partícula (item 0x02), ou nulo: sprites
+    P32<KEYED_CLR> keys;   // 0x00 logo depois da definição
+    P32<pstex_tag> texture;  // 0x04 primeira palavra do item 0x03 da textura (maptex_tag::rec), ou nulo
+    P32<celglist_tag> glist;  // 0x08 modelo de cada partícula (item 0x02), ou nulo: sprites
     float life;            // 0x0c vida de uma partícula, em segundos
     float life_rand;       // 0x10 variação (Rand_FRandHalf: ± metade)
     float gravity;         // 0x14 a velocidade y perde gravity * 9.8 m/s por segundo
@@ -60,13 +61,13 @@ static_assert(offsetof(EMITTERDEF_tag, size) == 0x30 && offsetof(EMITTERDEF_tag,
 // Dados de um emissor (obj_tag::data): 0x50 bytes de cabeçalho e as listas das partículas, nesta
 // ordem na memória: vel, pos (count _VECTOR cada), age, life (count floats), colour (count * 4 bytes).
 struct EMITTER_tag {
-    _VECTOR* vel;          // 0x00 m/s (no mundo)
-    _VECTOR* pos;          // 0x04
-    uint8_t* colour;       // 0x08 r, g, b, a por partícula, escala do GS; alfa 0 = morta
-    float* age;            // 0x0c segundos; 99999 = ainda não nasceu
-    float* life;           // 0x10 vida sorteada no nascimento
-    EMITTERDEF_tag* def;   // 0x14
-    void* unknown_18;      // 0x18 último argumento de psiDrawParticleList (zero)
+    P32<_VECTOR> vel;      // 0x00 m/s (no mundo)
+    P32<_VECTOR> pos;      // 0x04
+    P32<uint8_t> colour;   // 0x08 r, g, b, a por partícula, escala do GS; alfa 0 = morta
+    P32<float> age;        // 0x0c segundos; 99999 = ainda não nasceu
+    P32<float> life;       // 0x10 vida sorteada no nascimento
+    P32<EMITTERDEF_tag> def;  // 0x14
+    P32<void> unknown_18;  // 0x18 último argumento de psiDrawParticleList (zero)
     uint32_t unknown_1c;
     _VECTOR rot;           // 0x20 rotação dos modelos (Emitter_Draw)
     uint32_t switch_on;    // 0x30 canal que liga o emissor (0: nenhum)

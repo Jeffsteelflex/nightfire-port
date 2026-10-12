@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include "platform/fmath.h"
 
 namespace nf::ui {
 
@@ -287,8 +288,8 @@ void FocusMark::draw(DrawList& dl, const Frame& f, float alpha, float dy) const 
         {0.30f, 14.0f, 0.58f, 4.3f},  {0.39f, 20.0f, 0.48f, 1.8f},  {0.48f, 12.0f, 0.36f, 3.3f},
     };
     for (const auto& t : kTongue) {
-        const float flicker = 0.72f + 0.28f * std::sin(f.time * (1.9f + t[3] * 0.41f) + t[3]);
-        const float tx = cx + t[0] * gw + 4.0f * std::sin(f.time * 0.8f + t[3] * 1.3f);
+        const float flicker = 0.72f + 0.28f * nf::fm::sin(f.time * (1.9f + t[3] * 0.41f) + t[3]);
+        const float tx = cx + t[0] * gw + 4.0f * nf::fm::sin(f.time * 0.8f + t[3] * 1.3f);
         const float th = gh * t[2] * flicker;
         const float edge = 1.0f - std::fabs(t[0]) * 0.9f;  // mais fracas nas pontas
         dl.glow(Rect{tx - t[1], ly - th, tx + t[1], ly + th}, tk.color.ember.with_alpha(0.50f * k * flicker * edge),
@@ -771,7 +772,7 @@ void Dialog::draw(DrawList& dl, const Frame& f) const {
         const float by = std::max(y + 18.0f, p.y1 - 70.0f);
         dl.line(p.cx() - 180.0f, by, p.cx() + 180.0f, by, tk.color.hairline.with_alpha(k), 1.0f);
         const float ph = std::fmod(f.time, 1.6f) / 1.6f;
-        const float s = 0.5f - 0.5f * std::cos(ph * 6.2831853f);
+        const float s = 0.5f - 0.5f * nf::fm::cos(ph * 6.2831853f);
         const float cx = p.cx() - 135.0f + 270.0f * s;
         dl.fill(Rect{cx - 45.0f, by - 1.0f, cx + 45.0f, by + 1.0f}, tk.color.accent.with_alpha(k));
     }

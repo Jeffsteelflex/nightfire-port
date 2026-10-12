@@ -1,6 +1,8 @@
 // Nightfire PC: primeiro executável nativo do port.
-// Lê ACTION.ELF + FILES.BIN da cópia do usuário e roda as fases com Direct3D 11, em qualquer
-// resolução e proporção, com mouse e teclado.
+// Lê ACTION.ELF + FILES.BIN da cópia do usuário (platform/disc_source.h: a pasta com os arquivos extraídos, a imagem
+// .iso, o disco num leitor de DVD ou a cópia pessoal dentro do próprio executável) e roda as fases com Direct3D 11, em
+// qualquer resolução e proporção, com mouse e teclado. Sem um disco que sirva, a tela de configuração
+// (render/setup_app.h) pede a imagem do disco antes do jogo.
 //
 // Controles: clique captura o mouse, Esc solta (num menu ele fica solto e volta à captura quando o menu
 // fecha). Jogando (o Bond): mouse olha, WASD anda, Espaço pula, C ou Ctrl agacha, E usa (portas...), botão direito mira; o resto do mapeamento está em
@@ -18,7 +20,20 @@
 // e o mouse gira a visão sem o tick de atraso. Com --no-interp, o Game_Draw a cada quadro de vídeo, como antes.
 //
 // Linha de comando:
-//   --data <pasta>        pasta com ACTION.ELF e FILES.BIN (padrão: pasta atual ou do executável)
+//   --disc <caminho>      o disco do jogo: uma imagem .iso, a pasta com os arquivos extraídos (ACTION.ELF, FILES.BIN,
+//                         PS2\, MOVIES\...), um leitor de DVD ("D:") ou um executável com a cópia pessoal. Sem ele: a
+//                         cópia pessoal do próprio executável, a pasta dele (os arquivos ou uma .iso), a pasta atual e as
+//                         de cima do executável (o repositório), o [game] disc do nightfire.ini e os leitores de DVD;
+//                         sem nenhum que sirva, a tela de configuração. Só a versão americana (SLUS-20579) serve
+//   --data <pasta>        o mesmo que --disc (o nome antigo)
+//   --setup               mostra a tela de configuração mesmo com um disco que sirva (trocar o disco, fazer a cópia)
+//   --setup-pick <caminho> capturas: a resposta da janela de escolha de arquivo da tela de configuração
+//   --setup-input "<seq>" capturas: o roteiro da tela de configuração (como --input; o relógio conta da tela)
+//   --pack-disc <caminho> faz a cópia pessoal em um arquivo só (platform/disc_pack.h): este executável com os arquivos do
+//                         disco dentro (ACTION.ELF, SYSTEM.CNF, FILES.BIN, PS2\ e MOVIES\) e sai. O arquivo contém o jogo
+//                         do usuário: é só para ele, não pode ser compartilhado. Nunca dentro de um repositório git
+//   --out <arquivo.exe>   com --pack-disc: onde gravar (padrão: <executável>-personal.exe ao lado dele)
+//   --pack-no-movies      com --pack-disc: sem os filmes (uns 850 MB a menos)
 //   --level <hash>        começa direto nessa fase (sem o menu principal); sem ele, o menu principal do jogo
 //                         (07000048: idioma, cartão, "Press START", o menu, os codinomes e o mapa das missões)
 //   --save-dir <pasta>    a pasta do cartão de memória (os perfis; padrão: saves\ ao lado do executável). Com
@@ -149,6 +164,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <cmath>
@@ -156,9 +172,11 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "data/files_bin.h"
+#include "platform/arena.h"
 #include "data/texture_pack.h"
 #include "engine/break.h"
 #include "engine/door.h"
@@ -208,6 +226,8 @@
 #include "platform/bench_stats.h"
 #include "platform/gpu_adapter.h"
 #include "platform/crash_report.h"
+#include "platform/disc_pack.h"
+#include "platform/disc_source.h"
 #include "platform/game_options.h"
 #include "platform/gamepad.h"
 #include "platform/input_bindings.h"
@@ -226,10 +246,13 @@
 #include "render/remix_d3d9.h"
 #include "render/renderer.h"
 #include "render/runtime_gfx.h"
+#include "render/setup_app.h"
 #include "render/ui_hd_app.h"
 #include "render/ui_modern_app.h"
 #include "ui/modern_input.h"
+#include "ui/modern_setup.h"
 #include "ui/modern_wheel.h"
+#include "platform/fmath.h"
 
 using namespace nf;
 using namespace DirectX;
@@ -243,7 +266,14 @@ ModernUiApp* g_modern_app = nullptr;
 WeaponWheel g_wheel;
 
 struct Options {
-    std::wstring data;
+    std::wstring disc;      // --disc / --data (vazio: a procura de platform/disc_source.h)
+    std::wstring disc_ini;  // [game] disc do nightfire.ini
+    bool setup = false;           // --setup
+    std::wstring setup_pick;      // --setup-pick
+    std::string setup_input;      // --setup-input
+    std::wstring pack_disc;       // --pack-disc
+    std::wstring pack_out;        // --out
+    bool pack_movies = true;      // --pack-no-movies
     std::string level;      // --level (vazio: o menu principal)
     std::wstring save_dir;  // --save-dir
     int width = 1600, height = 900;
@@ -573,18 +603,50 @@ std::wstring widen(const std::string& s) { return std::wstring(s.begin(), s.end(
 
 bool file_exists(const std::wstring& p) { return GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES; }
 
-std::wstring default_data_dir() {
-    wchar_t buf[MAX_PATH];
-    GetCurrentDirectoryW(MAX_PATH, buf);
-    std::wstring cwd = buf;
-    if (file_exists(cwd + L"\\FILES.BIN")) return cwd;
-    GetModuleFileNameW(nullptr, buf, MAX_PATH);
-    std::wstring dir = buf;
+std::wstring from_utf8(const std::string& s) {
+    if (s.empty()) return {};
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), nullptr, 0);
+    std::wstring w(size_t(std::max(0, n)), L'\0');
+    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), w.data(), n);
+    return w;
+}
+
+std::string to_utf8(const std::wstring& w) {
+    if (w.empty()) return {};
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), int(w.size()), nullptr, 0, nullptr, nullptr);
+    std::string s(size_t(std::max(0, n)), '\0');
+    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.data(), int(w.size()), s.data(), n, nullptr, nullptr);
+    return s;
+}
+
+std::wstring exe_path() {
+    wchar_t buf[MAX_PATH * 4];
+    const DWORD n = GetModuleFileNameW(nullptr, buf, DWORD(std::size(buf)));
+    return std::wstring(buf, n);
+}
+
+// O pacote de texturas HD do jogador (formato do PCSX2): ao lado do disco (a pasta dele, a da imagem .iso), senão na
+// pasta do executável e nas de cima, senão na pasta atual. Com o disco numa pasta é a <pasta>\textures de antes.
+std::wstring default_textures_dir(const nf::DiscSource& disc) {
+    const std::wstring tail = L"\\textures\\SLUS-20579\\replacements";
+    std::vector<std::wstring> candidates{disc.folder()};
+    std::wstring dir = exe_path();
     for (int up = 0; up < 4; ++up) {
-        dir = dir.substr(0, dir.find_last_of(L"\\/"));
-        if (file_exists(dir + L"\\FILES.BIN")) return dir;
+        const size_t cut = dir.find_last_of(L"\\/");
+        if (cut == std::wstring::npos) break;
+        dir = dir.substr(0, cut);
+        candidates.push_back(dir);
     }
-    return cwd;
+    wchar_t buf[MAX_PATH * 4];
+    candidates.push_back(std::wstring(buf, GetCurrentDirectoryW(DWORD(std::size(buf)), buf)));
+    for (const std::wstring& c : candidates) {
+        std::wstring base = c;
+        while (!base.empty() && (base.back() == L'\\' || base.back() == L'/')) base.pop_back();
+        if (!base.empty() && file_exists(base + tail)) return base + tail;
+    }
+    std::wstring base = disc.folder();
+    while (!base.empty() && (base.back() == L'\\' || base.back() == L'/')) base.pop_back();
+    return base + tail;
 }
 
 // Só no PC: as opções salvas em nightfire.ini (platform/settings.h) são o ponto de partida; a linha de
@@ -630,6 +692,8 @@ void apply_settings(Options& o, const nf::Settings& s) {
     o.prompts = s.get("ui", "prompts", o.prompts);
     o.subtitles = s.get_bool("ui", "subtitles", o.subtitles);
     o.movies = s.get_bool("video", "movies", o.movies);
+    // O disco escolhido na tela de configuração (platform/disc_source.h; UTF-8 no arquivo).
+    o.disc_ini = from_utf8(s.get("game", "disc", ""));
     o.sensitivity = s.get_float("controls", "mouse_sensitivity", o.sensitivity);
     nf::load_controls(s, &nf::controls());  // [bindings] e o resto de [controls]
     // As opções do jogo que o .ini lembra (platform/game_options.h): psiInput_Init as aplica na partida.
@@ -657,7 +721,13 @@ Options parse_args() {
     for (int i = 1; i < argc; ++i) {
         const std::wstring a = argv[i];
         const auto next = [&]() -> std::wstring { return i + 1 < argc ? argv[++i] : L""; };
-        if (a == L"--data") o.data = next();
+        if (a == L"--data" || a == L"--disc") o.disc = next();
+        else if (a == L"--setup") o.setup = true;
+        else if (a == L"--setup-pick") o.setup_pick = next();
+        else if (a == L"--setup-input") o.setup_input = narrow(next());
+        else if (a == L"--pack-disc") o.pack_disc = next();
+        else if (a == L"--out") o.pack_out = next();
+        else if (a == L"--pack-no-movies") o.pack_movies = false;
         else if (a == L"--config") next();  // já lido acima
         else if (a == L"--level") o.level = narrow(next());
         else if (a == L"--save-dir") o.save_dir = next();
@@ -775,7 +845,6 @@ Options parse_args() {
     }
     LocalFree(argv);
     o.config_path = config;
-    if (o.data.empty()) o.data = default_data_dir();
     // O benchmark: sem limite de quadros nem VSync, e um segundo de aquecimento depois da carga se --wait não veio.
     if (o.bench > 0.0f) {
         if (!o.bench_vsync) {
@@ -798,14 +867,14 @@ struct Camera {
     float speed = 5.0f;
 
     XMVECTOR forward() const {
-        return XMVectorSet(std::sin(yaw) * std::cos(pitch), std::sin(pitch), std::cos(yaw) * std::cos(pitch), 0);
+        return XMVectorSet(nf::fm::sin(yaw) * nf::fm::cos(pitch), nf::fm::sin(pitch), nf::fm::cos(yaw) * nf::fm::cos(pitch), 0);
     }
     void look_at(const float eye[3], const float target[3]) {
         pos = {eye[0], eye[1], eye[2]};
         const float dx = target[0] - eye[0], dy = target[1] - eye[1], dz = target[2] - eye[2];
         const float len = std::sqrt(dx * dx + dy * dy + dz * dz);
-        yaw = std::atan2(dx, dz);
-        pitch = len > 0 ? std::asin(dy / len) : 0;
+        yaw = nf::fm::atan2(dx, dz);
+        pitch = len > 0 ? nf::fm::asin(dy / len) : 0;
         speed = std::max(2.0f, len * 0.25f);
     }
     // Onde o jogo poria o jogador (Player_Start -> Player_Init): na altura dos olhos, olhando para a
@@ -821,8 +890,8 @@ struct Camera {
     // A partir de uma matriz de câmera do jogo (linha 2 para a frente, linha 3 a posição).
     void from_matrix(const MATRIX& m) {
         pos = {m.m[3][0], m.m[3][1], m.m[3][2]};
-        yaw = std::atan2(m.m[2][0], m.m[2][2]);
-        pitch = std::asin(std::clamp(m.m[2][1], -1.0f, 1.0f));
+        yaw = nf::fm::atan2(m.m[2][0], m.m[2][2]);
+        pitch = nf::fm::asin(std::clamp(m.m[2][1], -1.0f, 1.0f));
     }
     static constexpr float kEyeHeight = 1.6f;
 };
@@ -1026,7 +1095,7 @@ void write_frame_report(const std::wstring& png, const std::string& level, size_
         std::fprintf(f, "hud %s\n", line);
         Mission_Describe(line, sizeof(line));
         std::fprintf(f, "missao %s recomecos %u\n", line, g_mission_port.restarts);
-        const ANIMOBJ_tag* anim = reinterpret_cast<const ANIMOBJ_tag*>(p->sphere_src);
+        const ANIMOBJ_tag* anim = reinterpret_cast<const ANIMOBJ_tag*>(nf::raw(p->sphere_src));
         if (b->gun != nullptr && anim != nullptr) {
             const int8_t w = anim->weapon;
             std::fprintf(f, "arma %d estado %u pente %d municao %d mirando %d zoom %.2f\n", w, b->gun->state,
@@ -1038,7 +1107,7 @@ void write_frame_report(const std::wstring& png, const std::string& level, size_
                 std::fprintf(f, "%s arma_pos %.3f %.3f %.3f arma_giro %.3f %.3f %.3f", ads_line, b->gun->pos.x,
                              b->gun->pos.y, b->gun->pos.z, b->gun->rot.x, b->gun->rot.y, b->gun->rot.z);
                 // A alça e a massa da tabela levadas pela matriz da arma até o espaço da câmera 0 (lado, cima, frente).
-                const ANIMOBJ_tag* ga = reinterpret_cast<const ANIMOBJ_tag*>(b->gun->sphere_src);
+                const ANIMOBJ_tag* ga = reinterpret_cast<const ANIMOBJ_tag*>(nf::raw(b->gun->sphere_src));
                 const AdsSightEntry* se = ga != nullptr ? ads_sight_entry(ga->skin->hash) : nullptr;
                 if (se != nullptr && glb_viewer[0] != nullptr) {
                     const MATRIX& gm = b->gun->matrix;
@@ -1160,7 +1229,7 @@ void write_frame_report(const std::wstring& png, const std::string& level, size_
                      g_rigid_body_stats.cylinder_hits);
         if (near_rb != nullptr) {
             const auto* rb = static_cast<const RIGIDBODY*>(near_rb->data);
-            const float tilt = std::acos(std::max(-1.0f, std::min(1.0f, near_rb->matrix.m[1][1]))) * 57.29578f;
+            const float tilt = nf::fm::acos(std::max(-1.0f, std::min(1.0f, near_rb->matrix.m[1][1]))) * 57.29578f;
             std::fprintf(f, " | perto %.2f %.2f %.2f dist %.2f tipo %u massa %.1f inclinacao %.2f giro %.3f vel %.3f",
                          near_rb->matrix.m[3][0], near_rb->matrix.m[3][1], near_rb->matrix.m[3][2], std::sqrt(near_d),
                          rb->kind, rb->mass, tilt, Vec_Magnitude(&rb->omega), Vec_Magnitude(&rb->vel));
@@ -1242,6 +1311,15 @@ void write_frame_report(const std::wstring& png, const std::string& level, size_
                  g_psi_loading_stats.screens, g_psi_loading_stats.wipes, g_psi_loading_stats.blobs,
                  g_psi_loading_stats.steps, g_psi_loading_stats.pumps, g_psi_loading_stats.last_ms, BlobTexture,
                  BlobTextWidth, BlobTextHeight, g_loading.image, g_loading.presents);
+#if NF_PTR64
+    // 64 bits: a arena (platform/arena.h), onde ficam o heap do jogo, todo new/delete e a pilha do jogo.
+    {
+        const nf::arena::Stats a = nf::arena::stats();
+        std::fprintf(f, "arena comprometida %.1f MB em_uso %.1f MB pico %.1f MB alocacoes %llu pedacos %u/%u\n",
+                     double(a.committed) / 1048576.0, double(a.in_use) / 1048576.0, double(a.peak) / 1048576.0,
+                     static_cast<unsigned long long>(a.allocations), a.chunks_used, a.chunks_total);
+    }
+#endif
     // Personagens da IA: quantos e o mais perto da câmera (posição, giro, estado, DAnim, pele).
     {
         const Drone_tag* best = nullptr;
@@ -1336,7 +1414,7 @@ void write_frame_report(const std::wstring& png, const std::string& level, size_
                     const float ld = std::sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
                     if (lt > 0.0f && ld > 0.0f) {
                         const float c = (tx * dir.x + ty * dir.y + tz * dir.z) / (lt * ld);
-                        err = std::acos(std::max(-1.0f, std::min(1.0f, c))) * 57.29578f;
+                        err = nf::fm::acos(std::max(-1.0f, std::min(1.0f, c))) * 57.29578f;
                     }
                 }
                 std::fprintf(f, " | perto %.2f %.2f %.2f giro_tronco %.3f inclinacao %.3f flags %x erro_cano %.1f",
@@ -1465,6 +1543,96 @@ void console_write(const std::string& text) {
     WriteFile(h, text.data(), DWORD(text.size()), &written, nullptr);
 }
 
+// O mesmo com texto largo: no console, WriteConsoleW (os acentos e o "…" saem certos); redirecionado, UTF-8.
+void console_write_w(const std::wstring& text) {
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h == nullptr || h == INVALID_HANDLE_VALUE) {
+        if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+            h = CreateFileW(L"CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+        }
+    }
+    if (h == nullptr || h == INVALID_HANDLE_VALUE) return;
+    DWORD mode = 0, written = 0;
+    if (GetConsoleMode(h, &mode)) {
+        WriteConsoleW(h, text.data(), DWORD(text.size()), &written, nullptr);
+        return;
+    }
+    const std::string u = to_utf8(text);
+    WriteFile(h, u.data(), DWORD(u.size()), &written, nullptr);
+}
+
+std::wstring pc_text(PcText id) { return from_utf8(PcText_Utf8(id)); }
+
+std::wstring pc_text_s(PcText id, const std::wstring& arg) {
+    const std::wstring fmt = pc_text(id);
+    const size_t at = fmt.find(L"%s");
+    return at == std::wstring::npos ? fmt : fmt.substr(0, at) + arg + fmt.substr(at + 2);
+}
+
+// --pack-disc: a cópia pessoal em um arquivo só (platform/disc_pack.h), sem janela: o andamento e o resultado no console.
+int run_pack_cli(const Options& opt) {
+    PcText_SetLanguage(opt.language_pc);
+    const nf::DiscTitle& title = nf::nightfire_disc();
+    const nf::DiscFound f = nf::probe_disc(opt.pack_disc, nf::DiscOrigin::Command, title);
+    if (!f.ok()) {
+        console_write_w(pc_text(PcText::SuErrTitle) + L": " + nf::ui::setup_problem_text(f.check) +
+                        (f.check.detail.empty() ? std::wstring() : L" (" + from_utf8(f.check.detail) + L")") + L"\n");
+        return 2;
+    }
+    const std::wstring exe = exe_path();
+    const std::wstring out = opt.pack_out.empty() ? nf::default_pack_path(exe) : opt.pack_out;
+    const std::wstring hd = UiHdApp::find_dir(opt.hd_ui.dir, f.source->folder());
+    const nf::PackPlan plan = nf::pack_plan(*f.source, title, exe, opt.pack_movies, hd, "PORT/HD_UI/");
+    console_write_w(pc_text(PcText::SuDescPackTitle) + L": " + f.source->location() + L" -> " + out + L"\n" +
+                    std::to_wstring(plan.files.size()) + L" + " + std::to_wstring(plan.extras.size()) + L" (" +
+                    nf::ui::setup_size_text(plan.bytes) + L")\n" + pc_text(PcText::SuPackWarning) + L"\n");
+    nf::PackProgress progress;
+    nf::PackError error = nf::PackError::None;
+    std::string detail;
+    std::atomic<bool> finished{false};
+    bool ok = false;
+    std::thread worker([&] {
+        ok = nf::pack_disc(*f.source, title, plan, exe, out, &progress, &error, &detail);
+        finished = true;
+    });
+    int shown = -1;
+    while (!finished) {
+        Sleep(250);
+        const uint64_t total = progress.total;
+        const int pct = total == 0 ? 0 : int(double(progress.done) * 100.0 / double(total));
+        if (pct / 10 != shown / 10) {
+            shown = pct;
+            wchar_t n[16];
+            std::swprintf(n, 16, L"%d", pct);
+            std::wstring line = pc_text(PcText::SuPacking);
+            const size_t at = line.find(L"%d");
+            if (at != std::wstring::npos) line = line.substr(0, at) + n + line.substr(at + 2);
+            const size_t pp = line.find(L"%%");
+            if (pp != std::wstring::npos) line.erase(pp, 1);
+            console_write_w(line + L"\n");
+        }
+    }
+    worker.join();
+    if (!ok) {
+        std::wstring why;
+        switch (error) {
+            case nf::PackError::InsideGitTree: why = pc_text(PcText::SuPackInGit); break;
+            case nf::PackError::SameFile: why = pc_text(PcText::SuPackSame); break;
+            case nf::PackError::NotVerified: why = pc_text(PcText::SuPackNoCnf); break;
+            case nf::PackError::MissingFile: why = pc_text_s(PcText::SuPackMissing, from_utf8(detail)); break;
+            case nf::PackError::NoSpace: why = pc_text_s(PcText::SuPackNoSpace, from_utf8(detail)); break;
+            case nf::PackError::Write: why = pc_text_s(PcText::SuPackWrite, from_utf8(detail)); break;
+            case nf::PackError::Read: why = pc_text_s(PcText::SuPackRead, from_utf8(detail)); break;
+            case nf::PackError::Cancelled: why = pc_text(PcText::SuPackCancelled); break;
+            default: break;
+        }
+        console_write_w(pc_text(PcText::SuPackFailTitle) + L": " + why + L"\n");
+        return 3;
+    }
+    console_write_w(pc_text_s(PcText::SuPackDone, out) + L"\n" + pc_text(PcText::SuPackWarning) + L"\n");
+    return 0;
+}
+
 // O relógio do limite de quadros, em segundos.
 double now_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -1529,8 +1697,7 @@ D3D9FrameParams d3d9_frame(const float cam[16], float fov_deg, float aspect, flo
 
 }  // namespace
 
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-    nf::install_crash_report();
+int app_main() {
     try {
         const Options opt = parse_args();
         // --list-adapters: os adaptadores de vídeo pelo DXGI (com o teste de memória unificada) e sai.
@@ -1552,52 +1719,30 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
             console_write(out);
             return 0;
         }
-        if (!file_exists(opt.data + L"\\FILES.BIN") || !file_exists(opt.data + L"\\ACTION.ELF")) {
-            MessageBoxW(nullptr,
-                        (L"Não encontrei FILES.BIN e ACTION.ELF em:\n" + opt.data +
-                         L"\n\nUse --data <pasta> com os arquivos extraídos da sua cópia do jogo.")
-                            .c_str(),
+        // --pack-disc: a cópia pessoal em um arquivo só (platform/disc_pack.h), sem janela.
+        if (!opt.pack_disc.empty()) return run_pack_cli(opt);
+        // O idioma dos textos do port (a tela de configuração vem antes do resto).
+        PcText_SetLanguage(opt.language_pc);
+        // O disco do jogador (platform/disc_source.h): o da linha de comando sozinho, ou a procura (a cópia pessoal, a
+        // pasta do executável, a atual, as de cima, o [game] disc do nightfire.ini, os leitores de DVD).
+        const nf::DiscTitle& disc_title = nf::nightfire_disc();
+        nf::DiscFound found;
+        if (!opt.disc.empty()) {
+            found = nf::probe_disc(opt.disc, nf::DiscOrigin::Command, disc_title);
+        } else {
+            nf::DiscPlaces places = nf::disc_places_here();
+            places.settings = opt.disc_ini;
+            found = nf::find_disc(places, disc_title);
+        }
+        // Sem um disco que sirva (ou com --setup): a tela de configuração, na janela do jogo.
+        const bool need_setup = opt.setup || !found.ok();
+        if (need_setup && opt.d3d9ff) {
+            MessageBoxW(nullptr, (pc_text(PcText::SuErrTitle) + L"\n" + nf::ui::setup_problem_text(found.check)).c_str(),
                         L"Nightfire PC", MB_ICONERROR);
             return 1;
         }
-
-        FilesBin files(opt.data);
-        if (!install_files(files, opt.data)) throw std::runtime_error("não consegui abrir o FILES.BIN");
-        // O som: o driver do IOP lê a pasta PS2\ dos dados; a saída é o XAudio2, um WAV (--audio-dump) ou nada
-        // (--no-audio, e as capturas).
-        nf::sfx_iop_set_root(std::filesystem::path(opt.data));
         // As capturas e o --bench: só o roteiro de --input, sem som, sem VSync, o cartão em memória.
         const bool scripted = !opt.screenshot.empty() || opt.bench > 0.0f;
-        // Os filmes (MOVIES\30_FPS ao lado do FILES.BIN; platform/psi_movie.h): pelo [video] movies; nas capturas e no
-        // --bench só com --movies ou --movie-frame (sem eles as páginas de filme seguem na hora, como antes).
-        nf::movie_set_dir(opt.data + L"\\MOVIES\\30_FPS");
-        nf::movie_set_enabled(opt.movie_frame >= 0 || opt.movies_flag == 1 ||
-                              (opt.movies_flag != 0 && opt.movies && !scripted));
-        if (!opt.audio_dump.empty()) {
-            nf::audio_out_open_dump(opt.audio_dump);
-        } else if (!opt.no_audio && !scripted) {
-            nf::audio_out_open_device();
-        }
-        std::string tables_error;
-        if (!install_game_tables(opt.data, &tables_error)) {
-            throw std::runtime_error("construtores estáticos do ACTION.ELF: " + tables_error);
-        }
-        // Depuração: todas as missões cumpridas com platina nos perfis padrão.
-        if (opt.unlock_all) Menu_PortUnlockAll();
-        std::vector<std::string> levels = list_levels(files);
-        // Sem --level, o menu principal (07000048): o boot do jogo pede ele.
-        const bool front_end = opt.level.empty();
-        const std::string first_level = front_end ? "07000048" : opt.level;
-        size_t level_index = 0;
-        for (size_t i = 0; i < levels.size(); ++i) {
-            if (levels[i] == first_level) level_index = i;
-        }
-        // Só do PC: o cartão de memória é uma pasta (saves\ ou --save-dir); nas capturas sem --save-dir, em memória.
-        std::unique_ptr<nf::FolderCard> folder_card;
-        if (!opt.save_dir.empty() || !scripted) {
-            folder_card = std::make_unique<nf::FolderCard>(opt.save_dir.empty() ? nf::default_save_dir() : opt.save_dir);
-            nf::set_card(folder_card.get());
-        }
 
         Window window(L"Nightfire PC", opt.width, opt.height, opt.window_mode != nf::WindowMode::Windowed);
         // Capturas fora da tela, no tamanho pedido (a janela não passa da área de trabalho); o --bench com --offscreen.
@@ -1626,6 +1771,101 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         }
         Renderer renderer(d3d11_window, view_w, view_h, opt.vsync && opt.screenshot.empty(), offscreen || opt.d3d9ff,
                           chosen_adapter.Get());
+
+        // A tela de configuração (render/setup_app.h): escolher a imagem do disco, um leitor, fazer a cópia pessoal.
+        if (need_setup) {
+            nf::SetupOptions so;
+            so.window = &window;
+            so.renderer = &renderer;
+            so.hd_ui_dir = UiHdApp::find_dir(opt.hd_ui.dir, found.source != nullptr ? found.source->folder() : std::wstring());
+            so.build = NF_PORT_BUILD;
+            so.title = &disc_title;
+            so.found = found;
+            so.capture = !opt.screenshot.empty();
+            so.screenshot = opt.screenshot;
+            so.wait = opt.wait_given ? opt.wait : 1.0f;
+            so.pick = opt.setup_pick;
+            so.exe = exe_path();
+            so.pack_movies = opt.pack_movies;
+            // O roteiro das capturas (--setup-input, como o --input: teclas, o controle simulado, cmouse=x,y na tela
+            // virtual de 1920 x 1080).
+            const std::vector<InputStep> setup_script = parse_input(opt.setup_input);
+            so.script = [&setup_script, &renderer](float t, nf::SetupFrameInput& in) {
+                for (const InputStep& st : setup_script) {
+                    if (st.has_mouse) {
+                        const nf::ui::Canvas cv = nf::ui::make_canvas(renderer.width(), renderer.height());
+                        in.mouse_inside = true;
+                        in.mouse_x = st.mouse_canvas ? nf::ui::window_x(cv, st.mouse_x) : st.mouse_x;
+                        in.mouse_y = st.mouse_canvas ? nf::ui::window_y(cv, st.mouse_y) : st.mouse_y;
+                    }
+                    if (t < st.seconds) {
+                        for (const int vk : st.keys) in.keys[vk] = true;
+                        if (st.uses_pad) {
+                            in.pad = st.pad;
+                            in.pad.connected = !st.pad_off;
+                        }
+                        return;
+                    }
+                    t -= st.seconds;
+                }
+            };
+            // A escolha vai para o [game] disc do nightfire.ini (nas capturas sem --config, não).
+            so.store = [&opt](const std::wstring& path) {
+                if (!opt.can_save_settings) return false;
+                nf::settings().set("game", "disc", to_utf8(path));
+                return nf::settings().save();
+            };
+            const nf::SetupResult sr = nf::run_setup(so);
+            if (sr.captured || sr.quit || !sr.found.ok()) return 0;
+            found = sr.found;
+        }
+        const std::shared_ptr<nf::DiscSource> disc = found.source;
+        // Uma cópia pessoal sozinha numa pasta qualquer: o hd_ui do port que veio dentro dela (as fontes e os glifos do
+        // estilo Modern, o map.json da camada HD), tirado uma vez para a pasta de dados do usuário.
+        UiHdOptions hd_ui_options = opt.hd_ui;
+        if (disc->kind() == nf::DiscKind::Packed && UiHdApp::find_dir(hd_ui_options.dir, disc->folder()).empty()) {
+            hd_ui_options.dir = nf::extract_packed_extras(*disc, "PORT/HD_UI");
+        }
+        // A linha do relatório das capturas.
+        const std::string disc_line = "disco " + disc->describe() + " origem " + nf::disc_origin_name(found.origin) +
+                                      " versao " + (found.check.boot_id.empty() ? std::string("-") : found.check.boot_id) +
+                                      (found.check.unverified ? " (nao conferida)" : "");
+
+        FilesBin files(disc);
+        if (!install_files(files)) throw std::runtime_error("não consegui abrir o FILES.BIN");
+        // O som: o driver do IOP lê a pasta PS2\ do disco; a saída é o XAudio2, um WAV (--audio-dump) ou nada
+        // (--no-audio, e as capturas).
+        nf::sfx_iop_set_disc(disc);
+        // Os filmes (MOVIES\30_FPS do disco; platform/psi_movie.h): pelo [video] movies; nas capturas e no --bench só com
+        // --movies ou --movie-frame (sem eles as páginas de filme seguem na hora, como antes).
+        nf::movie_set_disc(disc);
+        nf::movie_set_enabled(opt.movie_frame >= 0 || opt.movies_flag == 1 ||
+                              (opt.movies_flag != 0 && opt.movies && !scripted));
+        if (!opt.audio_dump.empty()) {
+            nf::audio_out_open_dump(opt.audio_dump);
+        } else if (!opt.no_audio && !scripted) {
+            nf::audio_out_open_device();
+        }
+        std::string tables_error;
+        if (!install_game_tables(*disc, &tables_error)) {
+            throw std::runtime_error("construtores estáticos do ACTION.ELF: " + tables_error);
+        }
+        // Depuração: todas as missões cumpridas com platina nos perfis padrão.
+        if (opt.unlock_all) Menu_PortUnlockAll();
+        std::vector<std::string> levels = list_levels(files);
+        // Sem --level, o menu principal (07000048): o boot do jogo pede ele.
+        const bool front_end = opt.level.empty();
+        const std::string first_level = front_end ? "07000048" : opt.level;
+        size_t level_index = 0;
+        for (size_t i = 0; i < levels.size(); ++i) {
+            if (levels[i] == first_level) level_index = i;
+        }
+        // Só do PC: o cartão de memória é uma pasta (saves\ ou --save-dir); nas capturas sem --save-dir, em memória.
+        std::unique_ptr<nf::FolderCard> folder_card;
+        if (!opt.save_dir.empty() || !scripted) {
+            folder_card = std::make_unique<nf::FolderCard>(opt.save_dir.empty() ? nf::default_save_dir() : opt.save_dir);
+            nf::set_card(folder_card.get());
+        }
         // Texturas e malhas nascem durante o ResetMap_Load (psiCreateMapTextures/psiCreateEntityGfx).
         RuntimeGfx gfx(renderer);
         // A tela de carga (platform/psi_loading.h): apresentada só numa janela de verdade.
@@ -1650,12 +1890,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         }
         // Pacote de texturas HD (formato do PCSX2), se houver: cada textura carregada procura a sua.
         TexturePack hd_pack;
-        hd_pack.open(opt.textures.empty() ? opt.data + L"\\textures\\SLUS-20579\\replacements" : opt.textures);
+        hd_pack.open(opt.textures.empty() ? default_textures_dir(*disc) : opt.textures);
         if (!hd_pack.empty()) gfx.set_texture_pack(&hd_pack);
         renderer.use_hd(!opt.no_hd);
         // Camada 2D em alta definição (F4): hd_ui/map.json, substitutas e fontes.
         UiHdApp ui_hd;
-        ui_hd.init(opt.hd_ui, opt.data, renderer, gfx);
+        ui_hd.init(hd_ui_options, disc->folder(), renderer, gfx);
         if (nf::UiHdPromptSet prompts; nf::ui_hd_parse_prompt_set(opt.prompts, &prompts)) nf::UiHd_SetPromptSetting(prompts);
         // O estilo de menu Modern (src/ui; Direct2D sempre, independente da camada HD): as opções do PC por cima da
         // pausa quando [ui] menu_style = modern.
@@ -1669,7 +1909,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         // Só do PC: as opções de vídeo (platform/video_settings.h) em vigor e o controlador com que a página
         // de opções do menu (engine/menu_pc_options.h) as aplica e grava no nightfire.ini.
         float fov = opt.fov;
-        PcText_SetLanguage(opt.language_pc);
         renderer.set_texture_filter(opt.filter);
         renderer.set_scene_quality(opt.render_scale, opt.msaa);
         renderer.set_alpha_to_coverage(opt.alpha_coverage);
@@ -2336,7 +2575,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
             if (free_cam && !scripted) {
                 cam.yaw -= mdx * opt.sensitivity;
                 cam.pitch = std::clamp(cam.pitch - mdy * opt.sensitivity, -1.55f, 1.55f);
-                cam.speed *= std::pow(1.25f, wheel);
+                cam.speed *= nf::fm::pow(1.25f, wheel);
 
                 const XMVECTOR fwd = cam.forward();
                 const XMVECTOR right = XMVector3Normalize(XMVector3Cross(fwd, XMVectorSet(0, 1, 0, 0)));
@@ -2365,7 +2604,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
                 if (!(z >= 1.0f)) z = 1.0f;
                 z = std::min(z, 64.0f) * ads_view_zoom();
                 if (z <= 1.0f) return fov_deg;
-                return XMConvertToDegrees(2.0f * std::atan(std::tan(XMConvertToRadians(fov_deg) * 0.5f) / z));
+                return XMConvertToDegrees(2.0f * nf::fm::atan(nf::fm::tan(XMConvertToRadians(fov_deg) * 0.5f) / z));
             };
             // O quadro do jogo. Na câmera livre ela é a câmera 0: o Game_Run atualiza as câmeras a
             // cada tick (e põe a 0 nos olhos do jogador), então aqui a 0 volta para a câmera livre a
@@ -2567,7 +2806,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
                 // segundo em qualquer taxa).
                 const float fresh = std::min(1.0f, float(tick_screen_blur) / 128.0f);
                 float keep = 1.0f - fresh;
-                if (keep > 0.0f) keep = std::pow(keep, std::max(0.0f, dt * 60.0f));
+                if (keep > 0.0f) keep = nf::fm::pow(keep, std::max(0.0f, dt * 60.0f));
                 renderer.screen_blur(keep);
                 // Só do PC: numa janela mais larga que 4:3, uma luneta do HUD (as panes 6, 11, 17, 18 e 19, que no PS2 cobrem
                 // a tela inteira, aqui a área 4:3 em peças) ganha faixas pretas dos lados: com o zoom agora desenhado, o mundo
@@ -2782,7 +3021,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
                                        (d3d9 != nullptr ? "\n" + d3d9->describe() + " | texturas_d3d11 " +
                                                               std::to_string(gfx.textures())
                                                         : std::string()) +
-                                       tline + wheel_line);
+                                       tline + wheel_line + "\n" + disc_line);
             }
             if (shot_taken && dump_done) {
                 if (dump_tsv != nullptr) std::fclose(dump_tsv);
@@ -2980,4 +3219,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         MessageBoxA(nullptr, e.what(), "Nightfire PC: erro", MB_ICONERROR);
         return 1;
     }
+}
+
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
+    nf::install_crash_report();
+    // 64 bits: o jogo roda na pilha da arena (platform/arena.h); 32 bits: direto.
+    return nf::run_main([] { return app_main(); });
 }

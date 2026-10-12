@@ -95,7 +95,7 @@ void CacheLoadingBlobs() {
     if (item == nullptr) return;
     uint32_t rec;
     std::memcpy(&rec, item, 4);
-    const pstex_tag* tex = reinterpret_cast<const pstex_tag*>(uintptr_t(rec));
+    const pstex_tag* tex = nf::p32_ptr<const pstex_tag>(rec);
     if (tex == nullptr || tex->tex_index >= kMaxPS2Textures) return;  // só no port: o original não confere
     const PS2TEX_tag& t = Tex[tex->tex_index];
     BlobTextWidth = t.width;

@@ -132,7 +132,7 @@ TEST(collide_sphere_and_ray_against_floor) {
     FloorRoom room(true, 0.0f);
     // Esfera de raio 1 com o centro 0,5 acima do piso: acerto a 0,5 e empurrão de 0,5 para cima.
     _VECTOR pos{1, 0.5f, 1, 0};
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     CHECK(Collide_SphereIntersect(&pos, 1.0f, room.cel, nullptr, nullptr, &hits, 1, 0, 0x90, 0));
     CHECK(hits != nullptr && hits->next == nullptr && hits->cel == room.cel);
     CHECK_NEAR(hits->dist, 0.5, 1e-3);
@@ -161,7 +161,7 @@ TEST(collide_uses_the_cel_transform) {
     fresh();
     FloorRoom room(false, 100.0f);  // sem o bit de identidade: geometria deslocada para x = 100
     const _VECTOR from{102, 5, 3, 0}, to{102, -5, 3, 0};
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     CHECK(Collide_RayIntersect(&from, &to, room.cel, nullptr, nullptr, &hits, 1, 0x90, 0));
     CHECK_NEAR(hits->pos.x, 102.0, 1e-3);
     CHECK_NEAR(hits->pos.y, 0.0, 1e-3);

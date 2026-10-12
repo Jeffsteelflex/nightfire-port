@@ -4,9 +4,12 @@
 // No PS2 os arquivos do jogo estão dentro de FILES.BIN, indexado pela tabela FileList (118 entradas
 // de 32 bytes no .data do executável). psiFileOpen procura o nome e posiciona o cursor; psiFileRead
 // lê setores de 0x800 bytes a partir do cursor e o avança. No PC o cursor é um deslocamento em
-// setores dentro de FILES.BIN, lido com fread.
+// setores dentro de FILES.BIN, lido pela fonte do disco (platform/disc_source.h: uma pasta, a imagem ISO, o leitor de
+// DVD ou a cópia pessoal).
 
 #include <cstdint>
+
+#include "platform/disc_source.h"
 
 struct FILELIST_tag {
     char name[16];
@@ -21,6 +24,8 @@ extern FILELIST_tag FileList[kFileListCount];
 
 // Só no PC: abre FILES.BIN. FileList precisa estar preenchida antes (o port a lê do ACTION.ELF).
 // Sem isso, m_file fica negativo e psiFileRead devolve nulo, como no PS2 sem disco.
+bool psiFileSetup(nf::DiscFile files_bin);
+// O FILES.BIN de um arquivo do PC (os testes).
 bool psiFileSetup(const wchar_t* files_bin_path);
 void psiFileShutdown();
 

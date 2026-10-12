@@ -15,7 +15,8 @@
 // (PS2_SampleSdSetSwitch zera os bits abaixo da voz com "& -bit").
 //
 // Divergências (comentadas nas funções):
-//  - Arquivos: o driver lê do CD (sceCdRead, threads); aqui são lidos na hora do disco (a pasta PS2/ dos dados).
+//  - Arquivos: o driver lê do CD (sceCdRead, threads); aqui são lidos na hora do disco do jogador (a pasta PS2/ dele:
+//    platform/disc_source.h, uma pasta, a imagem ISO, o leitor ou a cópia pessoal).
 //  - Streams (falas): no PS2 os dados vêm do CD em pedaços para dois buffers da RAM de som (SFXUpdateStreams,
 //    marcadores, ES_UpdateStreamMemCpy); aqui a fala inteira é lida para a memória ao começar e a voz a toca de lá
 //    (Spu2::set_stream). O fim da fala é o fim do ADPCM (o PS2 para no marcador de fim, 0x30 bytes antes). A fala
@@ -30,7 +31,9 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 
+#include "platform/disc_source.h"
 #include "platform/spu2.h"
 
 namespace nf {
@@ -38,9 +41,11 @@ namespace nf {
 // A SPU2 que o driver programa (o áudio do jogo sai dela: platform/audio_out.h).
 Spu2& spu();
 
-// A raiz dos dados (a pasta com PS2/; padrão: nada carrega). Chamado por main.cpp e pelos verificadores.
+// O disco de onde o driver lê a pasta PS2/ (padrão: nenhum, nada carrega). Chamado por main.cpp e pelos verificadores.
+void sfx_iop_set_disc(std::shared_ptr<const DiscSource> disc);
+const DiscSource* sfx_iop_disc();
+// O mesmo com uma pasta do PC (a que tem PS2/; vazia: nenhum disco). Os testes montam um disco de mentira numa pasta.
 void sfx_iop_set_root(const std::filesystem::path& root);
-const std::filesystem::path& sfx_iop_root();
 
 // O RPC: executa os comandos (até o 5 ou o 0x10) e copia os 0x154 bytes de SFXActiveData para out (pode ser nulo).
 // Antes, a SPU avança o tempo passado desde o último lote (frames de 48 kHz contados por audio_out_tick).

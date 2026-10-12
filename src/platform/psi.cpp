@@ -2,6 +2,8 @@
 
 #include "platform/psi.h"
 
+#include "platform/arena.h"
+
 #include <windows.h>
 
 #include <cstring>
@@ -60,9 +62,16 @@ uint32_t PS2HeapSize = 0;
 // Reimplementada: o original procura por busca binária o maior malloc que termina abaixo de
 // 0x1fe0000 (o fim da RAM menos a pilha). Aqui o heap tem tamanho fixo.
 void psiMem_Init(uint8_t** heap, uint32_t* size) {
+#if NF_PTR64
+    // 64 bits: o heap do jogo fica na arena, dentro da janela dos ponteiros de 32 bits (platform/arena.h); alinhado a
+    // 64 KB e zerado como o VirtualAlloc da versão de 32 bits, então os blocos caem nos mesmos deslocamentos.
+    if (MallocBlock != nullptr) nf::arena::free_pages(MallocBlock);
+    MallocBlock = nf::arena::alloc_pages(psiMemHeapSize);
+#else
     if (MallocBlock != nullptr) VirtualFree(MallocBlock, 0, MEM_RELEASE);
     MallocBlock = nullptr;
     MallocBlock = VirtualAlloc(nullptr, psiMemHeapSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#endif
     if (MallocBlock == nullptr) {
         MessageBoxW(nullptr, L"Não foi possível reservar o heap do jogo.", L"Nightfire", MB_ICONERROR);
         ExitProcess(1);

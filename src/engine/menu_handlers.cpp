@@ -51,10 +51,10 @@ uint8_t DoneBetter = 0;          // 0x0030cc70 (PlrStat: o jogador fez melhor qu
 
 namespace {
 
-int32_t val(const void* p) { return int32_t(reinterpret_cast<uintptr_t>(p)); }
+int32_t val(const void* p) { return int32_t(nf::p32_u(p)); }
 template <class T>
 T* ptr(int32_t v) {
-    return reinterpret_cast<T*>(uintptr_t(uint32_t(v)));
+    return nf::p32_ptr<T>(uint32_t(v));
 }
 
 M_MANAGER* mgr(uint8_t index) { return &menu_manager[index]; }
@@ -335,7 +335,7 @@ int32_t C_GCPAUSE_Handler(uint8_t index, M_CONTROL* c, uint32_t, uint32_t messag
             }
             uint8_t* score = PlrStat_GetScore(1);
             if (score == nullptr) return 1;
-            const uint8_t* s = reinterpret_cast<uint8_t*>(uintptr_t(rd32(score + 0x18)));
+            const uint8_t* s = nf::p32_ptr<uint8_t>(rd32(score + 0x18));
             char nums[16][0x10];
             const uint32_t idx[] = {8, 0, 0x1c, 0x14, 0x30, 0x28, 0x44, 0x3c, 0x6c, 100, 0x80};
             for (int32_t i = 0; i < 11; ++i) std::snprintf(nums[i], 0x10, "%d", int32_t(rd32(s + idx[i])));
@@ -645,7 +645,7 @@ int32_t P_NFSTATS_Handler(uint8_t index, M_CONTROL*, uint32_t, uint32_t message,
     score_table = PlrStat_GetScore(0);
     if (score_table == nullptr) return 1;
     const auto s32 = [](uint32_t off) { return rd32(score_table + off); };
-    const uint8_t* st = reinterpret_cast<uint8_t*>(uintptr_t(s32(0x18)));
+    const uint8_t* st = nf::p32_ptr<uint8_t>(s32(0x18));
     const auto f = [&](uint32_t off) {
         float v;
         std::memcpy(&v, st + off, 4);
@@ -729,9 +729,9 @@ void Menu_CreateOptionBox(uint8_t index, char* text, uint32_t id, uint8_t ok_onl
     memo->base.y = int16_t(y + 10);
     list->base.y = int16_t(y + text_h + 0x1e);
     m->input = 0;
-    Memo_Update(m, reinterpret_cast<M_PAGE*>(memo->base.owner), memo);
-    List_Update(m, reinterpret_cast<M_PAGE*>(list->base.owner), list);
-    Button_Update(m, reinterpret_cast<M_PAGE*>(box->base.owner), box);
+    Memo_Update(m, reinterpret_cast<M_PAGE*>(nf::raw(memo->base.owner)), memo);
+    List_Update(m, reinterpret_cast<M_PAGE*>(nf::raw(list->base.owner)), list);
+    Button_Update(m, reinterpret_cast<M_PAGE*>(nf::raw(box->base.owner)), box);
     m->input = 1;
     Manager_SendMessage(m, 0x22, 0x10000120, 0);
 }

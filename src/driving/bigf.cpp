@@ -83,9 +83,7 @@ bool refpack_decode(const uint8_t* src, size_t n, std::vector<uint8_t>& out) {
     return out.size() == size;
 }
 
-Bigf::~Bigf() {
-    if (f_) std::fclose(f_);
-}
+Bigf::~Bigf() = default;
 
 bool Bigf::parse_directory(const uint8_t* head, size_t size, std::vector<BigfEntry>& out) {
     out.clear();
@@ -110,21 +108,24 @@ bool Bigf::parse_directory(const uint8_t* head, size_t size, std::vector<BigfEnt
 }
 
 bool Bigf::open(const std::string& path) {
-    if (f_) std::fclose(f_);
-    f_ = nullptr;
+    // O caminho do PC em UTF-8 (como o fopen_s de antes, que o lia na página de código do sistema: os nomes são ASCII).
+    std::wstring w(path.begin(), path.end());
+    return open_file(nf::DiscFile::open_host(w), path);
+}
+
+bool Bigf::open(const nf::DiscSource& disc, const std::string& path) { return open_file(disc.open(path), path); }
+
+bool Bigf::open_file(nf::DiscFile file, const std::string& path) {
+    f_ = std::move(file);
     entries_.clear();
     path_ = path;
-    if (fopen_s(&f_, path.c_str(), "rb") != 0 || !f_) {
-        f_ = nullptr;
-        return false;
-    }
+    if (!f_.is_open()) return false;
     uint8_t h[16];
-    if (std::fread(h, 1, 16, f_) != 16) return false;
+    if (f_.read_at(0, h, 16) != 16) return false;
     const uint32_t header_size = be32(h + 12);
     if (header_size < 16 || header_size > (64u << 20)) return false;
     std::vector<uint8_t> head(header_size);
-    std::fseek(f_, 0, SEEK_SET);
-    if (std::fread(head.data(), 1, head.size(), f_) != head.size()) return false;
+    if (f_.read_at(0, head.data(), head.size()) != head.size()) return false;
     return parse_directory(head.data(), head.size(), entries_);
 }
 
@@ -137,11 +138,10 @@ int Bigf::find(const std::string& key) const {
 
 bool Bigf::read_raw(int index, std::vector<uint8_t>& out) const {
     out.clear();
-    if (!f_ || index < 0 || index >= int(entries_.size())) return false;
+    if (!f_.is_open() || index < 0 || index >= int(entries_.size())) return false;
     const BigfEntry& e = entries_[index];
     out.resize(e.size);
-    if (_fseeki64(f_, e.offset, SEEK_SET) != 0) return false;
-    return std::fread(out.data(), 1, out.size(), f_) == out.size();
+    return f_.read_at(e.offset, out.data(), out.size()) == out.size();
 }
 
 bool Bigf::read(int index, std::vector<uint8_t>& out) const {

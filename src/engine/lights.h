@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct sphere_tag;
 
@@ -23,7 +24,7 @@ struct alignas(16) light_tag {
     uint16_t frame_mask;      // 0x2a acesa nos quadros com (frame & máscara) == máscara
     uint16_t sound;           // 0x2c som ao acender (0xffff: nenhum)
     uint16_t unknown_2e;
-    obj_tag* obj;             // 0x30 tipo 2: o objeto que a leva (lanterna)
+    P32<obj_tag> obj;         // 0x30 tipo 2: o objeto que a leva (lanterna)
     uint32_t handle;          // 0x34 psiLight_Create
     float dist;               // 0x38 distância / (raio / 2) ao último objeto (a ordem da escolha)
     float radius;             // 0x3c
@@ -52,7 +53,7 @@ uint32_t Light_Delete(light_tag* light);
 light_tag* Light_FindMapLight(_VECTOR* pos, float radius);
 void Light_SetAmbientRadiators(uint8_t* data);
 void Light_Update();
-light_tag** Lights_CalcClosestLights(sphere_tag* sphere, uint16_t flags, uint16_t* count);
+P32<light_tag>* Lights_CalcClosestLights(sphere_tag* sphere, uint16_t flags, uint16_t* count);
 
 // No PS2: o identificador da luz na parte da plataforma (sempre 0) e a remoção (nada).
 uint32_t psiLight_Create(light_tag* light);

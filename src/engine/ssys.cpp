@@ -36,12 +36,12 @@ LOCK_tag* lock_of(obj_tag* obj) { return static_cast<LOCK_tag*>(obj->data); }
 // GlobalVars +0 (o objeto do jogador do teclado) e +4 (o BLData dele).
 obj_tag* gv_player() {
     obj_tag* o;
-    std::memcpy(&o, GlobalVars, 4);
+    o = nf::p32_load<obj_tag>(GlobalVars);
     return o;
 }
 BLData* gv_bloke() {
     BLData* b;
-    std::memcpy(&b, GlobalVars + 4, 4);
+    b = nf::p32_load<BLData>(GlobalVars + 4);
     return b;
 }
 
@@ -50,14 +50,14 @@ int32_t bullet_weapon(const obj_tag* o) {
     if (o == nullptr || o->type != 5 || o->data == nullptr) return -1;
     const uint8_t* data = static_cast<const uint8_t*>(o->data);
     const weapon_definition_tag* w;
-    std::memcpy(&w, data + 0x44, 4);
+    w = nf::p32_load<const weapon_definition_tag>(data + 0x44);
     if (w == nullptr) return -1;
     return w->id;
 }
 
 obj_tag* bullet_shooter(const obj_tag* o) {
     obj_tag* from;
-    std::memcpy(&from, static_cast<const uint8_t*>(o->data) + 0x30, 4);
+    from = nf::p32_load<obj_tag>(static_cast<const uint8_t*>(o->data) + 0x30);
     return from;
 }
 
@@ -296,8 +296,8 @@ void Lock_Activate(obj_tag* lock, obj_tag* by) {
     if (d->kind == 0) {
         if (!has_key) {
             lock->state = 3;
-            std::memcpy(GlobalVars, &by, 4);
-            std::memcpy(GlobalVars + 4, &b, 4);
+            nf::p32_store(GlobalVars, by);
+            nf::p32_store(GlobalVars + 4, b);
             return;
         }
     } else if (!has_key) {

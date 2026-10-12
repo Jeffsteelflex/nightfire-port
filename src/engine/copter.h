@@ -18,11 +18,12 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 // Um caminho de helicóptero (0x1c bytes, nó de CopterPaths).
 struct COPTERPATH {
     LLNODE_tag node;          // 0x00
-    framelist_tag* path;      // 0x08
+    P32<framelist_tag> path;  // 0x08
     float speed;              // 0x0c quadros por tick: quadros x REC_FRAME_RATE x (FRAME_RATE / duração)
     uint16_t frames;          // 0x10 quadros - 1
     uint16_t group;           // 0x12 parâmetro 1
@@ -36,15 +37,15 @@ static_assert(sizeof(COPTERPATH) == 0x1c);
 // O helicóptero (0x7c bytes em obj->data; também nó de CopterList).
 struct alignas(4) COPTER {
     LLNODE_tag node;          // 0x00
-    obj_tag* obj;             // 0x08
+    P32<obj_tag> obj;         // 0x08
     uint8_t unknown_0c[0x10];
     float quat[4];            // 0x1c a rotação do caminho (Spline_Interp; quaternion_tag sem o alinhamento de 16)
-    obj_tag* sp;              // 0x2c o script player das peças
+    P32<obj_tag> sp;          // 0x2c o script player das peças
     // 0x30 as peças (Copter_Register; menos a 2, sem colisão de tiro): 2 o corpo (Copter_GetBody), 3 de onde sai a
     // fumaça, 5 a metralhadora, 6 o clarão dela, 7 e 8 os lançadores de mísseis
-    obj_tag* parts[9];
-    COPTERPATH* path;         // 0x54 o caminho atual
-    COPTERPATH* exit;         // 0x58 o caminho de saída (tipo 2) do grupo
+    P32<obj_tag> parts[9];
+    P32<COPTERPATH> path;     // 0x54 o caminho atual
+    P32<COPTERPATH> exit;     // 0x58 o caminho de saída (tipo 2) do grupo
     float t;                  // 0x5c quadro no caminho
     uint32_t unknown_60;
     float damage;             // 0x64

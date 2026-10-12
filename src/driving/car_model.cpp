@@ -13,6 +13,7 @@
 #include "driving/eagl_model.h"
 #include "driving/render_method.h"
 #include "driving/vif.h"
+#include "platform/fmath.h"
 
 namespace drv {
 
@@ -167,7 +168,7 @@ void car_lights_from_tuning(const std::string& text, CarConstants& k) {
     std::memset(k.light_col, 0, sizeof k.light_col);
     for (int i = 0; i < 2; ++i) {
         const float y = ay[i] * 3.14159265f / 180.0f, x = ax[i] * 3.14159265f / 180.0f;
-        const float d[3] = {-std::cos(x) * std::sin(y), -std::sin(x), -std::cos(x) * std::cos(y)};
+        const float d[3] = {-nf::fm::cos(x) * nf::fm::sin(y), -nf::fm::sin(x), -nf::fm::cos(x) * nf::fm::cos(y)};
         for (int c = 0; c < 3; ++c) {
             k.light_dir_t[c][i] = d[c];
             k.light_col[i][c] = col[i][c];
@@ -187,6 +188,16 @@ CarModel::~CarModel() {
 }
 
 bool CarModel::load(const std::string& root, const std::string& viv, const std::string& name, std::string& error) {
+    std::string open_error;
+    const std::shared_ptr<nf::DiscSource> disc = nf::open_disc(std::wstring(root.begin(), root.end()), &open_error);
+    if (disc == nullptr) {
+        error = "não abri os dados em " + root + ": " + open_error;
+        return false;
+    }
+    return load(*disc, viv, name, error);
+}
+
+bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const std::string& name, std::string& error) {
     Impl& I = *impl_;
     I.messages = &messages_;
     reset_registries();
@@ -197,13 +208,13 @@ bool CarModel::load(const std::string& root, const std::string& viv, const std::
     register_eagl_types();
     runtime_alloc_unported = 0;
 
-    const std::string dir = root + "\\DRIVING\\";
-    if (!I.misc.open(dir + "MISC.VIV")) {
-        error = "não abri " + dir + "MISC.VIV";
+    const std::string dir = "DRIVING/";
+    if (!I.misc.open(disc, dir + "MISC.VIV")) {
+        error = "não abri " + dir + "MISC.VIV em " + disc.describe();
         return false;
     }
-    if (!I.mission.open(dir + viv)) {
-        error = "não abri " + dir + viv;
+    if (!I.mission.open(disc, dir + viv)) {
+        error = "não abri " + dir + viv + " em " + disc.describe();
         return false;
     }
 

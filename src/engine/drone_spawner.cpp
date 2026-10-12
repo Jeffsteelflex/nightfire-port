@@ -135,7 +135,7 @@ void DroneSpawner_Init(obj_tag* spawner) {
             (s->channel_stop == 0 || switch_channels[s->channel_stop] == 0)) {
             s->anywhere = 1;
         }
-        s->spawned = static_cast<obj_tag**>(Mem_Malloc(uint32_t(s->max_alive) << 2, 0x3404, 0));
+        s->spawned = static_cast<P32<obj_tag>*>(Mem_Malloc(uint32_t(s->max_alive) << 2, 0x3404, 0));
         s->entries = static_cast<DroneSpawnEntry_tag*>(Mem_Malloc(uint32_t(s->entry_count) * 0xd0, 0x3504, 0));
         std::memset(s->spawned, 0, uint32_t(s->max_alive) << 2);
         std::memset(s->entries, 0, uint32_t(s->entry_count) * 0xd0);
@@ -246,7 +246,7 @@ void DroneSpawner_Control(obj_tag* spawner) {
     // Vivos: soltam a vaga os que não são mais personagens, foram marcados para remoção ou morreram.
     s->alive = 0;
     for (uint16_t i = 0; i < s->max_alive; ++i) {
-        obj_tag*& o = s->spawned[i];
+        P32<obj_tag>& o = s->spawned[i];
         if (o == nullptr) continue;
         if (o->type != 2 || (o->life & 1) != 0) {
             o = nullptr;
@@ -317,8 +317,8 @@ void DroneSpawner_Delete(obj_tag* spawner) {
     if (spawner == nullptr) return;
     DroneSpawner_tag* s = spawner_of(spawner);
     if (s == nullptr) return;
-    if (s->spawned != nullptr) Mem_Free(reinterpret_cast<void**>(&s->spawned));
-    if (s->entries != nullptr) Mem_Free(reinterpret_cast<void**>(&s->entries));
+    if (s->spawned != nullptr) Mem_Free(&s->spawned);
+    if (s->entries != nullptr) Mem_Free(&s->entries);
     s->spawned = nullptr;
     s->entries = nullptr;
     if (s->group >= kGroups) {

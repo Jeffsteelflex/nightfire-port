@@ -174,7 +174,7 @@ struct OneBox {
     celglist_tag glist{};
     OneBox() {
         hdr[0] = 1;
-        hdr[1] = uint32_t(reinterpret_cast<uintptr_t>(box));
+        hdr[1] = nf::p32_u(box);
         gfx.ps2_gfx = reinterpret_cast<uint8_t*>(hdr);
         glist.gfx = &gfx;
     }

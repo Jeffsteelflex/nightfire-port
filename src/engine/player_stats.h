@@ -39,6 +39,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "platform/ptr32.h"
 
 // Estatísticas da missão de um jogador (0x38 bytes; PlrMissionStats em 0x002bcc20).
 struct PLRMISSIONSTATS {
@@ -82,7 +83,7 @@ struct SCORETABLE {
     uint32_t level;          // 0x00 a missão (o pacote da primeira fase, Mission_BaseMapHCode)
     uint32_t medal[4];       // 0x04 os totais da medalha de bronze, prata, ouro e platina
     float detect_penalty;    // 0x14 fração perdida por detecção acima do alvo (0: 0,03)
-    SCORETABLE_ROW* rows;    // 0x18 as 9 linhas (HT_Level_*_ST)
+    P32<SCORETABLE_ROW> rows;  // 0x18 as 9 linhas (HT_Level_*_ST)
     uint32_t time;           // 0x1c o tempo da missão (centésimos)
     uint32_t time_target;    // 0x20 o alvo de tempo (segundos)
     uint32_t difficulty_mul; // 0x24 multiplicador do bônus da dificuldade

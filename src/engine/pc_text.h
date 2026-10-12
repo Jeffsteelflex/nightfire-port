@@ -395,6 +395,65 @@ enum class PcText : uint16_t {
     WheelNoAmmo,
     WheelInHand,
     WheelUnarmed,        // o soco (a arma 1 não tem nome no HUD)
+    SuHeader,  // a tela de configuração (src/ui/modern_setup.h): o cabeçalho
+    SuTitle,
+    SuPrompt,
+    SuIntro,
+    SuBrowse,  // as linhas
+    SuBrowseSub,
+    SuDrive,  // formato: a letra da unidade ("D:")
+    SuDriveSub,
+    SuPlay,
+    SuPlaySub,
+    SuPack,
+    SuQuit,
+    SuDescBrowseTitle,  // a descrição de cada linha
+    SuDescBrowse,
+    SuDescDriveTitle,
+    SuDescDrive,
+    SuDescPlayTitle,
+    SuDescPlay,
+    SuDescPlayLocked,
+    SuDescPackTitle,
+    SuDescPack,  // formato: o tamanho ("1.9 GB")
+    SuPackWarning,
+    SuDescQuitTitle,
+    SuDescQuit,
+    SuDisc,  // o disco escolhido
+    SuSaveAs,
+    SuNone,
+    SuReady,  // formato: o código do disco
+    SuReadyUnverified,
+    SuErrMissing,  // os problemas de um disco
+    SuErrUnreadable,
+    SuErrNotPs2,
+    SuErrWrongGame,  // formato: o código do disco
+    SuErrWrongVersion,  // formato: o código do disco
+    SuErrIncomplete,  // formato: o arquivo que falta
+    SuErrTitle,  // a caixa do problema
+    SuOk,
+    SuCancel,
+    SuPicking,
+    SuPickerTitle,  // a janela de escolha do Windows
+    SuPickerImages,
+    SuPickerAll,
+    SuPackingTitle,  // a cópia em arquivo único
+    SuPacking,  // formato: os por cento
+    SuPackDoneTitle,
+    SuPackDone,  // formato: o arquivo
+    SuPackFailTitle,
+    SuPackInGit,
+    SuPackSame,
+    SuPackNoCnf,
+    SuPackMissing,  // formato: o arquivo
+    SuPackNoSpace,  // formato: o tamanho
+    SuPackWrite,  // formato: o arquivo
+    SuPackRead,  // formato: o arquivo
+    SuPackCancelled,
+    SuKindImage,  // o tipo do disco
+    SuKindFolder,
+    SuKindDrive,
+    SuKindPacked,
     Count,
 };
 

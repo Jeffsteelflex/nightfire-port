@@ -32,14 +32,17 @@
 
 #include "engine/map_types.h"
 #include "engine/sprite.h"
+#include "platform/ptr32.h"
 
 struct BLData;
 struct obj_tag;
 struct HUDPANE_tag;
 struct HUDPANECREATE_tag;
 
-using HudCreateFn = void (*)(BLData*, HUDPANE_tag*, HUDPANECREATE_tag*, obj_tag*);
-using HudUpdateFn = void (*)(BLData*, HUDPANE_tag*, obj_tag*);
+using HudCreateFnSig = void(BLData*, HUDPANE_tag*, HUDPANECREATE_tag*, obj_tag*);
+using HudUpdateFnSig = void(BLData*, HUDPANE_tag*, obj_tag*);
+using HudCreateFn = HudCreateFnSig*;
+using HudUpdateFn = HudUpdateFnSig*;
 
 // Descrição estática de um painel (0x1c bytes).
 struct HUDPANECREATE_tag {
@@ -47,9 +50,9 @@ struct HUDPANECREATE_tag {
     int16_t y;               // 0x02
     uint16_t w;              // 0x04 (HUD_CalcWidthHeight o calcula a partir dos sprites)
     uint16_t h;              // 0x06
-    HudCreateFn create;      // 0x08
-    HudUpdateFn update;      // 0x0c
-    SpriteInfo* sprites;  // 0x10
+    F32<HudCreateFnSig> create;  // 0x08
+    F32<HudUpdateFnSig> update;  // 0x0c
+    P32<SpriteInfo> sprites;  // 0x10
     uint16_t count;          // 0x14 sprites
     uint16_t extra;          // 0x16 palavras de estado da pane (HUDPANE_tag::extra)
     uint16_t flags;          // 0x18 HUD_ValidateXY: 8 prende x, 0x10 prende y, 0x80/0x100 soma a origem
@@ -59,10 +62,10 @@ static_assert(sizeof(HUDPANECREATE_tag) == 0x1c);
 
 // Uma pane em uso (0x20 bytes).
 struct HUDPANE_tag {
-    HUDPANECREATE_tag* create;  // 0x00
-    uint32_t* extra;            // 0x04 estado próprio (mensagens: TXT_MSG*, passo, tipo, velocidade...)
-    sprite** sprites;        // 0x08 os sprites e, logo depois, extra
-    HudUpdateFn update;         // 0x0c
+    P32<HUDPANECREATE_tag> create;  // 0x00
+    P32<uint32_t> extra;        // 0x04 estado próprio (mensagens: TXT_MSG*, passo, tipo, velocidade...)
+    P32<P32<sprite>> sprites;  // 0x08 os sprites e, logo depois, extra
+    F32<HudUpdateFnSig> update;  // 0x0c
     int16_t x;                  // 0x10
     int16_t y;                  // 0x12
     uint16_t w;                 // 0x14
@@ -105,7 +108,7 @@ enum : uint32_t {
 
 // O HUD de um jogador (0x2c8 bytes; BLData::hud).
 struct HUDINFO_tag {
-    sprite* crosshair;          // 0x000
+    P32<sprite> crosshair;      // 0x000
     uint32_t unknown_004;
     HUDPANE_tag panes[kHudPanes];  // 0x008
 };

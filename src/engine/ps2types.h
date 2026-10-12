@@ -8,8 +8,12 @@
 
 #include <cstdint>
 
-// O port compila em 32 bits: ponteiros de 4 bytes, como no PS2, mantêm o layout das estruturas.
-static_assert(sizeof(void*) == 4, "compile em 32 bits (x86)");
+#include "platform/ptr32.h"
+
+// Ponteiros de 4 bytes nas estruturas do jogo, como no PS2: em 32 bits (x86) são os ponteiros nativos; em 64 bits são
+// nf::P32/nf::F32, deslocamentos na janela da arena (platform/ptr32.h; docs/port.md, "64 bits").
+static_assert(sizeof(void*) == 4 || NF_PTR64, "compile em 32 bits (x86) ou com o esquema de 64 bits (NF_ARCH64)");
+static_assert(sizeof(P32<void>) == 4 && sizeof(F32<void()>) == 4, "os campos de ponteiro do jogo têm 4 bytes");
 
 struct alignas(16) _VECTOR {
     float x, y, z, w;

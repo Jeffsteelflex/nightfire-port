@@ -6,6 +6,7 @@
 // teste do port: um plano horizontal infinito.
 
 #include <cstdint>
+#include "platform/ptr32.h"
 
 namespace drv {
 
@@ -15,7 +16,7 @@ struct alignas(16) WWorldPos {
     float v1[4];         // +0x10
     float v2[3];         // +0x20
     uint8_t surface[4];  // +0x2c WSurface (o tipo do piso; o byte 0 diferente de zero: não inventar face no ponto)
-    const void* face;    // +0x30 a face achada (nulo: nenhuma)
+    P32<const void> face;  // +0x30 a face achada (nulo: nenhuma)
     uint8_t rest[0xc];   // +0x34
 };
 static_assert(sizeof(WWorldPos) == 0x40);

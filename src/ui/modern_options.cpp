@@ -19,6 +19,7 @@
 #include "platform/pc_gameplay.h"
 #include "platform/psi_input.h"
 #include "platform/psi_pad.h"
+#include "platform/fmath.h"
 
 namespace nf::ui {
 
@@ -1945,7 +1946,7 @@ void OptionsScreen::draw_content(DrawList& dl, const Frame& f, float alpha, floa
                     if (on) vc = mix(tk.color.text_2, tk.color.accent, s.label_t);
                     if (capture_cmd_ == it.command && capture_col_ == c) {
                         v = L"…";
-                        vc = tk.color.accent.with_alpha(0.55f + 0.45f * std::sin(f.time * 7.0f));
+                        vc = tk.color.accent.with_alpha(0.55f + 0.45f * nf::fm::sin(f.time * 7.0f));
                     }
                     if (v == T(PcText::MdNone) || (!v.empty() && v[0] == L'(')) vc = mix(vc, tk.color.dim, 0.6f);
                     const float h = tk.type.cell.size * 1.6f;

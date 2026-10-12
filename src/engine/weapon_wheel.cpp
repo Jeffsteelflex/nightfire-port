@@ -17,6 +17,7 @@
 #include "engine/player.h"
 #include "engine/player_weapon.h"
 #include "platform/psi_input.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -240,7 +241,7 @@ WheelPick weapon_wheel_pick(float x, float y, int n_outer, int n_inner) {
     // Os espaços fixos do anel (os vazios também: apontar um deles não escolhe nada).
     const int n = weapon_wheel_ring_slots(ring == 2 ? n_outer : n_inner, ring == 1);
     // O ângulo a partir de cima, no sentido horário (x para a direita, y para cima).
-    float a = std::atan2(x, y);
+    float a = nf::fm::atan2(x, y);
     if (a < 0.0f) a += 2.0f * kPi;
     int i = int(std::floor(a / (2.0f * kPi) * float(n) + 0.5f));
     if (i >= n) i -= n;

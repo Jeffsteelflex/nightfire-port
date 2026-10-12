@@ -89,9 +89,9 @@ float hit_damage(const HITDATA_tag* hit) {
 
 void set_hit_damage(HITDATA_tag* hit, float v) { std::memcpy(&hit->unknown_08, &v, 4); }
 
-uint32_t ptr_data(const void* p) { return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(p)); }
+uint32_t ptr_data(const void* p) { return nf::p32_u(p); }
 
-HITDATA_tag* msg_hit(const MsgObject* msg) { return reinterpret_cast<HITDATA_tag*>(uintptr_t(msg->data)); }
+HITDATA_tag* msg_hit(const MsgObject* msg) { return nf::p32_ptr<HITDATA_tag>(msg->data); }
 
 // Um estado de retorno válido: não nulo e fora dos estados de impacto 0x53 a 0x55.
 bool impact_state_ok(uint32_t s) { return s != 0 && (s < 0x53 || 0x56 <= s); }
@@ -696,7 +696,7 @@ uint32_t DroneFunc_HandleImpact(DCVars_tag* dcv, MsgObject* msg, uint32_t state,
         }
         case 9:
             if (anim == 0) {
-                NDrone2_ExplosiveImpact(dcv, reinterpret_cast<DroneImpact_tag*>(uintptr_t(msg->data)), state, 0);
+                NDrone2_ExplosiveImpact(dcv, nf::p32_ptr<DroneImpact_tag>(msg->data), state, 0);
                 return 1;
             }
             keep_return();

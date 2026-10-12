@@ -51,10 +51,10 @@ uint32_t movie_hashcode = 0;
 
 namespace {
 
-int32_t val(const void* p) { return int32_t(reinterpret_cast<uintptr_t>(p)); }
+int32_t val(const void* p) { return int32_t(nf::p32_u(p)); }
 template <class T>
 T* ptr(int32_t v) {
-    return reinterpret_cast<T*>(uintptr_t(uint32_t(v)));
+    return nf::p32_ptr<T>(uint32_t(v));
 }
 M_MANAGER* mgr(uint8_t index) { return &menu_manager[index]; }
 int32_t txt(uint32_t label) { return val(Txt_BindLabel(label, 0)); }

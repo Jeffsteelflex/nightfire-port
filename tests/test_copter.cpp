@@ -21,6 +21,7 @@
 #include "engine/vecmath.h"
 #include "platform/psi.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -92,7 +93,7 @@ TEST(cone_sphere_hits_ahead_inside_45_degrees_and_misses_behind_or_outside) {
     const _VECTOR dir{0.0f, 0.0f, 1.0f, 0.0f};
     auto at = [](float deg, float dist, float r) {
         const float a = deg * 3.14159265f / 180.0f;
-        return _VECTOR{std::sin(a) * dist, 0.0f, std::cos(a) * dist, r};
+        return _VECTOR{nf::fm::sin(a) * dist, 0.0f, nf::fm::cos(a) * dist, r};
     };
     // No eixo, à frente; a 30 e 44 graus: dentro.
     _VECTOR s = at(0.0f, 50.0f, 1.0f);
@@ -149,7 +150,7 @@ TEST(copter_path_speed_crosses_the_path_in_its_duration) {
     const uint32_t created = g_copter_stats.created;
     CHECK(Copter_Create(&pos, &rot, &level) == nullptr);
     CHECK(g_copter_stats.created == created);
-    const auto* p = reinterpret_cast<const COPTERPATH*>(CopterPaths.first);
+    const auto* p = reinterpret_cast<const COPTERPATH*>(nf::raw(CopterPaths.first));
     CHECK(p != nullptr && p->group == 7 && p->kind == 1 && p->frames == 100 && p->start == 100);
     // 100 quadros em 200 ticks: meio quadro por tick.
     CHECK(std::fabs(p->speed * 200.0f - 100.0f) < 1e-3f);
@@ -157,7 +158,7 @@ TEST(copter_path_speed_crosses_the_path_in_its_duration) {
     level.params[10] = 0;
     level.path_unknown = 400;
     Copter_Create(&pos, &rot, &level);
-    const auto* q = reinterpret_cast<const COPTERPATH*>(CopterPaths.last);
+    const auto* q = reinterpret_cast<const COPTERPATH*>(nf::raw(CopterPaths.last));
     CHECK(std::fabs(q->speed * 400.0f - 100.0f) < 1e-3f);
 }
 

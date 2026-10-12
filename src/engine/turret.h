@@ -18,6 +18,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct SCRIPTINFO;
 
@@ -28,13 +29,13 @@ struct alignas(16) GUNTURRET {
     _VECTOR facing;          // 0x80 a frente da torreta: a linha 2 (montada) ou -linha 1 (automática, no teto)
     _VECTOR control;         // 0x90 jogador controlando: x elevação (±0,5), y giro (±90 graus)
     uint8_t unknown_a0[0x10];
-    SCRIPTINFO* body;        // 0xb0 script do parâmetro 2
-    SCRIPTINFO* base;        // 0xb4 script do parâmetro 3
-    obj_tag* owner;          // 0xb8 quem pôs a torreta (ela mesma, se posicionada)
-    obj_tag* target;         // 0xbc o alvo atual (GT_Track)
-    obj_tag* flash;          // 0xc0 stream 0 do corpo: o clarão (fica 1 tick, flag 0x10 esconde)
-    obj_tag* barrel;         // 0xc4 stream 1: o cano
-    obj_tag* part;           // 0xc8 stream 2
+    P32<SCRIPTINFO> body;    // 0xb0 script do parâmetro 2
+    P32<SCRIPTINFO> base;    // 0xb4 script do parâmetro 3
+    P32<obj_tag> owner;      // 0xb8 quem pôs a torreta (ela mesma, se posicionada)
+    P32<obj_tag> target;     // 0xbc o alvo atual (GT_Track)
+    P32<obj_tag> flash;      // 0xc0 stream 0 do corpo: o clarão (fica 1 tick, flag 0x10 esconde)
+    P32<obj_tag> barrel;     // 0xc4 stream 1: o cano
+    P32<obj_tag> part;       // 0xc8 stream 2
     float health;            // 0xcc 100 (GT_ApplyDamage e o dano dos tiros nas peças)
     float muzzle;            // 0xd0 o cano: 1,5 x o z máximo das caixas dos modelos do corpo
     float spin;              // 0xd4 o giro do cano (radianos)

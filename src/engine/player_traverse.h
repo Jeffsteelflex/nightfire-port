@@ -31,6 +31,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct BLData;
 struct viewer_tag;
@@ -65,7 +66,7 @@ static_assert(sizeof(THIRDICON_tag) == 0xc);
 struct THIRDCAM_tag {
     uint16_t index;          // 0x0 parâmetro 0
     uint16_t pad_2;
-    framelist_tag* path;     // 0x4
+    P32<framelist_tag> path;  // 0x4
     uint16_t frames;         // 0x8 quadros do caminho - 1
     uint8_t aim;             // 0xa parâmetro 1: 0 a câmera não gira para o jogador
     uint8_t pad_b;

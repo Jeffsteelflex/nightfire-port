@@ -25,7 +25,7 @@
 
 int32_t SelLang = TXTLANG_UK;
 int32_t LanguageToLoad = TXTLANG_UK;
-char** Bank = nullptr;
+P32<char>* Bank = nullptr;  // um vetor de palavras de 4 bytes no heap do jogo
 char* BankData = nullptr;
 uint32_t NumEntries = 0;
 uint32_t NumFixups = 0;
@@ -111,8 +111,8 @@ char* Txt_GetStringFromHeap(int8_t lock) {
 // arquivo carregado é liberado; as tabelas ficam no heap (a FixupTable anterior não é liberada).
 void Txt_LoadLanguage() {
     NumEntries = 0;
-    if (BankData != nullptr) Mem_Free(reinterpret_cast<void**>(&BankData));
-    if (Bank != nullptr) Mem_Free(reinterpret_cast<void**>(&Bank));
+    if (BankData != nullptr) Mem_Free(&BankData);
+    if (Bank != nullptr) Mem_Free(&Bank);
     BankData = nullptr;
     if (SelLang < 0 || SelLang >= kLanguageCount) {
         ++g_txt_guards.short_file;
@@ -138,7 +138,7 @@ void Txt_LoadLanguage() {
     p += bytes + ((4 - (bytes & 3)) & 0xffff);
     NumEntries = BIN_GetDWord(&p);
     p += 4;
-    Bank = static_cast<char**>(Mem_Malloc(NumEntries << 2, 0x3604, 0));
+    Bank = static_cast<P32<char>*>(Mem_Malloc(NumEntries << 2, 0x3604, 0));
     Bank[0] = kEmpty;
     uint32_t offset = 0;
     for (uint32_t i = 1; i < NumEntries; ++i) {

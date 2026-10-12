@@ -44,6 +44,7 @@
 #include "engine/view.h"
 #include "platform/input_bindings.h"
 #include "platform/psi_input.h"
+#include "platform/fmath.h"
 
 float MAX_AUTO_AIM_DIST_NEAR = 12.0f;
 float MAX_AUTO_AIM_DIST_MIDL = 18.0f;
@@ -123,15 +124,15 @@ void reset_zoom(obj_tag* obj) {
 // +0x50c alerta) — sem a IA portada a lista fica vazia.
 bool drone_alert() {
     uint8_t* node;
-    std::memcpy(&node, &NPCGlobals.drones.first, 4);
+    node = nf::p32_load<uint8_t>(&NPCGlobals.drones.first);
     while (node != nullptr) {
         float active, alert;
         obj_tag* o;
         std::memcpy(&active, node + 0xac, 4);
-        std::memcpy(&o, node + 0xc, 4);
+        o = nf::p32_load<obj_tag>(node + 0xc);
         std::memcpy(&alert, node + 0x50c, 4);
         if (0.0f < active && int16_t(o->state) != 1 && 0.5f < alert) return true;
-        std::memcpy(&node, node + 4, 4);
+        node = nf::p32_load<uint8_t>(node + 4);
     }
     return false;
 }
@@ -1283,8 +1284,8 @@ bool Player_WeaponHasAmmo(BLData* b, int16_t weapon) {
         uint8_t* data = static_cast<uint8_t*>(o->data);
         uint8_t* def;
         obj_tag* owner;
-        std::memcpy(&def, data + 0x44, 4);
-        std::memcpy(&owner, data + 0x30, 4);
+        def = nf::p32_load<uint8_t>(data + 0x44);
+        owner = nf::p32_load<obj_tag>(data + 0x30);
         int16_t klass;
         std::memcpy(&klass, def + 2, 2);
         if (klass == d->klass && owner == glb_players[b->player]) return true;
@@ -1316,7 +1317,7 @@ void PositionBeam(obj_tag* beam, _VECTOR* from, _VECTOR* to) {
 // raiz(distância) / 6 com sqrt_mode), vai para objs[(from + to) / 2], e cada metade se divide de novo enquanto houver
 // objeto entre os índices.
 // Divergência: o w do ponto do meio é lixo da pilha no original; aqui 0 (o desenho não o lê).
-void FractalThing(obj_tag** objs, int16_t from, int16_t to, _VECTOR* a, _VECTOR* b, uint8_t sqrt_mode) {
+void FractalThing(P32<obj_tag>* objs, int16_t from, int16_t to, _VECTOR* a, _VECTOR* b, uint8_t sqrt_mode) {
     if (!(1 < int32_t(to) - int32_t(from))) return;
     const int16_t mid = int16_t((int32_t(from) + int32_t(to)) / 2);
     float r;
@@ -1382,7 +1383,7 @@ void Draw_TaserBeam(BLData* b, _VECTOR* to) {
     } else if (0x20 < n) {
         n = 0x20;
     }
-    obj_tag** fx = b->fx;
+    P32<obj_tag>* fx = b->fx;
     if (1 < n) {
         const int16_t mid = int16_t(n / 2);
         const float r = std::sqrt(Vec_Dist3D(&from, to)) * 0.16666667f;
@@ -1418,7 +1419,7 @@ void Draw_TaserBeam(BLData* b, _VECTOR* to) {
 // MAX_VIEW_CONE (até 4), visto por todas as câmeras.
 // Divergência: o w do ponto a 100 m é lixo da pilha no original (vmaddw.xyz); aqui o do anexo.
 void Player_LaserPointer(obj_tag* obj) {
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     BLData* b = bloke(obj);
     obj_tag* glow = b->glow;
     if (b->gun_flag8 == 0) return;
@@ -1434,7 +1435,7 @@ void Player_LaserPointer(obj_tag* obj) {
     AnimGetBoneWorldTrans(b->gun, 4, 0, &gun, &m);
     alignas(16) const _VECTOR far_pt{m.m[2][0] * 100.0f + m.m[3][0], m.m[2][1] * 100.0f + m.m[3][1],
                                      m.m[2][2] * 100.0f + m.m[3][2], gun.w};
-    HITDATA_tag* hit = nullptr;
+    P32<HITDATA_tag> hit = nullptr;
     if (Collide_RayIntersect(&head, &far_pt, obj->cel, obj, nullptr, &hits, 0, 8, 0)) hit = hits;
     if (hit != nullptr) {
         vecutil_calculate_closest_point_on_line(&end, &head, &far_pt, &hit->pos);
@@ -1709,7 +1710,7 @@ void Player_Zoom(obj_tag* obj) {
         const float notches = psiInput_TakeWheelZoom(b->player);
         if (notches != 0.0f) {
             const float hi = std::min(b->zoom_max, 50.0f);
-            b->zoom_target = std::clamp(b->zoom_target * std::pow(1.025f, kWheelZoomTicks * notches), 1.0f, hi);
+            b->zoom_target = std::clamp(b->zoom_target * nf::fm::pow(1.025f, kWheelZoomTicks * notches), 1.0f, hi);
             b->weapons[uint16_t(weapon_def(anim_of(obj)->weapon)->klass)].zoom = b->zoom_target;
         }
     }
@@ -1786,7 +1787,7 @@ void Check_AutoAim(obj_tag* obj, obj_tag* target, float* best) {
             if (d->side != 1) return;
         } else {
             obj_tag* owner;
-            std::memcpy(&owner, reinterpret_cast<const uint8_t*>(d) + 0xc, 4);
+            owner = nf::p32_load<obj_tag>(reinterpret_cast<const uint8_t*>(d) + 0xc);
             if (MP_areObjectsOnSameTeam(obj, owner)) return;
         }
     } else if (type == 3) {
@@ -1806,7 +1807,7 @@ void Check_AutoAim(obj_tag* obj, obj_tag* target, float* best) {
     }
     const float dist = Vec_Dist3D(&head, &pos);
     if (*best < dist) return;
-    const float bearing = std::atan2(pos.x - head.x, pos.z - head.z);
+    const float bearing = nf::fm::atan2(pos.x - head.x, pos.z - head.z);
     const float turn = Vec_AngleDifference(bearing, obj->rot.y);
     float diff_mul;
     switch (GameState.difficulty) {
@@ -1828,7 +1829,7 @@ void Check_AutoAim(obj_tag* obj, obj_tag* target, float* best) {
     }
     if (cone_h == 0.0f && cone_v == 0.0f) return;
     if (!(std::fabs(turn) < cone_h)) return;
-    const float up = Vec_AngleDifference(std::asin((pos.y - head.y) / dist), b->pitch * 1.5707964f);
+    const float up = Vec_AngleDifference(nf::fm::asin((pos.y - head.y) / dist), b->pitch * 1.5707964f);
     if (!(std::fabs(-up) < cone_v)) return;
     if (!Collide_LineOfSight(&head, &pos, obj->cel, obj, target, 10)) return;
     alignas(16) _VECTOR screen{0.0f, 0.0f, 0.0f, 0.0f};
@@ -1858,10 +1859,10 @@ void Player_AutoAim(obj_tag* obj) {
             }
         } else {
             uint8_t* node;
-            std::memcpy(&node, &NPCGlobals.drones.first, 4);
-            for (; node != nullptr; std::memcpy(&node, node + 4, 4)) {
+            node = nf::p32_load<uint8_t>(&NPCGlobals.drones.first);
+            for (; node != nullptr; node = nf::p32_load<uint8_t>(node + 4)) {
                 obj_tag* o;
-                std::memcpy(&o, node + 0xc, 4);
+                o = nf::p32_load<obj_tag>(node + 0xc);
                 Check_AutoAim(obj, o, &best);
             }
             for (int i = 0; i < 4; ++i) Check_AutoAim(obj, glb_players[i], &best);
@@ -2164,8 +2165,8 @@ void Player_WeaponInitBullet(obj_tag* obj, weapon_definition_tag* def) {
             uint8_t* data = static_cast<uint8_t*>(o->data);
             uint8_t* od;
             obj_tag* owner;
-            std::memcpy(&od, data + 0x44, 4);
-            std::memcpy(&owner, data + 0x30, 4);
+            od = nf::p32_load<uint8_t>(data + 0x44);
+            owner = nf::p32_load<obj_tag>(data + 0x30);
             int16_t klass;
             std::memcpy(&klass, od + 2, 2);
             if (klass == def->klass && owner == obj) {
@@ -2185,7 +2186,7 @@ void Player_WeaponInitBullet(obj_tag* obj, weapon_definition_tag* def) {
         for (obj_tag* o = control_first_object(); o != nullptr; o = o->next) {
             if (o->type != 0x36) continue;
             obj_tag* user;
-            std::memcpy(&user, static_cast<uint8_t*>(o->data) + 0xb8, 4);
+            user = nf::p32_load<obj_tag>(static_cast<uint8_t*>(o->data) + 0xb8);
             if (user == obj) {
                 GT_TakeControl(o, obj);
                 return;
@@ -2197,7 +2198,7 @@ void Player_WeaponInitBullet(obj_tag* obj, weapon_definition_tag* def) {
     Player_GetHeadPos(&from, obj, nullptr);
     _VECTOR to{0.0f, 0.0f, 0.0f, 0.0f};
     Player_GetAimingPoint(obj, &to);
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     Collide_RayIntersect(&from, &to, obj->cel, obj, nullptr, &hits, 0, (def->flags2 & 0x800) != 0 ? 0x208u : 0x20au, 0);
     if (hits != nullptr) to = hits->pos;
     const _VECTOR aim = to;
@@ -2273,7 +2274,7 @@ void Player_MuzzleFlash(obj_tag* obj, _VECTOR* target) {
         }
     }
     if ((d->flags2 & 0x180) != 0 && target != nullptr) {
-        HITDATA_tag* hits = nullptr;
+        P32<HITDATA_tag> hits = nullptr;
         _VECTOR at;
         AnimGetBoneWorldTrans(b->gun, 0, 0, &at, nullptr);
         const bool hit = Collide_RayIntersect(&at, target, obj->cel, obj, nullptr, &hits, 0, 8, 0);

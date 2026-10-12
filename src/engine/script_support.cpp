@@ -170,7 +170,7 @@ void Player_Enable(obj_tag* obj, MATRIX* m, uint32_t check) {
     control_unlink_object(obj);
     build_LinkToRoom(obj, 1, glb_world);
     if (check != 0) {
-        HITDATA_tag* hits = nullptr;
+        P32<HITDATA_tag> hits = nullptr;
         Collide_SphereIntersect(&obj->pos, 2.0f, obj->cel, obj, nullptr, &hits, 0, 1, 0x8c0, 4);
         for (HITDATA_tag* h = hits; h != nullptr; h = h->next) {
             obj_tag* o = h->obj;

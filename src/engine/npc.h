@@ -9,13 +9,14 @@
 
 #include "engine/ainetwork.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct Drone_tag;
 
 // Oponente de um lado (8 lados, 0x20 bytes cada): Drone_InitComms copia a posição do objeto.
 struct alignas(16) NPCOpponent_tag {
     uint32_t flags;           // 0x00 bit 0: oponente ativo; bits 0-1 aceitam coberturas sem dono
-    obj_tag* obj;             // 0x04
+    P32<obj_tag> obj;         // 0x04
     uint32_t frame;           // 0x08 GameState.frame da cópia
     uint32_t unknown_0c;
     _VECTOR pos;              // 0x10
@@ -26,12 +27,12 @@ static_assert(sizeof(NPCOpponent_tag) == 0x20);
 // NDrone2_DroneAlertToPosition o preenchem e mandam a mensagem a todos com o endereço dele como dado
 // (DroneVision_EnemyAlerts o lê).
 struct alignas(16) DroneAlert_tag {
-    obj_tag* obj;             // 0x00 objeto que causou o alerta (nulo: só a posição)
-    obj_tag* sender;          // 0x04 quem deu o alerta
+    P32<obj_tag> obj;         // 0x00 objeto que causou o alerta (nulo: só a posição)
+    P32<obj_tag> sender;      // 0x04 quem deu o alerta
     uint32_t frame;           // 0x08 GameState.frame do alerta
     uint32_t msg;             // 0x0c mensagem difundida (0x11 viu o oponente...)
     _VECTOR pos;              // 0x10
-    cel_tag* cel;             // 0x20
+    P32<cel_tag> cel;         // 0x20
     uint32_t unknown_24[3];
     _VECTOR rot;              // 0x30 rotação do objeto
     _VECTOR vel;              // 0x40 old_pos - pos do objeto
@@ -45,10 +46,10 @@ static_assert(sizeof(DroneAlert_tag) == 0x60);
 struct alignas(16) DroneAwarePoint_tag {
     uint8_t kind;             // 0x00 0 e 2 fumaça (tipo 0x2a), 1 projétil da arma 0x36, 2 granadas e afins
     uint8_t pad_01[7];
-    obj_tag* obj;             // 0x08
+    P32<obj_tag> obj;         // 0x08
     uint32_t unknown_0c;
     _VECTOR pos;              // 0x10
-    cel_tag* cel;             // 0x20
+    P32<cel_tag> cel;         // 0x20
     float radius;             // 0x24
     uint32_t unknown_28[2];
 };
@@ -65,8 +66,8 @@ struct alignas(16) NPCGLOBALS_tag {
     uint8_t enabled;                  // 0x000 Drone_LevelReset põe 1
     uint8_t unknown_001[3];
     LLISTINFO_tag drones;             // 0x004 lista dos drones (nó = Drone_tag: +4 próximo, +0xc objeto)
-    Drone_tag* groups[31];            // 0x010 primeiro de cada grupo (Drone_tag::group_next segue)
-    obj_tag* spawners[31];            // 0x08c gerador de cada grupo (DroneSpawner_Create)
+    P32<Drone_tag> groups[31];        // 0x010 primeiro de cada grupo (Drone_tag::group_next segue)
+    P32<obj_tag> spawners[31];        // 0x08c gerador de cada grupo (DroneSpawner_Create)
     // 0x108 personagens de cada grupo; 0xffff depois que o gerador do grupo os tirou do mapa
     // (DroneSpawner_Init: groups[] continua apontando para o primeiro, já apagado)
     uint16_t group_counts[31];
@@ -87,7 +88,7 @@ struct alignas(16) NPCGLOBALS_tag {
     uint8_t unknown_19a[2];
     uint32_t unknown_19c;             // 0x19c reféns salvos (DroneFunc_HostageSaved)
     uint32_t dummy_player_unknown;    // 0x1a0 byte: o jogador falso substitui o de verdade (NDrone2_Player)
-    obj_tag* dummy_player;            // 0x1a4
+    P32<obj_tag> dummy_player;        // 0x1a4
     uint32_t postload_frame;          // 0x1a8
     uint32_t unknown_1ac;             // 0x1ac quadro; a visão só roda 15 quadros depois dele e de postload_frame
     uint32_t impact_anim_frame;       // 0x1b0 GameState.frame da última animação de impacto (de qualquer um)
@@ -106,7 +107,7 @@ struct alignas(16) NPCGLOBALS_tag {
     DroneAlert_tag alert;
     uint32_t cover_next;              // 0x2f0 próxima cobertura a avaliar (Drone_ProcessCoverNodes)
     uint32_t cover_count;             // 0x2f4
-    CoverNode_tag* cover_nodes;       // 0x2f8 = CoverNodes
+    P32<CoverNode_tag> cover_nodes;   // 0x2f8 = CoverNodes
     uint32_t unknown_2fc;
     NPCOpponent_tag opponents[8];     // 0x300
     uint8_t unknown_400[0x1000 - 0x400];
@@ -115,7 +116,7 @@ struct alignas(16) NPCGLOBALS_tag {
     DroneAwarePoint_tag aware_points[kMaxAwarePoints];  // 0x1010
     AIEmitter_tag emitter;            // 0x1c10 emissor geral (Drone_PostLoad_Init)
     uint32_t ai_point_count;          // 0x1c60
-    AIPoint_tag* ai_points;           // 0x1c64 = AIPoints
+    P32<AIPoint_tag> ai_points;       // 0x1c64 = AIPoints
     uint32_t unknown_1c68;            // 0x1c68
     uint32_t unknown_1c6c;
     float unknown_1c70;               // 0x1c70 0,5

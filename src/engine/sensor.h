@@ -37,6 +37,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct viewer_tag;
 
@@ -44,11 +45,11 @@ struct viewer_tag;
 // (+0x14): o port a lê e escreve por cópia (o PS2 usa só lwc1/swc1 nela).
 struct SENSOR {
     LLNODE_tag node;         // 0x00 CameraList (só as com o parâmetro 5 = 0)
-    obj_tag* obj;            // 0x08 a câmera
-    celglist_tag* glist;     // 0x0c o modelo (volta a ele quando a câmera religa)
-    celglist_tag* broken;    // 0x10 o LOD do modelo: a câmera desligada
+    P32<obj_tag> obj;        // 0x08 a câmera
+    P32<celglist_tag> glist;  // 0x0c o modelo (volta a ele quando a câmera religa)
+    P32<celglist_tag> broken;  // 0x10 o LOD do modelo: a câmera desligada
     float quat[4];           // 0x14 a orientação ao seguir o jogador (Vec_Track) e ao voltar (slerp)
-    framelist_tag* path;     // 0x24 a varredura (o caminho do posicionamento)
+    P32<framelist_tag> path;  // 0x24 a varredura (o caminho do posicionamento)
     float t;                 // 0x28 o quadro no caminho
     float speed;             // 0x2c quadros por tick a 60 Hz
     uint32_t frames;         // 0x30 quadros do caminho - 1 (0: parada)
@@ -58,8 +59,8 @@ struct SENSOR {
     float range;             // 0x40 parâmetro 2: alcance do feixe e do cone
     float seen;              // 0x44 segundos seguindo o jogador (estado 1)
     float beep;              // 0x48 o bipe do estado 1; no 0, "o servo já tocou no meio do caminho"
-    obj_tag* beam;           // 0x4c parâmetro 0: o feixe
-    obj_tag* base;           // 0x50 parâmetro 7: o suporte
+    P32<obj_tag> beam;       // 0x4c parâmetro 0: o feixe
+    P32<obj_tag> base;       // 0x50 parâmetro 7: o suporte
     uint32_t hum;            // 0x54 o zumbido (Sound_Play3D 0x4aa)
     uint16_t alarm;          // 0x58 parâmetro 3: ligado depois de 2 s vendo o jogador
     uint16_t off;            // 0x5a parâmetro 4: ligado, a câmera desliga (estado 3)
@@ -74,9 +75,9 @@ static_assert(offsetof(SENSOR, path) == 0x24 && offsetof(SENSOR, beam) == 0x4c &
 
 // Dados do monitor (0x14 bytes, tipo 0x38).
 struct MONITOR_tag {
-    viewer_tag* viewer;  // 0x00 a câmera do jogador que usou
-    obj_tag* camera;     // 0x04 a câmera de segurança mostrada (nula: nenhuma)
-    obj_tag* player;     // 0x08 quem usou
+    P32<viewer_tag> viewer;  // 0x00 a câmera do jogador que usou
+    P32<obj_tag> camera;  // 0x04 a câmera de segurança mostrada (nula: nenhuma)
+    P32<obj_tag> player;  // 0x08 quem usou
     float health;        // 0x0c 1 com o parâmetro 1 = 0; 0 é indestrutível
     uint16_t index;      // 0x10 o índice da câmera do jogador
     uint16_t pad;

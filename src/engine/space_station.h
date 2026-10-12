@@ -21,6 +21,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct SCRIPTINFO;
 
@@ -30,7 +31,7 @@ struct alignas(16) SPACELASER_tag {
     _VECTOR target;        // 0x10 o alvo: o jogador quando a carga começa, depois o ponto do acerto
     uint32_t charge[2];    // 0x20 parâmetros 0 e 1: os scripts de carga
     uint32_t final;        // 0x28 parâmetro 2: o script do fim (em laço)
-    SCRIPTINFO* script;    // 0x2c o script tocando
+    P32<SCRIPTINFO> script;  // 0x2c o script tocando
     float countdown;       // 0x30 parâmetro 3: segundos até o fim (correm com o canal de ligar)
     float after;           // 0x34 parâmetro 4: segundos do fim até o canal
     float wait;            // 0x38 segundos até a próxima carga (10)
@@ -44,7 +45,7 @@ static_assert(sizeof(SPACELASER_tag) == 0x50 && offsetof(SPACELASER_tag, done) =
 
 // Dados do míssil (0x28 bytes, tipo 0x4f).
 struct SPACEMISSILE_tag {
-    SCRIPTINFO* script;    // 0x00 parâmetro 0 (o silo), depois o do desfecho
+    P32<SCRIPTINFO> script;  // 0x00 parâmetro 0 (o silo), depois o do desfecho
     uint32_t launch;       // 0x04 parâmetro 1: o script do lançamento
     uint32_t sabotage;     // 0x08 parâmetro 2: o script do míssil sabotado
     uint16_t index;        // 0x0c parâmetro 4: o número do míssil (1-8): MissileDeploy e o canal da sabotagem
@@ -52,7 +53,7 @@ struct SPACEMISSILE_tag {
     uint16_t sabotaged;    // 0x10 parâmetro 6: ligado no fim da sabotagem
     uint16_t enable;       // 0x12 parâmetro 7 (0: sempre)
     float delay;           // 0x14 parâmetro 3: segundos até se armar
-    SCRIPTINFO* extra[4];  // 0x18 parâmetros 8-11: os scripts de acompanhamento
+    P32<SCRIPTINFO> extra[4];  // 0x18 parâmetros 8-11: os scripts de acompanhamento
 };
 static_assert(sizeof(SPACEMISSILE_tag) == 0x28);
 

@@ -24,6 +24,7 @@
 #include <cstdint>
 
 #include "platform/psi_2d.h"
+#include "platform/ptr32.h"
 
 struct GPOINT {
     float x;
@@ -50,7 +51,7 @@ struct CHARDATA_tag {
     int16_t pre;          // 0x0a espaço antes (quando há um caractere antes)
     int16_t post;         // 0x0c espaço depois
     uint16_t kern_count;  // 0x0e pares de kerning
-    KERN_tag* kern;       // 0x10
+    P32<KERN_tag> kern;   // 0x10
     uint16_t code;        // 0x14 código do caractere (Latin-1)
     uint16_t pad;
 };
@@ -59,11 +60,11 @@ static_assert(sizeof(CHARDATA_tag) == 0x18);
 // Fonte (0x1c bytes).
 struct FONT_tag {
     uint32_t kern_count;   // 0x00 pares de kerning da fonte
-    KERN_tag* kern;        // 0x04
+    P32<KERN_tag> kern;    // 0x04
     uint16_t first;        // 0x08 menor código (0x21)
     uint16_t last;         // 0x0a maior código aceito (0xff)
     uint32_t count;        // 0x0c glifos
-    CHARDATA_tag* chars;   // 0x10 ordenados pelo código
+    P32<CHARDATA_tag> chars;  // 0x10 ordenados pelo código
     float line_gap;        // 0x14 espaço entre linhas
     float space;           // 0x18 largura do espaço (vezes 1.25 e a escala)
 };
@@ -72,7 +73,7 @@ static_assert(sizeof(FONT_tag) == 0x1c);
 // Entrada de FontTable (8 bytes): o hashcode da textura e a fonte.
 struct FONTTABLE_tag {
     uint32_t hash;
-    FONT_tag* font;
+    P32<FONT_tag> font;
 };
 static_assert(sizeof(FONTTABLE_tag) == 8);
 
@@ -105,7 +106,7 @@ struct PRINTINFO_tag {
     uint8_t unknown_2c[4];
     uint32_t unknown_30;
     uint32_t unknown_34;
-    const char* format;    // 0x38
+    P32<const char> format;  // 0x38
     uint16_t unknown_3c;
     uint16_t pad;
 };

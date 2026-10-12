@@ -50,7 +50,7 @@ _VECTOR madd3(const _VECTOR& a, const _VECTOR& b, float k) {
 ATTACH_tag* new_mark() {
     void* e = DList_MoveFromFree2InUse(&EffectList);
     if (e == nullptr) {
-        auto* oldest = reinterpret_cast<ATTACH_tag*>(EffectList.used.first);
+        auto* oldest = reinterpret_cast<ATTACH_tag*>(nf::raw(EffectList.used.first));
         Effect_UnLink(oldest);
         DList_RemoveFromInUse2Free(&EffectList, reinterpret_cast<LLNODE_tag*>(oldest));
         e = DList_MoveFromFree2InUse(&EffectList);
@@ -153,7 +153,7 @@ void Effect_Bullet(HITDATA_tag* hit, obj_tag* obj, cel_tag* cel, uint16_t flags)
     const HEINFO_tag& info = effect_info(hit->surface);
     if ((flags & 0x40) != 0) Sound_Play3D(info.sound_bullet, &hit->pos, 100.0f, -1.0f, -1.0f, 0, 0, 0);
     obj_tag* shooter;
-    std::memcpy(&shooter, static_cast<uint8_t*>(obj->data) + 0x30, 4);
+    shooter = nf::p32_load<obj_tag>(static_cast<uint8_t*>(obj->data) + 0x30);
     bool smoke = shooter != nullptr && shooter->type == 3;
     if (!smoke) smoke = Rand_Rand(2) == 0;
     if (smoke) {

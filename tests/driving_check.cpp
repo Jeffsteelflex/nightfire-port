@@ -29,6 +29,8 @@
 #include <vector>
 
 #include "data/elf.h"
+#include "platform/arena.h"
+#include "platform/disc_source.h"
 #include "driving/physics/rigid_body.h"
 #include "driving/physics/simulation.h"
 #include "driving/physics/vu0_physics.h"
@@ -38,6 +40,7 @@
 #include "platform/vu_interp.h"
 
 #include "driving_check_ee.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -473,7 +476,7 @@ void build_scenario(drv::Simulation& sim) {
         p.inv_inertia[0] = 3.0f / (sb.mass * (hy2 + hz2));
         p.inv_inertia[1] = 3.0f / (sb.mass * (hx2 + hz2));
         p.inv_inertia[2] = 3.0f / (sb.mass * (hx2 + hy2));
-        const float c = std::cos(sb.tilt), s = std::sin(sb.tilt);
+        const float c = nf::fm::cos(sb.tilt), s = nf::fm::sin(sb.tilt);
         // Rotação em torno de x e depois de z (linhas).
         const float rx[3][3] = {{1, 0, 0}, {0, c, s}, {0, -s, c}};
         const float rz[3][3] = {{c, s, 0}, {-s, c, 0}, {0, 0, 1}};
@@ -597,7 +600,7 @@ void check_coverage(const std::vector<VuProgram>& progs, const std::string& root
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int main_body(int argc, char** argv) {
     nf::install_crash_report();
     if (argc < 2) {
         std::printf("uso: nf_driving_check <raiz dos dados> [--casos N] [--quadros N] [--semente N]\n");
@@ -611,8 +614,11 @@ int main(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--quadros") == 0) frames = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--semente") == 0) seed = uint32_t(std::strtoul(argv[++i], nullptr, 0));
     }
-    std::vector<uint8_t> bytes = read_file(root + "/DRIVING.ELF");
-    if (bytes.empty()) {
+    // O disco do jogador (a pasta, uma imagem .iso, uma unidade); os objetos extraídos de out/ ficam na pasta dele.
+    std::string disc_error;
+    const std::shared_ptr<nf::DiscSource> disc = nf::open_disc(std::wstring(root.begin(), root.end()), &disc_error);
+    std::vector<uint8_t> bytes;
+    if (disc == nullptr || !disc->read("DRIVING.ELF", bytes) || bytes.empty()) {
         std::printf("sem %s/DRIVING.ELF\n", root.c_str());
         return 1;
     }
@@ -622,10 +628,20 @@ int main(int argc, char** argv) {
         std::printf("o .vutext tem %zu programas (esperados 3)\n", progs.size());
         return 1;
     }
-    check_coverage(progs, root);
+    {
+        const std::wstring folder = disc->folder();
+        std::string base;
+        for (wchar_t c : folder) base.push_back(c < 128 ? char(c) : '?');
+        check_coverage(progs, disc->kind() == nf::DiscKind::Folder ? root : base);
+    }
     check_microcode(progs[1], cases, seed);
     check_whole_step(progs[1], frames);
     const int ee_failures = drvcheck::run_ee_checks(elf, progs[1].code, cases, seed);
     std::printf("\nfim\n");
     return ee_failures ? 2 : 0;
+}
+
+int main(int argc, char** argv) {
+    // 64 bits: na pilha da arena (platform/arena.h); 32 bits: direto.
+    return nf::run_main([&] { return main_body(argc, argv); });
 }

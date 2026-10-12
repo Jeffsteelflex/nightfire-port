@@ -1,21 +1,29 @@
 # Executável nativo (`nightfire.exe`)
 
 Primeira peça do port: um programa Windows que lê `ACTION.ELF` e `FILES.BIN` da cópia do
-usuário e roda as fases com Direct3D 11: o jogador anda pela fase com mouse e teclado, com o
+usuário (a imagem `.iso` do disco, o disco num leitor de DVD, os arquivos extraídos numa pasta ou a cópia pessoal dentro
+do próprio executável: ver "Instalação fácil") e roda as fases com Direct3D 11: o jogador anda pela fase com mouse e teclado, com o
 movimento e a colisão do próprio jogo. Não usa emulação nem arquivos convertidos.
 
 ## Compilar e rodar
 
 ```
-build.bat                         :: Release em build\Release\nightfire.exe
+build.bat                         :: Release em build\Release\nightfire.exe (32 bits, a versão de referência)
+build.bat Release x64             :: a versão de 64 bits em build\x64\Release\nightfire.exe (ver "64 bits")
 build\Release\nightfire.exe --level 07000001
 ```
 
-O executável procura `FILES.BIN` na pasta atual, depois na pasta dele e nas superiores.
-Use `--data <pasta>` para indicar outra.
+Sem `--disc`, o executável procura o disco sozinho (a ordem está em "Instalação fácil": a cópia pessoal, a pasta dele,
+a pasta atual e as de cima, o `[game] disc` do `nightfire.ini`, os leitores de DVD) e, sem nenhum que sirva, mostra a
+tela de configuração. Quem compila tem os arquivos extraídos na raiz do repositório, que a procura acha a partir de
+`build\Release`; `--disc` (ou o nome antigo `--data`) indica outro.
 
 | Opção | Efeito |
 |-------|--------|
+| `--disc <caminho>` | o disco do jogo: uma imagem `.iso`, a pasta com os arquivos extraídos, um leitor (`D:`) ou um executável com a cópia pessoal (`--data` é o nome antigo). Só a versão americana (SLUS-20579) serve; ver "Instalação fácil" |
+| `--setup` | mostra a tela de configuração mesmo com um disco que sirva (trocar o disco, fazer a cópia pessoal) |
+| `--setup-pick <caminho>`, `--setup-input "<seq>"` | capturas da tela de configuração: a resposta da janela de escolha de arquivo e o roteiro (como `--input`, com `cmouse=x,y`; o relógio conta da tela) |
+| `--pack-disc <caminho>` | faz a cópia pessoal em um arquivo só e sai (sem janela; o andamento no console); com `--out <arquivo.exe>` (padrão: `<executável>-personal.exe` ao lado dele) e `--pack-no-movies` (sem os filmes, uns 850 MB a menos) |
 | `--level <hash>` | começa direto nessa fase; sem ele, o menu principal do jogo (07000048) |
 | `--save-dir <pasta>` | a pasta do cartão de memória (padrão `saves\` ao lado do executável); com `--screenshot` e sem ele, o cartão fica em memória |
 | `--width`, `--height` | tamanho da janela (padrão 1600x900) |
@@ -50,7 +58,7 @@ Use `--data <pasta>` para indicar outra.
 | `--menu-tab <aba>` | com `--open-menu-page 40000060`: a aba (`video`, `graphics`, `interface`, `audio`, `controls`, `keys`; no estilo Modern também `controller`) |
 | `--menu-style modern\|original` | o estilo dos menus do PC (padrão `modern`; ver "Menus no estilo Modern"); também `[ui] menu_style` |
 | `--at x,y,z,giro` | põe o jogador de pé nesse ponto, virado para o giro (radianos); o `nf_loader_check` mostra pontos diante de portas em `porta_usada=` |
-| `--textures <pasta>` | pacote de texturas HD no formato do PCSX2 (padrão: `<dados>\textures\SLUS-20579\replacements`) |
+| `--textures <pasta>` | pacote de texturas HD no formato do PCSX2 (padrão: `textures\SLUS-20579\replacements` na pasta do disco (a pasta dos arquivos, a da imagem `.iso`), senão ao lado do executável ou nas pastas de cima dele, senão na pasta atual) |
 | `--no-hd` | começa com as texturas originais (tecla T alterna) |
 | `--no-lights` | depuração: sem as luzes da VU1 (as rotinas de luz viram as sem luz; o tweak continua) |
 | `--no-fog` | depuração: sem a passada de névoa (o alfa dos transparentes ainda cai com a distância, como no `psi_draw`) |
@@ -132,6 +140,119 @@ visão direto, em radianos por contagem (`--sensitivity`), sem as curvas de acel
 A lógica (e a câmera do jogador) roda a 60 Hz; acima disso a imagem fica entre os dois últimos ticks (ver
 "Interpolação entre ticks"), e o mouse gira a visão na hora.
 
+## Instalação fácil
+
+Para quem só quer jogar: baixar um zip, apontar a imagem do disco (ou pôr o disco no leitor) e jogar, sem compilar nem
+extrair nada. O conteúdo do jogo nunca é distribuído: cada jogador usa a sua cópia do disco americano (SLUS-20579).
+
+### As fontes do disco (`src/platform/disc_source.h`)
+
+Toda leitura dos arquivos do disco passa pela fonte do disco (`nf::DiscSource`): o `ACTION.ELF` na partida
+(`game/boot.h`: o `FileList` e os construtores estáticos), o `FILES.BIN` (`psi_file`, `FilesBin`), a pasta `PS2\` do
+driver de som (`sfx_iop_set_disc`), os filmes `MOVIES\30_FPS` (`movie_set_disc`, o `PssFile` lê um `DiscFile`) e, nas
+ferramentas das missões de carro, o `DRIVING\` e o `DRIVING.ELF` (`drv::Bigf`, `nf_driving --data`, `nf_driving_check`).
+Os caminhos são os do disco, com `/` e sem diferenciar maiúsculas (`PS2/ENGLISH/SB_0/SB_0.SFX`). Um arquivo aberto
+(`nf::DiscFile`) é uma faixa de um arquivo do PC com o identificador do Windows dele (cada abertura tem o seu cursor).
+Quatro fontes, a mesma interface:
+
+| Fonte | O que é | Como os arquivos são achados |
+|-------|---------|------------------------------|
+| pasta | os arquivos extraídos (a raiz do repositório de quem compila, ou ao lado do executável) | o arquivo da pasta |
+| imagem | o `.iso` do DVD do PS2 | o ISO 9660 da imagem: o descritor primário no setor 16, os diretórios (os registros não passam de um setor para o outro: um byte 0 pula para o próximo), os nomes com `;1` e o ponto final dos nomes sem extensão; cada arquivo é uma faixa contínua da imagem (um arquivo em várias partes só se elas forem contínuas; intercalados são recusados). O UDF que os DVDs também têm não é lido |
+| unidade | o disco num leitor de DVD (ou a imagem montada pelo Windows) | uma pasta na raiz da letra (`D:\`), sem as caixas "não há disco" do Windows |
+| cópia | a cópia pessoal (abaixo) | o índice no fim do próprio executável |
+
+A versão vem do `SYSTEM.CNF`: `BOOT2 = cdrom0:\SLUS_205.79;1` dá `SLUS-20579`. O jogo diz o que espera (`DiscTitle`,
+`nf::nightfire_disc()` em `game/boot.h`: o código, os arquivos sem os quais ele não roda, o que entra na cópia) e
+`check_disc` responde: serve, não existe, não dá para ler (não é ISO 9660), não é um disco de PS2 (sem `BOOT2`), é de outro
+jogo (outro código, sem os arquivos do jogo), é outra versão do Nightfire (outro código com `ACTION.ELF` e `FILES.BIN`: os
+PAL, `SLES-...`, ainda não são suportados) ou falta um arquivo. Uma pasta sem `SYSTEM.CNF` mas com `ACTION.ELF` e
+`FILES.BIN` (o jeito antigo de extrair) serve, com a versão não conferida. Nada disso é do Nightfire: a "007 Anthology"
+reaproveita a fonte com outro `DiscTitle`.
+
+A procura (`find_disc`), quando a linha de comando não diz: (1) a cópia pessoal no próprio executável; (2) a pasta do
+executável, com os arquivos ou com uma imagem `.iso` (a primeira que sirva, por nome); (3) a pasta atual e as três de
+cima do executável (a raiz do repositório a partir de `build\Release` e `build\x64\Release`: quem compila); (4) o `[game]
+disc` do `nightfire.ini`; (5) os leitores de CD/DVD (`D:\` com um `SYSTEM.CNF`). Os recusados no caminho (outra versão,
+uma imagem que sumiu) ficam anotados para a tela de configuração. As pastas da procura só contam com `FILES.BIN` ou
+`SYSTEM.CNF` dentro. `--disc` vale sozinho. Nas capturas sem `--config` o `nightfire.ini` não é lido, então o `[game]
+disc` também não: uma captura não depende das opções do jogador.
+
+O pacote de texturas HD do jogador (formato do PCSX2) fica ao lado do disco: `textures\SLUS-20579\replacements` na pasta
+dele (a da imagem, para um `.iso`), senão na pasta do executável e nas de cima, senão na atual; com o disco num leitor de
+DVD, ao lado do executável (ou `--textures`).
+
+### A tela de configuração (`src/ui/modern_setup.h`, `src/render/setup_app.h`)
+
+Sem um disco que sirva (ou com `--setup`), o `nightfire.exe` abre a janela e mostra a tela de configuração antes do
+jogo, no estilo Modern (o kit, docs/design.md "As telas"), sem nada do jogo (não há disco ainda): "Select your 007:
+Nightfire disc image (PS2, USA)", SELECT DISC IMAGE (a janela de escolha de arquivo do Windows, `IFileOpenDialog` numa
+thread STA própria; o laço continua desenhando), USE THE DISC IN DRIVE X: (um por leitor com um disco de PS2, procurados
+de novo a cada 2 s: um disco que entra aparece sozinho; o de outra versão com o cadeado e o motivo), PLAY, MAKE A
+SINGLE-FILE COPY e QUIT. Um disco escolhido é conferido (`probe_disc`); servindo, vai para o `[game] disc` do
+`nightfire.ini` e o foco vai para PLAY; senão, a caixa diz por quê (os textos em `PcText`, inglês e português por `[ui]
+language_pc`). PLAY segue a partida normal (o menu principal do jogo); da próxima vez a procura acha o disco pelo `.ini`.
+Teclado, mouse e controle como nas outras telas Modern (`NavState`).
+
+Capturas: `--screenshot` desenha a tela fora da janela no relógio fixo de 60 quadros por segundo; `--setup-pick
+<caminho>` responde a janela de escolha e `--setup-input` é o roteiro; se o `--wait` passa com a tela aberta, grava a
+imagem e o `.txt` (`configuracao foco linhas pronto problema copia leitores dialogo escolhendo mouse disco`, o disco
+escolhido, os recusados e os leitores) e sai. Ex.: num lugar sem disco,
+`nightfire.exe --config out/s.ini --setup-pick "<iso>" --setup-input "none:0.5 enter:0.1 none:0.5 enter:0.1" --input
+"none:4.5 enter:0.1" --wait 7 --screenshot out/shots/s.png` escolhe a imagem, a grava em `out/s.ini`, joga e captura o
+menu principal (igual, pixel a pixel, ao de antes).
+
+### A cópia pessoal em um arquivo só (`src/platform/disc_pack.h`)
+
+Para o próprio jogador: `nightfire.exe --pack-disc <iso|pasta|leitor> [--out <arquivo.exe>] [--pack-no-movies]`, ou MAKE
+A SINGLE-FILE COPY na tela de configuração (a thread da cópia, a barra de andamento e Cancel na caixa). O resultado é uma
+cópia do executável em uso com os arquivos do disco depois da imagem PE (o "overlay", que o carregador do Windows não
+mapeia) e um rodapé de 64 bytes no fim (o tamanho do programa, onde está o índice, o formato, se tem os filmes, o código do
+disco e a marca `NFPC-DISC-PACK-1`). Entra só o que o port usa: `ACTION.ELF`, `SYSTEM.CNF`, `FILES.BIN`, `PS2\` e, se não
+for `--pack-no-movies`, `MOVIES\` (o `DRIVING\` fica de fora até as missões de carro rodarem), cada arquivo alinhado a
+2048, e a pasta `hd_ui` do port em `PORT/HD_UI/` (uma cópia sozinha numa pasta qualquer a tira uma vez para
+`%LOCALAPPDATA%\Nightfire PC\hd_ui-<marca>`). Na partida o executável lê o próprio fim: com o rodapé, ele é o disco (o
+passo 1 da procura). Uma cópia feita por uma cópia leva só o programa (sem aninhar a de antes).
+
+O arquivo contém o jogo do usuário: é só dele e não pode ser compartilhado (a tela e o `--pack-disc` dizem isso). Ele vai
+só para onde o usuário mandar, por padrão ao lado do executável em uso (`nightfire-personal.exe`, `nightfire64-personal.exe`),
+e nunca para dentro de uma árvore de trabalho do git (`inside_git_tree`: uma pasta acima com `.git`; o `.gitignore` já
+ignora `*.exe`, mas a regra vale para qualquer nome); a escrita vai para um `.part` trocado pelo nome final no fim.
+
+Tamanho e o Windows (12/10/2026, esta máquina): com os filmes, 1 909 214 396 bytes a de 32 bits e 1 910 004 924 a de 64
+(1,8 GB: `FILES.BIN` 764 MB, `MOVIES\` 848 MB, `PS2\` 290 MB, o `hd_ui` 2 MB); sem eles, ~1,06 GB. O Windows 11 roda as
+duas nesse tamanho, também sozinhas numa pasta qualquer (o `hd_ui` tirado para a pasta do usuário): a primeira partida
+de uma cópia nova demorou 7 a 14 s (o Defender lê o arquivo inteiro), as seguintes 1,5 s, como o executável comum. A
+cópia feita pela tela de configuração, conferida com o `nf_disc_check` contra a imagem: os 137 arquivos do disco iguais. A
+versão de 32 bits precisa do runtime do Visual C++ (`msvcp140.dll`, `vcruntime140.dll`: no zip ao lado dele, ou o
+instalado no sistema); a de 64 bits o tem dentro (`/MT`) e roda sozinha em qualquer pasta.
+
+### O zip de lançamento (`tools/make_release.py`)
+
+`python tools/make_release.py [--version X.Y]` monta, das saídas de `build\Release` e `build\x64\Release`, a pasta
+`Nightfire PC` e o zip dela em `out/release/` da cópia principal do repositório (git-ignorado; nada é publicado):
+`nightfire.exe` + `nightfire.pdb` (32 bits, a referência e o padrão), `nightfire64.exe` + `nightfire64.pdb` (64 bits,
+marcado como experimental no `README.txt`; o CMake grava o PDB dela com esse nome), `msvcp140.dll` e `vcruntime140.dll`
+(o runtime do Visual C++ x86 do Build Tools, distribuível), a pasta `hd_ui` (só os arquivos que o git conhece: as fontes
+Rajdhani com o `OFL.txt`, os SVG, o `map.json`, o `design/tokens.json`) e os textos de `tools/release/` (`README.txt`:
+como jogar; `LICENSES.txt`: as peças de terceiros). Os executáveis só guardam o nome do PDB (`/PDBALTPATH`), e o relatório
+de falhas procura o PDB ao lado do executável. O `build.bat` põe os temporários do compilador e do linker em
+`build\<config>\tmp`: o PDB guarda o caminho deles, e o `%TEMP%` do Windows traz o nome do usuário. O script recusa qualquer
+coisa do jogo (nomes e pastas do disco, arquivos grandes que não sejam executáveis ou PDB) e procura no conteúdo o nome e o
+e-mail da conta do git e o nome do usuário do Windows, sem nunca escrevê-los.
+O que cada executável precisa para rodar foi visto numa pasta limpa fora do repositório: o `hd_ui` ao lado dele, o runtime
+para o de 32 bits, mais nada (os shaders são compilados do texto que está no executável).
+
+### Conferências
+
+- `nf_disc_check <A> [B]` (`tests/disc_check.cpp`): a versão e a lista de uma fonte; com duas, cada arquivo de A procurado
+  em B e comparado byte a byte. A imagem do usuário contra os arquivos extraídos: 177 arquivos iguais (2 438 104 348 bytes);
+  contra a imagem montada (`Mount-DiskImage`, uma letra como um DVD): iguais.
+- `nf_level_check`, `nf_loader_check` e `nf_driving_check` aceitam a imagem (ou o leitor) no lugar da pasta, com a mesma
+  saída.
+- As capturas da imagem, do leitor e da cópia pessoal são iguais, pixel a pixel, às da pasta (07000012 a 2 s e 9 s, 07000001
+  a 11,7 s, o menu principal Modern e Original, um quadro de filme e a abertura de uma missão; os WAV também).
+
 ## Arquitetura
 
 | Pasta | Conteúdo | Substitui no PS2 |
@@ -160,6 +281,142 @@ Decisões:
 - Mouse por Raw Input: delta direto do sensor, sem a aceleração do Windows.
 - Gatilhos, volumes de chuva, pontos de spawn e nós de IA têm malha no disco, mas o jogo não
   os desenha. A classificação por tipo está em `classify_object` (`src/game/level_scene.cpp`).
+
+## 64 bits
+
+O port compila em 32 bits (x86, a versão de sempre, a padrão e a referência de todas as conferências) e em 64 bits
+(x64). A de 64 bits é o primeiro passo para o macOS, que só roda programas de 64 bits; no Windows a de 32 bits continua
+a padrão e não mudou em nada (todas as conferências e capturas idênticas às do `main`).
+
+```
+build.bat Release          :: x86 em build\Release (vcvarsamd64_x86, /LARGEADDRESSAWARE), como antes
+build.bat Release x64      :: x64 em build\x64\Release (vcvars64, -DNF_ARCH64=ON)
+build\x64\Release\nf_tests.exe
+build\x64\Release\nf_loader_check.exe .
+```
+
+Opções do CMake: `NF_ARCH64` (desligada: x86) e, só em x64, `NF_P32_CHECK` (ligada). Em x64 o C runtime é estático
+(`/MT`, para o `operator new` do port valer também dentro do STL), a troca de pilha é um arquivo MASM e truncar um
+ponteiro é erro de compilação (`/we4311 /we4312 /we4302`).
+
+### Ponteiros de 4 bytes
+
+As estruturas do jogo têm o layout do PS2 (cada campo de ponteiro com 4 bytes; os tamanhos e deslocamentos conferidos
+com `static_assert`) e o código decompilado lê e escreve ponteiros dentro dos blocos carregados do disco. Em vez de
+traduzir tudo isso, a versão de 64 bits guarda em cada campo de ponteiro o deslocamento do objeto a partir do começo da
+imagem do executável (`__ImageBase`), e garante que tudo o que o jogo pode apontar fique numa janela de 4 GB a partir
+dali (`src/platform/ptr32.h`, `src/platform/arena.h`, comentários do cabeçalho):
+
+- `P32<T>`, o tipo de um campo de ponteiro numa estrutura do jogo: em x86 é `T*` (o código compila exatamente como
+  antes); em x64 uma classe de 4 bytes (0 = nulo) que converte de e para `T*` sozinha (`->`, `*`, `[]`, `++`, `+=`,
+  comparações). `F32<R(A...)>` faz o mesmo com um ponteiro de função: o código fica na imagem, então o deslocamento
+  basta (dispensa um registro de funções; as tabelas copiadas do ELF continuam resolvidas por `Engine_ResolveCode`).
+- A janela contém a imagem (o código, as globais, as strings literais) e a arena: a maior região livre da janela logo
+  depois da imagem, reservada sem comprometer. Dela saem o heap do jogo (`psiMem_Init`), todo `new`/`delete` do programa
+  (o `operator new` é trocado em x64: `std::vector`, `std::string` e os buffers que o port entrega ao jogo já caem na
+  janela) e a pilha onde o jogo roda (`nf::run_main` envolve o `main` de cada executável; o código decompilado guarda
+  endereços de variáveis locais em campos do jogo, como os testes de colisão e o `DroneImpact_tag` das explosões).
+- `NF_P32_CHECK`: guardar num `P32` um ponteiro fora da janela (o heap do sistema, outra thread, uma DLL) imprime a
+  pilha de chamadas e encerra (código 3), em vez de virar um ponteiro errado.
+- Ajudantes: `nf::p32_u(p)` / `nf::p32_ptr<T>(v)` (ponteiro <-> palavra de 32 bits: as palavras "unknown" que são
+  ponteiros, as correções dos carregadores, as sentinelas como `0xffffffff`), `nf::p32_load<T>(endereço)` /
+  `nf::p32_store(endereço, p)` (uma palavra de ponteiro lida ou escrita por deslocamento), `nf::p32_fn_u`/`p32_fn`
+  (funções), `nf::raw(campo)` (o ponteiro nativo de um campo, para `reinterpret_cast`, `auto*` e `?:`; em x86 o próprio
+  ponteiro).
+- O que fica nativo: a plataforma, o renderizador e a interface, e as estruturas só do port que nunca entram em dados do
+  jogo (`ProvisionalObject`, `PcTab`, `MenuHandlerEntry`, `CREDIT_SOURCE`, `CONTROLFUNCS_tag`, a `Simulation` das
+  missões de carro).
+
+Regras para código novo (o x64 pega algumas na compilação; as outras são silenciosas lá, então teste as duas versões):
+campo de ponteiro numa estrutura do jogo é `P32<T>` (e a estrutura ganha um `static_assert` do tamanho); palavra de
+ponteiro por deslocamento é `nf::p32_load`/`nf::p32_store`, nunca `memcpy(&p, base + off, 4)`,
+`*reinterpret_cast<T**>` ou `rd<T*>`/`at<T*>` (os leitores por deslocamento recusam ponteiro nativo em x64, pelo
+`nf::is_native_ptr_v`: escreva `rd<P32<T>>`); vetores de ponteiros no heap do jogo são `P32<T>*` com `n * 4` bytes;
+contas em `float` com `nf::fm::sin` etc., não `std::sin` (abaixo); uma `MATRIX` local montada por `RotMatrix*` ou
+`Quat_QuatToMat` só tem a rotação escrita: comece zerada (`MATRIX m{}`) se a matriz inteira for usada depois.
+
+### x64 contra x86
+
+A versão de 64 bits dá os mesmos resultados que a de 32 em todas as conferências (medido em 12/10/2026, os dados do
+disco do usuário): `nf_tests` (os mesmos 768 testes, mais 3 da arena: 771, 0 falhas), `nf_level_check` (35 fases, 0
+sem resolver), `nf_driving_check` e `nf_driving --check --verify` idênticos (a menos da memória do processo, que inclui
+o C runtime estático e a arena), `nf_loader_check` com a saída inteira idêntica (os endereços mascarados), e as 16
+capturas de referência (a fase, a introdução com o rosto, a chuva, a neve, o tiroteio, a pausa e o menu principal
+Modern, a roda de armas, os resultados, o dossiê, MSAA, 144 Hz, a câmera de segurança, a água) idênticas pixel a pixel,
+com os relatórios iguais a menos dos tempos. Também idênticos: um quadro de filme (Media Foundation), o WAV de 14 s do
+tiroteio de 07000012 e o codinome gravado no cartão (os três arquivos byte a byte). O desenho do carro do `nf_driving`
+varia de uma execução para outra nas duas versões.
+
+Para chegar aí, as duas versões foram comparadas tick a tick (posição, rotação, matriz, tipo e estado de cada objeto, e
+as sementes do `Rand`, em todos os ticks do `nf_loader_check`), o que achou:
+
+- **As funções matemáticas de `float` do C runtime.** No de 32 bits, `sinf`, `cosf`, `tanf`, `asinf`, `acosf`, `atanf`,
+  `atan2f`, `expf`, `logf`, `log10f` e `powf` são inline sobre a versão `double`; no de 64 bits são funções próprias que
+  diferem em 1 ulp numa parte das entradas (medido em 2 milhões de entradas: `asinf` 6%, `acosf` 2%,
+  `sinf`/`cosf`/`log10f` 0,1%). As versões `double` dão o mesmo resultado nas duas. `nf::fm::<f>(float)`
+  (`src/platform/fmath.h`) calcula na `double` e arredonda: em x86 é o que `std::<f>` já fazia, em x64 dá o resultado do
+  x86. `log2f`, `exp2f` e `hypotf` ficam (só a barra da sensibilidade do mouse usa as duas primeiras, e as 61 posições
+  dão o mesmo; `hypotf` deu o mesmo que a `double` nas duas).
+- **Um erro da versão de 64 bits.** Leitores por deslocamento com um tipo ponteiro (`rd<obj_tag*>(dados + 0x7e8)`,
+  `at<M_CONTROL*>(caixa, 0xc)`: 24 lugares em `anim.cpp`, `drone.cpp`, `drone_vision.cpp`, `hud.cpp`, `text.cpp`) liam 8
+  bytes de um campo de 4 (em `AnimProcessScriptCmds` a arma na mão deixava de ser reconhecida e o som saía de outro
+  lugar). Agora são `P32`, e os modelos recusam ponteiro nativo.
+- **Duas leituras de lixo da pilha do original**, que o x64 mostrou porque a pilha dele tem outro conteúdo. O giro do
+  cano das torretas (`spin_barrel`) monta `RotMatrixZ` numa matriz da pilha sem a linha da translação, que `Concat` soma
+  à posição do cano (com o lixo do x64 o cano e o clarão pulavam 10 ou 100 m). E `DroneWeap_DropWeapon`, num
+  personagem sem pose, solta a arma na translação da matriz da mão, que `Mat_Identity` não escreve (no x64 uma arma
+  nascia num ponto qualquer de 07000005 e caía para sempre). As duas matrizes agora começam zeradas ou na posição do
+  personagem (divergências documentadas nos arquivos); em x86 o lixo dava o mesmo que esses valores, e as conferências
+  e capturas continuam idênticas ao `main`.
+- **A precisão do x87 na versão de 32 bits** (inerente; fica). Na convenção de chamada x86 uma função devolve `float`
+  em `ST(0)`, a pilha do x87, e o MSVC às vezes continua a conta ali, com 53 bits de mantissa, até guardar o resultado:
+  `pos.x += Rand_FRand(r) - raio` sai do x87 com um arredondamento só, onde o x64 arredonda cada passo para `float`, e
+  funções curtas como os `dot3` devolvem a soma sem arredondar. Um `dumpbin /disasm` dos objetos de 32 bits acha 79
+  funções com contas assim (101 lugares; uns 30 na lógica do jogo, o resto nos menus Modern). No rastreio por tick o
+  primeiro anel de água de 0700000b já sai 1 ulp diferente no tick 2; essas diferenças não chegaram a nenhuma saída das
+  conferências nem a nenhum pixel das capturas, mas a lógica do jogo é caótica e uma conta de 1 ulp pode, numa partida
+  longa, virar outra decisão. Prova de que não há mais nada entre as duas: uma versão de 32 bits compilada com `/Gv`
+  (`__vectorcall`, que devolve `float` em `XMM0`, sem o x87; um experimento, não está no repositório) dá a mesma saída
+  que a de 64 bits em todos os 135.075 ticks do `nf_loader_check`. Fazer a de 64 bits imitar o x87 exigiria reescrever
+  cada um desses lugares com `double` conforme o MSVC escolheu o x87 (e cada mudança de código mexe nessa escolha);
+  fazer a de 32 bits imitar a de 64 mudaria os resultados dela.
+- **Lixo da pilha na coordenada w** (inofensivo). Alguns vetores e matrizes do jogo carregam no `w` o que sobrou na
+  pilha (o `pos.w` dos itens que caem, a coluna w da matriz do jogador), como no PS2: o lixo é outro em cada versão, mas
+  o desenho força essa coluna (`psiDrawObjectMatrix`, como o PS2) e nenhuma conta em x, y e z o usou nas provas acima.
+
+### Desempenho
+
+`--bench 10` a 1920x1080, duas rodadas alternando as versões (fps médio; entre parênteses a variação das rodadas):
+
+| Cena | x86 | x64 |
+|------|-----|-----|
+| 0700000c girando, Radeon (iGPU), fora da tela | 237 (226-248) | 236 (228-244) |
+| 0700000c girando, Radeon, em janela | 218 (215-220) | 221 (220-222) |
+| 07000012 parado, Radeon, fora da tela | 379 (372-387) | 386 (385-387) |
+| 0700000c girando, RTX 5090, fora da tela | 2690 (2389-2991) | 4393 (4348-4438) |
+
+Na Radeon, onde a GPU é o limite, as duas versões ficam dentro do ruído. Na RTX 5090, onde o limite é a CPU, a de 64 bits
+é cerca de 1,6 vez mais rápida: a lógica custa 0,37 ms por tick contra 0,47-0,53, o `Game_Draw` 0,09 contra 0,14 e o
+envio ao Direct3D 0,09 ms por quadro contra 0,16-0,23 (mais registradores, a convenção de chamada de 64 bits e o
+Direct3D de 64 bits).
+
+A memória: a arena da versão de 64 bits compromete o que o jogo usa (07000012 parado: 89 MB, o heap do jogo de 64 MB, a
+pilha do jogo de 16 MB e o resto do `new`; a linha `arena` do relatório das capturas, só em x64), e o `nf_loader_check`
+fica em 108 MB contra 90. Mas o `nightfire.exe` de 64 bits compromete uns 0,8 GB a mais de memória privada (pico de
+978 MB contra 211 na RTX 5090, 1226 contra 351 na Radeon), em blocos de 32 MB fora da arena que aparecem quando a fase
+cria as texturas e malhas: são do driver de vídeo de 64 bits (o de 32 bits, apertado no espaço de endereços, guarda
+menos). O conjunto de trabalho cresce menos (262 contra 220 MB na RTX, 718 contra 332 na Radeon, onde a memória de
+vídeo é a do sistema).
+
+### O que falta para o macOS
+
+A plataforma é só Windows: a janela e a entrada (Win32, Raw Input, XInput), o renderizador (Direct3D 11, Direct2D,
+DirectWrite, WIC), o som (XAudio2), os filmes (Media Foundation), o relatório de falhas (dbghelp), a reserva da arena e
+a troca de pilha (`VirtualAlloc`, o TEB, MASM). O esquema de ponteiros de 4 bytes não depende do Windows: no macOS a
+janela começa na imagem do mesmo jeito (com `mmap` perto dela para a arena) e a pilha do jogo pode ser a de uma thread
+criada com `pthread_attr_setstack` dentro da arena. Com o clang, `-ffp-contract=off` evita que contas de `float` virem
+FMA (o ARM64 contrai por padrão), e as funções matemáticas da libm do macOS diferem das do Windows: para os mesmos
+resultados, o port teria de levar as próprias.
 
 ## Texturas em alta definição
 

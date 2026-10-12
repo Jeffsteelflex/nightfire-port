@@ -23,12 +23,12 @@ constexpr int kShardVertWord = 0x12;
 constexpr int kShardUvWord = 0x37;
 constexpr uint32_t kShardChainBytes = 0x120;
 
-uint32_t* ptr_word(uint32_t v) { return reinterpret_cast<uint32_t*>(uintptr_t(v)); }
+uint32_t* ptr_word(uint32_t v) { return nf::p32_ptr<uint32_t>(v); }
 
 // Cabeçalho do bloco 0x2d depois de psiCreateEntityGfx: {caixas, ponteiro das caixas, extra}.
 uint32_t* gfx_header(const celglist_tag* glist) {
     if (glist == nullptr || glist->gfx == nullptr) return nullptr;
-    return reinterpret_cast<uint32_t*>(glist->gfx->ps2_gfx);
+    return reinterpret_cast<uint32_t*>(nf::raw(glist->gfx->ps2_gfx));
 }
 
 uint32_t box0_word(const uint32_t* hdr, int offset) {
@@ -81,7 +81,7 @@ void psiCreateBreakableData(celglist_tag* glist) {
     if (data == nullptr) {
         data = static_cast<BREAKGFX_tag*>(Mem_Malloc(0x18, 0x904, 0));
         if (data != nullptr) std::memset(data, 0, sizeof(*data));  // port: o original não zera
-        hdr[2] = uint32_t(reinterpret_cast<uintptr_t>(data));
+        hdr[2] = nf::p32_u(data);
     } else if (data->tris != nullptr) {
         return;
     }
@@ -271,9 +271,9 @@ int32_t* psiCreateShard(_SHATTER_VERT_LIST* list) {
 // liberaria o meio de um bloco já livre (corromperia o heap) e a cadeia nunca seria liberada.
 // Divergência: no PC o desenho já foi copiado para o registro do quadro, então a cadeia (*chain_field)
 // é liberada na hora e o campo zerado.
-void psiDeleteShard(int32_t* chain_field) {
+void psiDeleteShard(P32<int32_t>* chain_field) {
     if (chain_field == nullptr) return;
-    Mem_Free(reinterpret_cast<void**>(chain_field));
+    Mem_Free(chain_field);
 }
 
 // [decomp] 0x0011ca88 psiFinishedObjectShatter
@@ -295,7 +295,7 @@ void psiSetShardRenderStates() {
 // O registro (pstex_tag*) da entrada de Tex cujo pacote de registradores é dma; 0 se nenhuma.
 uint32_t GetTextureFromDMA(int32_t* dma) {
     for (int32_t i = 0; i < NumPS2TexturesLoaded; ++i) {
-        if (reinterpret_cast<int32_t*>(Tex[i].dma) == dma) return uint32_t(reinterpret_cast<uintptr_t>(Tex[i].rec));
+        if (reinterpret_cast<int32_t*>(nf::raw(Tex[i].dma)) == dma) return nf::p32_u(Tex[i].rec);
     }
     return 0;
 }
@@ -306,7 +306,7 @@ uint32_t GetTextureFromDMA(int32_t* dma) {
 // já estão na GPU: guarda o índice de Tex (pstex_tag::tex_index) em g_psi_font_texture.
 void psiFont_SetTexture(uint32_t texture) {
     if (texture == 0) return;
-    g_psi_font_texture = reinterpret_cast<const pstex_tag*>(uintptr_t(texture))->tex_index;
+    g_psi_font_texture = nf::p32_ptr<const pstex_tag>(texture)->tex_index;
 }
 
 // [decomp] 0x00122ae8 psiDrawShard
@@ -322,7 +322,7 @@ void psiDrawShard(int32_t* chain, MATRIX* m, uint32_t texture) {
     m->m[1][3] = 0.0f;
     m->m[2][3] = 0.0f;
     if (texture != ShardTexture) {
-        psiFont_SetTexture(GetTextureFromDMA(reinterpret_cast<int32_t*>(uintptr_t(texture))));
+        psiFont_SetTexture(GetTextureFromDMA(nf::p32_ptr<int32_t>(texture)));
         ShardTexture = texture;
     }
     if (chain == nullptr) return;

@@ -42,7 +42,7 @@ M_CONTROL backup_135;               // o controle de reserva de Menu_GetFirstCon
 M_COMPONENT no_component;           // só no port: devolvido por Component_GetHandle sem conjunto
 
 struct DelayedMessage {
-    M_CONTROL* control;
+    P32<M_CONTROL> control;
     uint32_t frame;
     uint32_t message;
     int32_t a;
@@ -51,12 +51,12 @@ struct DelayedMessage {
 static_assert(sizeof(DelayedMessage) == 0x14);
 DelayedMessage menu_delay_msg[0x80];  // 0x002ddb00
 
-int32_t val(const void* p) { return int32_t(reinterpret_cast<uintptr_t>(p)); }
+int32_t val(const void* p) { return int32_t(nf::p32_u(p)); }
 
 M_CONTROL* first_control(M_PAGE* p) { return static_cast<M_CONTROL*>(ll_first(p->controls)); }
 M_PAGE* first_page(M_MANAGER* m) { return static_cast<M_PAGE*>(ll_first(m->pages)); }
 M_PAGE* next_page(M_PAGE* p) {
-    return p->next != nullptr ? reinterpret_cast<M_PAGE*>(reinterpret_cast<uint8_t*>(p->next) - 0xa4) : nullptr;
+    return p->next != nullptr ? reinterpret_cast<M_PAGE*>(reinterpret_cast<uint8_t*>(nf::raw(p->next)) - 0xa4) : nullptr;
 }
 
 M_COMPONENTSET* find_set(uint32_t component) {
@@ -203,7 +203,7 @@ void Component_SetupInstance(M_CONTROL* c, uint32_t flags, int32_t x, int32_t y,
     int32_t max_y = hh;
     if (c->sprites == nullptr) {
         if (comp->count == 0) return;
-        c->sprites = static_cast<sprite**>(Menu_Malloc(uint32_t(comp->count) * 4, 1));
+        c->sprites = static_cast<P32<sprite>*>(Menu_Malloc(uint32_t(comp->count) * 4, 1));
         c->sprite_count = comp->count;
         for (int32_t i = 0; i < c->sprite_count; ++i) {
             comp->pieces[i].info.hash = comp->hash;
@@ -377,8 +377,8 @@ M_CONTROL* Menu_GetControl(M_MANAGER* m, int8_t) {
 // sobrepõem na outra dimensão, pelo menor custo (distância na direção + 0.1 x desvio); sem nenhum,
 // dá a volta (o mais distante do lado oposto). Põe o cursor no meio dele e devolve-o.
 M_CONTROL* Menu_FindControl(M_MANAGER* m, uint8_t direction) {
-    struct Entry {
-        M_CONTROL* c;
+    struct Entry {  // 8 bytes (QuickSort)
+        P32<M_CONTROL> c;
         int16_t cost;
         int16_t pad;
     };
@@ -688,7 +688,7 @@ uint32_t __Menu_SendDelayed(uint32_t delay, uint8_t index, uint32_t id, uint32_t
     const int32_t slot = free_delay_slot();
     if (slot == -1) return 0;
     DelayedMessage& d = menu_delay_msg[slot];
-    d.control = reinterpret_cast<M_CONTROL*>(uintptr_t(uint32_t(found)));
+    d.control = nf::p32_ptr<M_CONTROL>(uint32_t(found));
     d.frame = menu_delay_frame + delay;
     d.message = message;
     d.a = a;

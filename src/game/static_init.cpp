@@ -379,7 +379,7 @@ bool init_game_tables(const Elf& elf, CodeResolver resolve_code, std::string* er
                     if (std::strcmp(ref, "*") != 0 && std::strcmp(r.symbol, ref) != 0) continue;
                     const auto rs = elf.find(r.symbol);
                     if (rs && v >= rs->value && v - rs->value < r.size) {
-                        port = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(r.dst + (v - rs->value)));
+                        port = nf::p32_u(r.dst + (v - rs->value));
                         return true;
                     }
                 }

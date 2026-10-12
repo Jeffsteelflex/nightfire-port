@@ -21,6 +21,7 @@
 #include "render/frame_interp.h"
 #include "test_framework.h"
 #include "ui/modern_wheel.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -189,8 +190,8 @@ TEST(weapon_wheel_picks_the_slot_in_the_pointed_direction) {
     CHECK(inner.ring == 1 && inner.index == 2);
     // A fronteira entre dois espaços é a metade do ângulo: 8 espaços de 45 graus, o 0 vai de -22,5 a 22,5.
     const float a1 = 0.3926991f - 0.01f, a2 = 0.3926991f + 0.01f;
-    CHECK(weapon_wheel_pick(std::sin(a1), std::cos(a1), 8, 4).index == 0);
-    CHECK(weapon_wheel_pick(std::sin(a2), std::cos(a2), 8, 4).index == 1);
+    CHECK(weapon_wheel_pick(nf::fm::sin(a1), nf::fm::cos(a1), 8, 4).index == 0);
+    CHECK(weapon_wheel_pick(nf::fm::sin(a2), nf::fm::cos(a2), 8, 4).index == 1);
     // Logo à esquerda de cima: o último espaço (não um índice negativo).
     CHECK(weapon_wheel_pick(-0.05f, 1.0f, 8, 4).index == 0);
     CHECK(weapon_wheel_pick(-0.6f, 0.8f, 8, 4).index == 7);
@@ -202,14 +203,14 @@ TEST(weapon_wheel_picks_the_slot_in_the_pointed_direction) {
     for (int n = 1; n <= kWheelMaxWeapons; ++n) {
         for (int i = 0; i < n; ++i) {
             const float a = weapon_wheel_item_angle(i, n, false);
-            const WheelPick p = weapon_wheel_pick(std::sin(a), std::cos(a), n, 0);
+            const WheelPick p = weapon_wheel_pick(nf::fm::sin(a), nf::fm::cos(a), n, 0);
             CHECK(p.ring == 2 && p.index == i);
         }
     }
     for (int n = 1; n <= kWheelMaxGadgets; ++n) {
         for (int i = 0; i < n; ++i) {
             const float a = weapon_wheel_item_angle(i, n, true);
-            const WheelPick p = weapon_wheel_pick(std::sin(a) * 0.45f, std::cos(a) * 0.45f, 3, n);
+            const WheelPick p = weapon_wheel_pick(nf::fm::sin(a) * 0.45f, nf::fm::cos(a) * 0.45f, 3, n);
             CHECK(p.ring == 1 && p.index == i);
         }
     }
@@ -235,7 +236,7 @@ TEST(weapon_wheel_slots_have_a_fixed_size) {
     // armas: não escolhem nada).
     const float d45 = 0.7853982f;
     CHECK(weapon_wheel_pick(0.0f, 1.0f, 2, 0).index == 0);
-    CHECK(weapon_wheel_pick(std::sin(d45), std::cos(d45), 2, 0).index == 1);
+    CHECK(weapon_wheel_pick(nf::fm::sin(d45), nf::fm::cos(d45), 2, 0).index == 1);
     const WheelPick right2 = weapon_wheel_pick(1.0f, 0.0f, 2, 0);
     CHECK(right2.ring == 2 && right2.index == 2);
     const WheelPick down2 = weapon_wheel_pick(0.0f, -1.0f, 2, 0);
@@ -245,9 +246,9 @@ TEST(weapon_wheel_slots_have_a_fixed_size) {
     CHECK(weapon_wheel_pick(0.0f, -1.0f, 9, 0).index == 6);
     CHECK(weapon_wheel_pick(-1.0f, 0.0f, 9, 0).index == 9);
     const float d30 = 0.5235988f;
-    CHECK(weapon_wheel_pick(std::sin(d30), std::cos(d30), 9, 0).index == 1);
-    CHECK(weapon_wheel_pick(std::sin(d30 * 1.4f), std::cos(d30 * 1.4f), 9, 0).index == 1);
-    CHECK(weapon_wheel_pick(std::sin(d30 * 1.6f), std::cos(d30 * 1.6f), 9, 0).index == 2);
+    CHECK(weapon_wheel_pick(nf::fm::sin(d30), nf::fm::cos(d30), 9, 0).index == 1);
+    CHECK(weapon_wheel_pick(nf::fm::sin(d30 * 1.4f), nf::fm::cos(d30 * 1.4f), 9, 0).index == 1);
+    CHECK(weapon_wheel_pick(nf::fm::sin(d30 * 1.6f), nf::fm::cos(d30 * 1.6f), 9, 0).index == 2);
 
     // A geometria desenhada: o espaço 0 em cima, todos do mesmo tamanho, sem se cobrir, com a folga entre eles; o nome
     // cabe nos anéis de até 16 espaços de fora e 8 de dentro (nos outros, só o ícone e a munição).

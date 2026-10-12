@@ -176,14 +176,14 @@ struct SkinModel {
     explicit SkinModel(std::initializer_list<uint8_t> list) {
         std::memset(bones, 0xff, sizeof(bones));
         std::copy(list.begin(), list.end(), bones);
-        const uint32_t d = uint32_t(reinterpret_cast<uintptr_t>(dma));
-        const uint32_t t = uint32_t(reinterpret_cast<uintptr_t>(texlist));
+        const uint32_t d = nf::p32_u(dma);
+        const uint32_t t = nf::p32_u(texlist);
         std::memcpy(box + 0x20, &d, 4);
         std::memcpy(box + 0x24, &t, 4);
-        info[3] = uint32_t(reinterpret_cast<uintptr_t>(bones));
+        info[3] = nf::p32_u(bones);
         hdr[0] = 1;
-        hdr[1] = uint32_t(reinterpret_cast<uintptr_t>(box));
-        hdr[2] = uint32_t(reinterpret_cast<uintptr_t>(info));
+        hdr[1] = nf::p32_u(box);
+        hdr[2] = nf::p32_u(info);
         gfx.ps2_gfx = reinterpret_cast<uint8_t*>(hdr);
         glist.gfx = &gfx;
     }

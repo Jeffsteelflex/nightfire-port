@@ -161,7 +161,7 @@ TEST(emitter_load_defs_reads_the_particles_block) {
     CHECK_NEAR(def->speed, 3.0, 0);
     CHECK(def->key_count == 2);
     // As chaves ficam logo depois da definiÃ§Ã£o; r, g e b pela metade (escala do GS), alfa igual.
-    CHECK(reinterpret_cast<uint8_t*>(def->keys) == reinterpret_cast<uint8_t*>(def) + 0x40);
+    CHECK(reinterpret_cast<uint8_t*>(nf::raw(def->keys)) == reinterpret_cast<uint8_t*>(def) + 0x40);
     CHECK_NEAR(def->keys[0].r, 100.0, 0);
     CHECK_NEAR(def->keys[0].g, 50.0, 0);
     CHECK_NEAR(def->keys[0].b, 25.0, 0);
@@ -465,7 +465,7 @@ TEST(psi_draw_particle_list_records_what_it_is_given) {
     for (int i = 0; i < 7; ++i) pos[i] = {float(i), float(2 * i), float(3 * i), 1.0f};
     pstex_tag tex{};
     tex.tex_index = 12;
-    psiDrawParticleList(pos, 7, 0xffffffff, uint32_t(reinterpret_cast<uintptr_t>(&tex)), nullptr, 0, 3.0f, nullptr);
+    psiDrawParticleList(pos, 7, 0xffffffff, nf::p32_u(&tex), nullptr, 0, 3.0f, nullptr);
     CHECK(g_psi_frame.particle_lists.size() == 1);
     if (g_psi_frame.particle_lists.empty()) return;
     const PsiParticleList& l = g_psi_frame.particle_lists[0];

@@ -56,7 +56,8 @@ Mpeg2Decoder g_decoder;
 bool g_decoder_failed = false;
 bool g_enabled = false;
 bool g_decode = true;
-std::wstring g_dir;
+std::shared_ptr<const DiscSource> g_disc;  // de onde vêm os filmes (nulo: nenhum abre)
+std::string g_movie_dir;                   // o diretório deles no disco
 MovieStats g_stats;
 
 // Lê o arquivo adiante; enquanto o som ainda não apareceu (o primeiro 1 MB), também procura por ele.
@@ -80,11 +81,10 @@ int64_t total_frames() {
     return g_p.file.eof() && v.finished() ? int64_t(v.pictures()) : -1;
 }
 
-std::wstring movie_path(uint32_t movie) {
-    wchar_t name[32];
-    std::swprintf(name, 32, L"%08X.PSS", movie);
-    if (g_dir.empty()) return name;
-    return g_dir + L"\\" + name;
+std::string movie_path(uint32_t movie) {
+    char name[32];
+    std::snprintf(name, sizeof(name), "%08X.PSS", movie);
+    return g_movie_dir.empty() ? std::string(name) : g_movie_dir + "/" + name;
 }
 
 // [decomp] 0x00108cc0 strFileOpen
@@ -95,7 +95,7 @@ std::wstring movie_path(uint32_t movie) {
 bool strFileOpen(uint32_t movie) {
     if (!g_enabled) return false;
     PssFile& f = g_p.file;
-    if (!f.open(movie_path(movie))) return false;
+    if (g_disc == nullptr || !f.open(g_disc->open(movie_path(movie)))) return false;
     while (f.video().width() == 0 && !f.eof() && f.bytes_read() < kProbeBytes) f.pump(0, 1, kPumpBytes);
     const int w = f.video().width(), h = f.video().height();
     if (w <= 0 || h <= 0) return false;
@@ -375,8 +375,12 @@ namespace nf {
 
 void movie_set_enabled(bool on) { g_enabled = on; }
 bool movie_enabled() { return g_enabled; }
-void movie_set_dir(const std::wstring& dir) { g_dir = dir; }
-const std::wstring& movie_dir() { return g_dir; }
+void movie_set_disc(std::shared_ptr<const DiscSource> disc, const std::string& dir) {
+    g_disc = std::move(disc);
+    g_movie_dir = dir;
+}
+
+void movie_set_dir(const std::wstring& dir) { movie_set_disc(dir.empty() ? nullptr : open_disc_folder(dir), std::string()); }
 void movie_set_decode(bool on) { g_decode = on; }
 
 bool movie_image(MovieImage* out) {

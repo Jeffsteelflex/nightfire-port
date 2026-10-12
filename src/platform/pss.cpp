@@ -251,18 +251,16 @@ double Mpeg2Units::fps() const {
 
 PssFile::~PssFile() { close(); }
 
-bool PssFile::open(const std::wstring& path) {
+bool PssFile::open(DiscFile file) {
     close();
-    if (_wfopen_s(&file_, path.c_str(), L"rb") != 0 || file_ == nullptr) {
-        file_ = nullptr;
-        return false;
-    }
-    return true;
+    file_ = std::move(file);
+    return file_.is_open();
 }
 
+bool PssFile::open(const std::wstring& path) { return open(DiscFile::open_host(path)); }
+
 void PssFile::close() {
-    if (file_ != nullptr) std::fclose(file_);
-    file_ = nullptr;
+    file_.close();
     buf_.clear();
     pos_ = 0;
     eof_ = false;
@@ -274,8 +272,8 @@ void PssFile::close() {
 }
 
 bool PssFile::rewind() {
-    if (file_ == nullptr) return false;
-    std::fseek(file_, 0, SEEK_SET);
+    if (!file_.is_open()) return false;
+    file_.seek(0);
     buf_.clear();
     pos_ = 0;
     eof_ = false;
@@ -288,19 +286,19 @@ bool PssFile::rewind() {
 }
 
 bool PssFile::read_more() {
-    if (file_ == nullptr) return false;
+    if (!file_.is_open()) return false;
     compact(buf_, pos_, 1u << 18);
     constexpr size_t kChunk = 0x10000;
     const size_t base = buf_.size();
     buf_.resize(base + kChunk);
-    const size_t got = std::fread(buf_.data() + base, 1, kChunk, file_);
+    const size_t got = file_.read(buf_.data() + base, kChunk);
     buf_.resize(base + got);
     bytes_read_ += got;
     return got != 0;
 }
 
 bool PssFile::pump(size_t audio_frames, size_t video_units, size_t max_bytes) {
-    if (file_ == nullptr) return false;
+    if (!file_.is_open()) return false;
     const uint64_t start = bytes_read_;
     while (!eof_ && (audio_.frames_ready() < audio_frames || video_.units_ready() < video_units)) {
         if (bytes_read_ - start >= max_bytes && pos_ >= buf_.size()) break;

@@ -341,6 +341,20 @@ opção escolhida), **apagado** e **travado** (cadeado; tem foco para ler a desc
     100% e o alfa de tudo acompanha. O apontado troca na hora (a mão precisa de resposta imediata).
   - Três camadas: o fundo (vinheta, espaços, realce, miolo, pílula) pelo Direct2D, os ícones pelo Direct3D (imagens do
     port, `ImageCmd::port`) e a frente (textos, losangos, vetor) pelo Direct2D (`ModernUiApp::draw_wheel`).
+- **A tela de configuração** (`SetupScreen`, `modern_setup.h`; docs/port.md "Instalação fácil"): a da primeira partida,
+  antes de existir um disco. Por isso nada do jogo: nem a arte, nem o logotipo, nem os textos dele; só o port. O fundo
+  opaco `ground` com a vinheta e o 007 do port (`results_007.svg`) bem fraco à direita, como o resultado. À esquerda
+  "SETUP /" em `header`, "007 NIGHTFIRE" em `hero` de 64 com o traço de ouro e a linha fina, o pedido "SELECT YOUR 007:
+  NIGHTFIRE DISC IMAGE (PS2, USA)" em `hero_sub` ouro e uma frase em `body` (o jogo vem da cópia do jogador, nada é
+  baixado); embaixo a lista grande do `BigMenu`: SELECT DISC IMAGE (/ .ISO FILE), uma linha USE THE DISC IN DRIVE X: por
+  leitor com um disco de PS2 (com o cadeado se for outro jogo ou outra versão), PLAY (com o cadeado até haver um disco)
+  e, menores, MAKE A SINGLE-FILE COPY (cadeado sem disco) e QUIT. À direita a descrição da linha com o foco, "Disc:" com
+  o caminho (encurtado no meio, o nome do arquivo inteiro) e o estado como o aviso de ouro: "Ready: 007: Nightfire (PS2,
+  USA), SLUS-20579", ou o motivo de um disco que não serve; na linha da cópia, "Save as:" e o aviso de que o arquivo
+  contém o jogo e não pode ser compartilhado. Uma linha com cadeado escolhida mostra o motivo no aviso de baixo
+  (`Toast`). As caixas são o `Dialog` do kit: o disco que não serve (OK), o andamento da cópia (a barra de contagem
+  como barra de progresso, crescendo do meio, e Cancel) e o fim da cópia (o arquivo e o aviso). Com a janela de escolha
+  de arquivo do Windows aberta, a tela não responde.
 
 ## Movimento
 

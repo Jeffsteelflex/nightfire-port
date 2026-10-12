@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "platform/psi_draw.h"
+#include "platform/fmath.h"
 
 namespace nf {
 
@@ -136,7 +137,7 @@ void xform_compose(const Xform& x, float m[16]) {
 
 float quat_angle(const float a[4], const float b[4]) {
     const float d = std::fabs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]);
-    return 2.0f * std::acos(std::min(1.0f, d));
+    return 2.0f * nf::fm::acos(std::min(1.0f, d));
 }
 
 void quat_slerp(const float a[4], const float b[4], float t, float out[4]) {
@@ -151,10 +152,10 @@ void quat_slerp(const float a[4], const float b[4], float t, float out[4]) {
         wa = 1.0f - t;
         wb = t;
     } else {
-        const float theta = std::acos(d);
-        const float s = std::sin(theta);
-        wa = std::sin((1.0f - t) * theta) / s;
-        wb = std::sin(t * theta) / s;
+        const float theta = nf::fm::acos(d);
+        const float s = nf::fm::sin(theta);
+        wa = nf::fm::sin((1.0f - t) * theta) / s;
+        wb = nf::fm::sin(t * theta) / s;
     }
     float l = 0.0f;
     for (int k = 0; k < 4; ++k) {
@@ -194,22 +195,22 @@ void interp_camera(const InterpCamera& a, const InterpCamera& b, float alpha, In
     if (alpha >= 1.0f) out->fov_deg = b.fov_deg;
 }
 
-float camera_yaw(const float m[16]) { return std::atan2(m[8], m[10]); }
+float camera_yaw(const float m[16]) { return nf::fm::atan2(m[8], m[10]); }
 
-float camera_elevation(const float m[16]) { return std::asin(std::clamp(m[9], -1.0f, 1.0f)); }
+float camera_elevation(const float m[16]) { return nf::fm::asin(std::clamp(m[9], -1.0f, 1.0f)); }
 
 void camera_look_delta(float m[16], float dyaw, float dpitch, float max_elev, float W[9]) {
     const float r0[3] = {m[0], m[1], m[2]}, u0[3] = {m[4], m[5], m[6]}, f0[3] = {m[8], m[9], m[10]};
     const float elev = camera_elevation(m);
     const float dp = std::clamp(elev + dpitch, -max_elev, max_elev) - elev;
-    const float cp = std::cos(dp), sp = std::sin(dp);
+    const float cp = nf::fm::cos(dp), sp = nf::fm::sin(dp);
     float rows[3][3];
     for (int k = 0; k < 3; ++k) {
         rows[0][k] = r0[k];
         rows[1][k] = u0[k] * cp - f0[k] * sp;
         rows[2][k] = f0[k] * cp + u0[k] * sp;
     }
-    const float cy = std::cos(dyaw), sy = std::sin(dyaw);
+    const float cy = nf::fm::cos(dyaw), sy = nf::fm::sin(dyaw);
     for (auto& v : rows) {
         const float x = v[0], z = v[2];
         v[0] = x * cy + z * sy;

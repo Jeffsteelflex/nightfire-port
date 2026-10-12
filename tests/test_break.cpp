@@ -248,7 +248,7 @@ TEST(shatter_preserves_area_and_texture_mapping) {
     CHECK(all.size() > 4 && all.size() == g_break_stats.shards);
     float area = 0.0f;
     for (SHARD_tag* s : all) {
-        const auto* w = reinterpret_cast<const uint32_t*>(s->chain);
+        const auto* w = reinterpret_cast<const uint32_t*>(nf::raw(s->chain));
         CHECK(w[0] == 0x30000004 && w[1] == 0x1234 && s->texture == 0x1234);
         float p[3][3];
         float centre[3] = {};
@@ -360,18 +360,18 @@ TEST(breakable_data_reads_strips_from_the_dma_chain) {
     c.insert(c.end(), {0x60000000u, 0u, 0u, 0u});
     alignas(16) static uint8_t box[0x38];
     std::memset(box, 0, sizeof(box));
-    const uint32_t dma = uint32_t(reinterpret_cast<uintptr_t>(c.data()));
+    const uint32_t dma = nf::p32_u(c.data());
     const uint32_t verts = 7, tris = 3;
     std::memcpy(box + 0x20, &dma, 4);
     std::memcpy(box + 0x2c, &verts, 4);
     std::memcpy(box + 0x30, &tris, 4);
-    uint32_t hdr[3] = {1, uint32_t(reinterpret_cast<uintptr_t>(box)), 0};
+    uint32_t hdr[3] = {1, nf::p32_u(box), 0};
     entgfx_tag gfx{};
     gfx.ps2_gfx = reinterpret_cast<uint8_t*>(hdr);
     celglist_tag glist{};
     glist.gfx = &gfx;
     psiCreateBreakableData(&glist);
-    const auto* data = reinterpret_cast<const BREAKGFX_tag*>(uintptr_t(hdr[2]));
+    const auto* data = nf::p32_ptr<const BREAKGFX_tag>(hdr[2]);
     CHECK(data != nullptr && data->tris != nullptr && data->verts != nullptr);
     const BREAKTRI_tag* t = data->tris;
     CHECK(t[0].texture == 0xaaaa0 && t[0].vert[0] == 0 && t[0].vert[1] == 1 && t[0].vert[2] == 2);
@@ -408,8 +408,8 @@ TEST(shard_texture_comes_from_the_tex_table) {
     Tex[0].dma = packet;
     Tex[0].rec = &rec;
     NumPS2TexturesLoaded = 1;
-    const uint32_t texture = uint32_t(reinterpret_cast<uintptr_t>(packet));
-    CHECK(GetTextureFromDMA(reinterpret_cast<int32_t*>(packet)) == uint32_t(reinterpret_cast<uintptr_t>(&rec)));
+    const uint32_t texture = nf::p32_u(packet);
+    CHECK(GetTextureFromDMA(reinterpret_cast<int32_t*>(packet)) == nf::p32_u(&rec));
     CHECK(GetTextureFromDMA(nullptr) == 0);
     _SHATTER_VERT_LIST list{{vert(0, 0, 0, 0, 0), vert(1, 0, 0, 1, 0), vert(0, 1, 0, 0, 1)}};
     list.vert[0].texture = texture;

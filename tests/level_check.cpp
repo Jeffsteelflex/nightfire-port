@@ -8,9 +8,10 @@
 #include <string>
 
 #include "data/files_bin.h"
+#include "platform/arena.h"
 #include "game/level_scene.h"
 
-int main(int argc, char** argv) {
+int main_body(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     const std::string dir = argc > 1 ? argv[1] : ".";
     const std::wstring wdir(dir.begin(), dir.end());
@@ -30,4 +31,9 @@ int main(int argc, char** argv) {
     }
     std::printf("%d fases montadas, %d com referências não resolvidas\n", levels, failures);
     return failures ? 1 : 0;
+}
+
+int main(int argc, char** argv) {
+    // 64 bits: na pilha da arena (platform/arena.h); 32 bits: direto.
+    return nf::run_main([&] { return main_body(argc, argv); });
 }

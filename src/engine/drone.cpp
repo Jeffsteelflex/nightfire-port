@@ -44,6 +44,7 @@ bool bots_on() {
 
 template <class T>
 T& at(void* base, uint32_t offset) {
+    static_assert(!nf::is_native_ptr_v<T>, "ponteiro de 4 bytes: use P32<...>");
     return *reinterpret_cast<T*>(static_cast<uint8_t*>(base) + offset);
 }
 
@@ -91,7 +92,7 @@ obj_tag* NDrone2_CreateObj(DIVars_tag* vars) {
         if (obj == nullptr) return nullptr;
         obj->type = 2;
     } else {
-        obj = Control_CreateObjEx(0xd20, &vars->pos, &vars->rot, nullptr, reinterpret_cast<celglist_tag*>(vars->owner),
+        obj = Control_CreateObjEx(0xd20, &vars->pos, &vars->rot, nullptr, reinterpret_cast<celglist_tag*>(nf::raw(vars->owner)),
                                   nullptr, 1, 0x44, 1.0f, 0, 0xff, 0xff, 0xff);
         if (obj == nullptr) return nullptr;
         obj->type = 0x4d;
@@ -267,7 +268,7 @@ void DroneInit_Collision(Drone_tag* drone) {
     from.y = obj->pos.y + 1.0f;
     _VECTOR to = obj->pos;
     to.y = obj->pos.y - 25.0f;
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     if (Collide_RayIntersect(&from, &to, cel, nullptr, nullptr, &hits, 0, 0x104, 0)) {
         to = hits->pos;
         anim_of(obj)->flags |= 8;
@@ -956,7 +957,7 @@ uint32_t NDrone2_ControlSTANDARD(DCVars_tag* dcv) {
         _VECTOR dir{m.m[2][0], m.m[2][1], m.m[2][2], 0.0f};
         _VECTOR pos{head.x + dir.x * 0.12f, head.y + dir.y * 0.12f, head.z + dir.z * 0.12f, head.w};
         Env_Breath(&pos, &dir, obj->cel,
-                   obj->created + (static_cast<uint32_t>(reinterpret_cast<uintptr_t>(obj)) & 0xfff) * 0x80);
+                   obj->created + (nf::p32_u(obj) & 0xfff) * 0x80);
         NDrone2_DoTracking(1, dcv);
     }
     NDrone2_HandleTalking(dcv);
@@ -1031,13 +1032,13 @@ void Drone_Delete(obj_tag* obj) {
             node.flags &= ~0x10u;
         }
     }
-    if (d->route.list != nullptr) Mem_Free(reinterpret_cast<void**>(&d->route.list));
-    if (d->route2.list != nullptr) Mem_Free(reinterpret_cast<void**>(&d->route2.list));
+    if (d->route.list != nullptr) Mem_Free(&d->route.list);
+    if (d->route2.list != nullptr) Mem_Free(&d->route2.list);
     for (obj_tag* o = control_first_object(); o != nullptr;) {
         obj_tag* next = o->next;
         switch (o->type) {
             case 0xd:
-                if (at<obj_tag*>(o->data, 0x28) == obj) at<obj_tag*>(o->data, 0x28) = nullptr;
+                if (at<P32<obj_tag>>(o->data, 0x28) == obj) at<P32<obj_tag>>(o->data, 0x28) = nullptr;
                 break;
             case 2: {
                 Drone_tag* other = drone_of(o);
@@ -1056,13 +1057,13 @@ void Drone_Delete(obj_tag* obj) {
                 break;
             }
             case 5:
-                if (at<obj_tag*>(o->data, 0x30) == obj) at<obj_tag*>(o->data, 0x30) = nullptr;
+                if (at<P32<obj_tag>>(o->data, 0x30) == obj) at<P32<obj_tag>>(o->data, 0x30) = nullptr;
                 break;
             case 0x30:
                 if (d->group_id == static_cast<DroneSpawner_tag*>(o->data)->group) DroneSpawner_DroneDelete(o, obj);
                 break;
             case 0x36:
-                if (o->data != nullptr && obj == at<obj_tag*>(o->data, 0xb8)) {
+                if (o->data != nullptr && obj == at<P32<obj_tag>>(o->data, 0xb8)) {
                     o->life |= 1;
                     static const _VECTOR up{0.0f, 1.0f, 0.0f, 0.0f};
                     Explode_Create(o, &o->pos, &up, 5.0f, 5.0f, 0x6000052, 50.0f, 0xff, 0xff, 100, nullptr, 0);

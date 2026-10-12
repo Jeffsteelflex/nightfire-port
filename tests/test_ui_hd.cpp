@@ -359,7 +359,7 @@ struct TextWorld {
         specialchar[0].uw = specialchar[0].vh = 15;
         specialchar[0].width = specialchar[0].height = 16;
         psi_2d_debug_power_on();
-        FontList[0] = uint32_t(reinterpret_cast<uintptr_t>(&g_font_rec));
+        FontList[0] = nf::p32_u(&g_font_rec);
         txt_debug_power_on();
         sprite_debug_power_on();
         Sprite_InitLists();
@@ -393,7 +393,7 @@ struct TextWorld {
         return s;
     }
     void draw(sprite* s) {
-        sprite* list[1] = {s};
+        P32<sprite> list[1] = {s};
         View_DrawSprites(&viewer, list, 0, 1);
     }
 };

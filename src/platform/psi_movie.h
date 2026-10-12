@@ -26,7 +26,10 @@
 // psiStartBackgroundMovie age como um arquivo que não abriu (o filme não toca, como antes deste porte).
 
 #include <cstdint>
+#include <memory>
 #include <string>
+
+#include "platform/disc_source.h"
 
 extern uint32_t BGFMVPlaying;   // 0x0030c69c um filme tocando
 extern uint8_t LoopingMovie;    // 0x0030c6a1 o filme recomeça no fim (os fundos das páginas do menu)
@@ -52,9 +55,10 @@ namespace nf {
 // jogo segue como sem ele).
 void movie_set_enabled(bool on);
 bool movie_enabled();
-// A pasta dos filmes (<dados>\MOVIES\30_FPS).
+// De onde vêm os filmes: o disco do jogador (platform/disc_source.h) e o diretório deles nele ("MOVIES/30_FPS"); ou uma
+// pasta do PC com os .PSS (os testes).
+void movie_set_disc(std::shared_ptr<const DiscSource> disc, const std::string& dir = "MOVIES/30_FPS");
 void movie_set_dir(const std::wstring& dir);
-const std::wstring& movie_dir();
 // Testes: sem o decodificador (cada quadro do vídeo conta, nenhuma imagem sai).
 void movie_set_decode(bool on);
 

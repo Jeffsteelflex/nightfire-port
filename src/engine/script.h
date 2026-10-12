@@ -33,6 +33,7 @@
 #include "engine/map_types.h"
 #include "engine/object.h"
 #include "engine/player_stats.h"
+#include "platform/ptr32.h"
 
 struct light_tag;
 
@@ -64,10 +65,10 @@ struct SSTREAM {
     float anim_frame;       // 0x04 animação: quadro inicial
     float time;             // 0x08 quadros desde o começo (anda FRAME_RATE_MUL por tick)
     float wait;             // 0x0c comandos param até time chegar aqui (comando 5)
-    void* obj;              // 0x10 o que o stream controla: obj_tag (1, 2), sprite (3), CAM_INFO (4),
+    P32<void> obj;          // 0x10 o que o stream controla: obj_tag (1, 2), sprite (3), CAM_INFO (4),
                             //      som (5), light_tag (6), SCRIPTINFO (7)
-    uint8_t* cursor;        // 0x14 próximo comando (nulo: acabou)
-    uint8_t* commands;      // 0x18 primeiro comando (volta para cá no laço)
+    P32<uint8_t> cursor;    // 0x14 próximo comando (nulo: acabou)
+    P32<uint8_t> commands;  // 0x18 primeiro comando (volta para cá no laço)
     uint16_t first_key;     // 0x1c quadros-chave do stream
     uint16_t last_key;      // 0x1e
     // 0x20 entidade e sub-script: quadro de criação + 1 (1: criado no começo, fica no laço);
@@ -87,10 +88,10 @@ constexpr int kScriptMaxStreams = 0x3e;
 struct alignas(16) SCRIPTINFO {
     MATRIX base;            // 0x000 lugar do script (View_RotTransMatrix na carga; Script_SetPosRot)
     MATRIX player;          // 0x040 onde o jogador volta no fim (evento 6)
-    void* owner;            // 0x080 dono (o SCRIPTPLAYER_tag); vai para obj_tag::script das entidades
-    void (*callback)(obj_tag*, uint16_t, void*);  // 0x084 evento 15: (objeto anterior, argumento, user)
-    void* user;             // 0x088
-    KEYED_POSROT* keys;     // 0x08c
+    P32<void> owner;        // 0x080 dono (o SCRIPTPLAYER_tag); vai para obj_tag::script das entidades
+    F32<void(obj_tag*, uint16_t, void*)> callback;  // 0x084 evento 15: (objeto anterior, argumento, user)
+    P32<void> user;         // 0x088
+    P32<KEYED_POSROT> keys;  // 0x08c
     uint32_t unknown_90;
     float scale;            // 0x094 escala das posições e da câmera (SP: parâmetro 10, em %)
     uint32_t hash;          // 0x098
@@ -124,10 +125,10 @@ struct SCRIPTDEF_tag {
     struct Stream {
         uint16_t first_key;
         uint16_t last_key;
-        uint8_t* commands;
+        P32<uint8_t> commands;
     } streams[kScriptMaxStreams];  // 0x004
     uint8_t unknown_1f4[0x10];
-    KEYED_POSROT* keys;     // 0x204
+    P32<KEYED_POSROT> keys;  // 0x204
     uint16_t stream_count;  // 0x208
     uint16_t key_count;     // 0x20a
     uint16_t loop_start;    // 0x20c
@@ -142,10 +143,10 @@ static_assert(offsetof(SCRIPTDEF_tag, keys) == 0x204 && offsetof(SCRIPTDEF_tag, 
 // [0]/[1] scripts A e B, [2]/[3] modo de cada um, [4] para no fim, [5] gatilhos, [6] canal, [7] dano
 // para disparar, [8] arma que dispara, [9] canal que liga o player, [10] escala em %.
 struct SCRIPTPLAYER_tag {
-    obj_tag* owner;         // 0x00 o switch ou a caixa de fusíveis (nulo no posicionamento 0xd9)
-    void (*callback)(obj_tag*, uint16_t, void*);  // 0x04 passado ao primeiro Script_Load e zerado
-    void* user;             // 0x08
-    SCRIPTINFO* scripts[2]; // 0x0c
+    P32<obj_tag> owner;     // 0x00 o switch ou a caixa de fusíveis (nulo no posicionamento 0xd9)
+    F32<void(obj_tag*, uint16_t, void*)> callback;  // 0x04 passado ao primeiro Script_Load e zerado
+    P32<void> user;         // 0x08
+    P32<SCRIPTINFO> scripts[2];  // 0x0c
     float damage_needed;    // 0x14 dano acumulado que dispara (0: tiros não disparam)
     float damage;           // 0x18
     uint32_t hashes[2];     // 0x1c
@@ -175,8 +176,8 @@ static_assert(offsetof(SCRIPTPLAYER_tag, triggers) == 0x2e && offsetof(SCRIPTPLA
 // Interruptor (0x1c bytes em obj->data, tipo 0x39). O modelo é a entidade do script.
 struct SWITCH_tag {
     LLNODE_tag node;        // 0x00 SwitchList
-    obj_tag* obj;           // 0x08
-    obj_tag* player;        // 0x0c script player (SP_Create com o script do parâmetro 1, modo 8)
+    P32<obj_tag> obj;       // 0x08
+    P32<obj_tag> player;    // 0x0c script player (SP_Create com o script do parâmetro 1, modo 8)
     uint16_t timer;         // 0x10 parâmetro 2: ticks até voltar sozinho (0: não volta)
     uint16_t channel;       // 0x12 parâmetro 0
     uint16_t lock;          // 0x14 parâmetro 5: com este canal ligado o switch não vira
@@ -190,8 +191,8 @@ static_assert(sizeof(SWITCH_tag) == 0x1c);
 // Caixa de fusíveis (0x60 bytes em obj->data, tipo 0x3c). O script registra os fusíveis (evento 15,
 // FuseBox_Register) em duas listas; quando todos os de uma lista levam tiro, liga os canais dela.
 struct FUSEBOX_tag {
-    obj_tag* player;        // 0x00 script player (SP_Create com o script do parâmetro 0, modo 0x40)
-    obj_tag* fuses[2][10];  // 0x04
+    P32<obj_tag> player;    // 0x00 script player (SP_Create com o script do parâmetro 0, modo 0x40)
+    P32<obj_tag> fuses[2][10];  // 0x04
     uint16_t channel_a[2];  // 0x54 parâmetros 1 e 2 (o da lista 1 também: 0 = quebrar fere o jogador)
     uint16_t count[2];      // 0x58 fusíveis registrados em cada lista
     uint16_t channel_b[2];  // 0x5c parâmetros 3 e 4

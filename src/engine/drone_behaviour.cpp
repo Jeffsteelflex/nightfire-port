@@ -36,6 +36,7 @@ bool bots_on() {
 
 template <class T>
 T& music(uint32_t offset) {
+    static_assert(!nf::is_native_ptr_v<T>, "ponteiro de 4 bytes: use P32<...>");
     return *reinterpret_cast<T*>(MusicVars + offset);
 }
 
@@ -114,7 +115,7 @@ namespace {
 // chamador), ou 0xffffffff sem fala. Como no original, o nó é lido mesmo depois de o som acabar.
 uint32_t speech_sound(const Drone_tag* d) {
     if (d->sound == 0) return 0xffffffffu;
-    return reinterpret_cast<const DYNAMICSOUNDS*>(uintptr_t(d->sound))->sound & 0xfffff;
+    return nf::p32_ptr<const DYNAMICSOUNDS>(d->sound)->sound & 0xfffff;
 }
 
 int32_t counter_210 = 0;  // NDrone2_HandleTalking: ticks até a próxima tentativa de fala em 07000008
@@ -703,7 +704,7 @@ void DroneFunc_ConsiderExplosive(DCVars_tag* dcv, obj_tag* obj, int16_t state) {
                 return behaviour_util_getProperty(0x3a, d->behaviour) != 0 ||
                        behaviour_util_getProperty(0x3b, d->behaviour) != 0;
             };
-            switch (*reinterpret_cast<const uint16_t*>(bu->weapon)) {
+            switch (*reinterpret_cast<const uint16_t*>(nf::raw(bu->weapon))) {
                 case 0x2a: case 0x2c: case 0x2d: case 0x2e: case 0x2f:
                     if (!grenade_prop()) return;
                     d->explosive_radius = 4.0f;

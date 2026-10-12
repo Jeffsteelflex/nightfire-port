@@ -100,8 +100,8 @@ public:
         std::memcpy(dst, src, sizeof(HUDPANECREATE_tag));
         const ElfSymbol* sym = elf_.symbol_at(addr, 1);
         const std::string where = sym != nullptr && sym->value == addr ? sym->name : hex8(addr);
-        dst->create = reinterpret_cast<HudCreateFn>(uintptr_t(code(word(addr + 8), where + "+0x8")));
-        dst->update = reinterpret_cast<HudUpdateFn>(uintptr_t(code(word(addr + 0xc), where + "+0xc")));
+        dst->create = nf::p32_fn<HudCreateFnSig>(code(word(addr + 8), where + "+0x8"));
+        dst->update = nf::p32_fn<HudUpdateFnSig>(code(word(addr + 0xc), where + "+0xc"));
         dst->sprites = sprites(word(addr + 0x10), dst->count);
         panes_[addr] = dst;
         return dst;

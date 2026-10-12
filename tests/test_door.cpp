@@ -16,6 +16,7 @@
 #include "platform/pending.h"
 #include "platform/psi.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -26,8 +27,8 @@ framelist_tag frame(float x, float y, float z, float yaw) {
     f.pos[0] = x;
     f.pos[1] = y;
     f.pos[2] = z;
-    f.quat[1] = std::sin(yaw * 0.5f);  // rotação em torno de y
-    f.quat[3] = std::cos(yaw * 0.5f);
+    f.quat[1] = nf::fm::sin(yaw * 0.5f);  // rotação em torno de y
+    f.quat[3] = nf::fm::cos(yaw * 0.5f);
     return f;
 }
 
@@ -101,9 +102,9 @@ TEST(spline_eval_and_interp) {
     // Meio do primeiro trecho: posição pela spline, rotação de 45 graus pelo slerp.
     Spline_Interp(path, 0, 2, 0.5f, &m, &q, 2);
     CHECK_NEAR(m.m[3][0], 1.0, 0.2);
-    CHECK_NEAR(m.m[0][0], std::cos(kPi * 0.25f), 1e-5);
+    CHECK_NEAR(m.m[0][0], nf::fm::cos(kPi * 0.25f), 1e-5);
     CHECK_NEAR(det3(m), 1.0, 1e-5);
-    CHECK_NEAR(q.y, std::sin(kPi * 0.125f), 1e-5);
+    CHECK_NEAR(q.y, nf::fm::sin(kPi * 0.125f), 1e-5);
     // Nos quadros: exatamente a posição do quadro.
     Spline_Interp(path, 0, 2, 2.0f, &m, nullptr, 2);
     CHECK(m.m[3][0] == 4.0f);
@@ -134,7 +135,7 @@ TEST(keyframe_interp_is_linear) {
     CHECK_NEAR(m.m[0][0], 0.0, 1e-5);  // os dois quadros giram 90 graus
     KeyFrame_Interp(path, 0, 2, 0.5f, &m);
     CHECK_NEAR(m.m[3][0], 1.0, 1e-5);
-    CHECK_NEAR(m.m[0][0], std::cos(kPi * 0.25f), 1e-5);
+    CHECK_NEAR(m.m[0][0], nf::fm::cos(kPi * 0.25f), 1e-5);
     KeyFrame_Interp(path, 2, 0, 0.5f, &m);  // ao contrário: entre os quadros 1 e 0
     CHECK_NEAR(m.m[3][0], 1.0, 1e-5);
 }
@@ -265,9 +266,9 @@ TEST(doors_link_to_the_portal_they_cover) {
     CHECK_NEAR(door->sphere.z, 10.0, 1e-5);
     build_LinkDoors2Portals(glb_world->first, control_first_object());
     CHECK((door->flags & 0x8000) != 0);
-    CHECK(ab->unknown_0c == uint32_t(reinterpret_cast<uintptr_t>(door)));
+    CHECK(ab->unknown_0c == nf::p32_u(door));
     CHECK(ba->unknown_0c == ab->unknown_0c);
-    CHECK(Door_IsClosed(reinterpret_cast<obj_tag*>(uintptr_t(ab->unknown_0c))));
+    CHECK(Door_IsClosed(nf::p32_ptr<obj_tag>(ab->unknown_0c)));
 
     // Sem a flag de portal, nada muda.
     fresh();

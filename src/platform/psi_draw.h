@@ -225,7 +225,7 @@ void psiSetTweakA(uint8_t a);
 void psiSetUpColourBlend(int32_t mode);
 void psiStartAlpha();
 void psiEndAlpha();
-void psiLight_SetLights(light_tag** lights, uint16_t count, float r, float g, float b);
+void psiLight_SetLights(P32<light_tag>* lights, uint16_t count, float r, float g, float b);
 void psiFog(int8_t on, float near_dist, float far_dist, uint8_t r, uint8_t g, uint8_t b);
 void psiSetScreenBlur(uint8_t blur);
 void psiClearZ();

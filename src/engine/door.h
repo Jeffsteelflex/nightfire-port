@@ -12,6 +12,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 enum : uint16_t {
     kDoorClosed = 2,
@@ -23,8 +24,8 @@ enum : uint16_t {
 // Dados da porta (obj_tag::data, 0x80 bytes). Os primeiros 8 bytes são o nó da lista TheDoors.
 struct alignas(16) DOORINFO {
     LLNODE_tag node;          // 0x00 TheDoors
-    obj_tag* obj;             // 0x08
-    framelist_tag* path;      // 0x0c
+    P32<obj_tag> obj;         // 0x08
+    P32<framelist_tag> path;  // 0x0c
     MATRIX hinge;             // 0x10 de girar: inversa da matriz fechada; de correr: a do fim do caminho
     float pos;                // 0x50 posição no caminho, 0 a 1
     float speed;              // 0x54 fração do caminho por quadro a 60 Hz

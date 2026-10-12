@@ -32,6 +32,7 @@
 #include "platform/pending.h"
 #include "platform/psi.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -56,6 +57,7 @@ struct WeaponDataGuard {
 
 template <class T>
 void wr(void* base, uint32_t offset, T v) {
+    static_assert(!nf::is_native_ptr_v<T>, "ponteiro de 4 bytes: use P32<...>");
     std::memcpy(static_cast<uint8_t*>(base) + offset, &v, sizeof(T));
 }
 
@@ -188,7 +190,7 @@ void aim_at(Drone_tag* d, obj_tag* target) {
     d->opp_delta = {target->pos.x - d->obj->pos.x, target->pos.y - d->obj->pos.y, target->pos.z - d->obj->pos.z,
                     0.0f};
     d->opp_dist = Vec_Magnitude(&d->opp_delta);
-    d->opp_yaw = std::atan2(d->opp_delta.x, d->opp_delta.z);
+    d->opp_yaw = nf::fm::atan2(d->opp_delta.x, d->opp_delta.z);
     d->target_pos = {target->pos.x, target->pos.y + 1.0f, target->pos.z, target->pos.w};
 }
 
@@ -345,9 +347,9 @@ TEST(drone_weapon_ready_to_fire_with_the_aiming_animation_needs_the_barrel_on_ta
     // O cano aponta para -x: o alvo em -x está na mira; em +z (90 graus), não.
     d->target_pos = {-10.0f, 1.0f, 0.5f, 0.0f};
     CHECK(DroneWeap_Ready2Fire(&dcv) == 1);
-    d->target_pos = {-10.0f, 1.0f, 0.5f + 10.0f * std::tan(0.3f), 0.0f};  // 17 graus
+    d->target_pos = {-10.0f, 1.0f, 0.5f + 10.0f * nf::fm::tan(0.3f), 0.0f};  // 17 graus
     CHECK(DroneWeap_Ready2Fire(&dcv) == 1);
-    d->target_pos = {-10.0f, 1.0f, 0.5f + 10.0f * std::tan(0.4f), 0.0f};  // 23 graus
+    d->target_pos = {-10.0f, 1.0f, 0.5f + 10.0f * nf::fm::tan(0.4f), 0.0f};  // 23 graus
     CHECK(DroneWeap_Ready2Fire(&dcv) == 0);
     d->type = 0xd;  // 30 graus
     CHECK(DroneWeap_Ready2Fire(&dcv) == 1);

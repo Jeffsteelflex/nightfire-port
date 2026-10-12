@@ -15,6 +15,8 @@
 
 #include <cstdint>
 
+#include "platform/ptr32.h"
+
 // Estratégia de busca de bloco livre (nomes do port; o jogo só usa os números).
 enum tMallocMethod : uint32_t {
     MALLOC_QUICK = 0,   // a partir do último bloco usado (QuickBlock), para trás e depois para frente
@@ -44,6 +46,19 @@ void Mem_Init();
 tMallocMethod Mem_SetMallocMethod(tMallocMethod method);
 void* Mem_Malloc(uint32_t size, uint32_t tag, uint32_t align);
 void Mem_Free(void** ptr);
+// Libera e zera um campo de ponteiro: Mem_Free(&obj->field). Em x86 é o Mem_Free(void**) de sempre; em x64 o campo
+// de uma estrutura do jogo é um P32 (4 bytes) e uma variável do port um ponteiro nativo.
+template <class T>
+inline void Mem_Free(T** ptr) {
+    Mem_Free(reinterpret_cast<void**>(ptr));
+}
+#if NF_PTR64
+void Mem_Free(P32<void>* ptr);
+template <class T>
+inline void Mem_Free(P32<T>* ptr) {
+    Mem_Free(reinterpret_cast<P32<void>*>(ptr));
+}
+#endif
 // Libera os "size" bytes que começam em *ptr, dentro de um bloco em uso: o começo, o fim ou um
 // trecho do meio (CheckSizeAndShrink devolve a sobra do fim de um buffer). Zera *ptr.
 void Mem_Shrink(void** ptr, uint32_t size);

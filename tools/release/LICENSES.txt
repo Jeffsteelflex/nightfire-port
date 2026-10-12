@@ -1,0 +1,23 @@
+THIRD-PARTY PIECES IN THIS ZIP
+==============================
+
+Rajdhani (hd_ui\fonts_ofl\rajdhani\*.ttf)
+    Copyright (c) 2014, Indian Type Foundry.
+    SIL Open Font License, Version 1.1: the full text is in hd_ui\fonts_ofl\rajdhani\OFL.txt.
+    Used unmodified by the "Modern" menu style.
+
+Microsoft Visual C++ runtime (msvcp140.dll, vcruntime140.dll)
+    Copyright (c) Microsoft Corporation.
+    Redistributable files of Microsoft Visual Studio, distributed next to nightfire.exe under the Visual Studio license
+    terms for distributable code. nightfire64.exe links the runtime statically.
+
+XXH3 (the hash of the PCSX2 texture replacement names)
+    The port has its own implementation of the XXH3-64 algorithm, with the algorithm's published constants, from
+    xxHash by Yann Collet (BSD 2-Clause License, https://github.com/Cyan4973/xxHash).
+
+Everything else in the zip (the program, the SVG graphics and the design tokens in hd_ui) is part of the port.
+
+NOT INCLUDED
+
+No file from 007: Nightfire (the game's executables, FILES.BIN, sounds, movies, textures) is in this zip. The program
+reads them from your own disc or disc image while it runs.

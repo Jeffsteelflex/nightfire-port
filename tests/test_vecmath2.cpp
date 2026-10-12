@@ -5,6 +5,7 @@
 
 #include "engine/vecmath.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -156,7 +157,7 @@ TEST(atan2_approx_and_spherical) {
     float worst = 0;
     for (int i = 0; i < 2000; ++i) {
         const float y = uni(-10, 10), x = uni(-10, 10);
-        worst = std::max(worst, std::fabs(ATAN2_APPROX(y, x) - std::atan2(y, x)));
+        worst = std::max(worst, std::fabs(ATAN2_APPROX(y, x) - nf::fm::atan2(y, x)));
     }
     CHECK(worst < 0.006f);  // aproximação parabólica: erro máximo de cerca de 0,005 rad
     CHECK(ATAN2_APPROX(0, 0) == 0.0f);

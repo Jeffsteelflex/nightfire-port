@@ -26,6 +26,7 @@
 #include "engine/font.h"
 #include "engine/object.h"
 #include "platform/psi_2d.h"
+#include "platform/ptr32.h"
 
 struct viewer_tag;
 struct _VECTOR;
@@ -50,8 +51,8 @@ struct sprite {
     uint32_t texture;       // 0x0c pstex_tag* (hashtable_set_sprite)
     uint32_t colour;        // 0x10 0xRRGGBBAA; alfa 0 esconde
     uint32_t colour2;       // 0x14 texto: cor da sombra e do contorno
-    char* text;             // 0x18 texto (nulo: imagem)
-    char* format;           // 0x1c formato do texto (0xfcfcfcfc: nenhum ainda)
+    P32<char> text;         // 0x18 texto (nulo: imagem)
+    P32<char> format;       // 0x1c formato do texto (0xfcfcfcfc: nenhum ainda)
     uint16_t length;        // 0x20 caracteres do texto a desenhar
     uint16_t flags;         // 0x22 SPRF_*; os 4 bits baixos são zerados por Sprite_BuildList
     int16_t x;              // 0x24 posição na tela do PS2 (relativa à câmera)
@@ -87,7 +88,7 @@ struct SpriteInfo {
     int16_t uw;           // 0x18 0: largura da textura - 1
     int16_t vh;           // 0x1a
     uint32_t label;       // 0x1c rótulo do texto (Txt_BindLabel); 0xffffffff: imagem
-    char* format;         // 0x20 formato do texto
+    P32<char> format;     // 0x20 formato do texto
     uint32_t hash;        // 0x24 textura da imagem (0: nenhuma)
     int8_t viewer;        // 0x28 câmera (< 0: não liga)
     uint8_t unknown_29[3];
@@ -99,7 +100,7 @@ constexpr int kSprActive = 792;       // SprActiveList (0x00349b30 até SprBuffL
 constexpr int kSprBuff = 64;          // SprBuffList: até 63 em uso
 
 extern DLISTINFO_tag SpriteList;               // 0x00349b18
-extern sprite* SprActiveList[kSprActive];      // 0x00349b30
+extern P32<sprite> SprActiveList[kSprActive];      // 0x00349b30
 extern SPRITE_DRAW SprBuffList[kSprBuff];      // 0x0034a790
 extern Psi2DOrigin SprOriginList[kSprBuff];    // só no PC: a origem de cada entrada de SprBuffList
 extern int32_t SprCnt;                         // 0x0030d0b0 entradas em uso de SprBuffList
@@ -121,11 +122,11 @@ void Sprite_SetText(sprite* s, char* text, uint16_t unused);
 void Sprite_SetTextNFmt(sprite* s, char* text, char* format, uint16_t unused);
 void Sprite_SetParams(sprite* s, int16_t priority, int16_t x, int16_t y, uint32_t hash, uint32_t colour);
 void Sprite_Delete(sprite* s);
-sprite** Sprite_BuildList(uint16_t camera, uint32_t* count_a, uint32_t* count_b, uint32_t* count_c);
+P32<sprite>* Sprite_BuildList(uint16_t camera, uint32_t* count_a, uint32_t* count_b, uint32_t* count_c);
 // 1 se achou a textura (e a pôs no sprite), 0 se não.
 uint32_t hashtable_set_sprite(sprite* s, uint32_t hash);
 
-void View_DrawSprites(viewer_tag* viewer, sprite** list, uint32_t first, uint32_t end);
+void View_DrawSprites(viewer_tag* viewer, P32<sprite>* list, uint32_t first, uint32_t end);
 SPRITE_DRAW* View_AddSprite(uint16_t reserve);
 
 // Só no PC: a origem da entrada de SprBuffList (View_AddSprite) e o hashcode da textura de um sprite (0

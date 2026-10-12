@@ -145,7 +145,7 @@ void Script_RunFrame(M_MANAGER* m, M_CONTROL* c) {
     Process_RunFrame(c);
     M_KEYFRAME* key = c->key;
     if (key == nullptr) return;
-    M_KEYFRAME* prev = key->prev != nullptr ? key->prev : key;
+    M_KEYFRAME* prev = key->prev != nullptr ? nf::raw(key->prev) : key;
     float t;
     if (key->frame == prev->frame) {
         t = float(c->step + 1);
@@ -201,7 +201,7 @@ void Script_RunFrame(M_MANAGER* m, M_CONTROL* c) {
             }
             M_CONTROL* target = c;
             if (msg->target != 0xfffffffeu) {
-                target = reinterpret_cast<M_CONTROL*>(uintptr_t(uint32_t(__Menu_Send(m->index, msg->target, 0x39, 0, 0))));
+                target = nf::p32_ptr<M_CONTROL>(uint32_t(__Menu_Send(m->index, msg->target, 0x39, 0, 0)));
             }
             Process_Create(target, msg, duration, 0);
         }

@@ -15,13 +15,14 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 // Dados do objeto (0x2c bytes em obj->data, tipo 0x25).
 struct SIMPLESCRIPT_tag {
     float t;                 // 0x00 quadro no caminho
     float speed;             // 0x04 quadros por tick: quadros / duração (0x4b se o caminho não tem)
     float stop;              // 0x08 parâmetro 5: quadro onde para esperando (múltiplo de speed)
-    framelist_tag* path;     // 0x0c
+    P32<framelist_tag> path;  // 0x0c
     uint32_t channel;        // 0x10 parâmetro 3: dispara e é ligado pelo disparo (sem o bit 1 de flags)
     uint32_t sound;          // 0x14 parâmetro 4 (0: 0xffff, nenhum)
     uint32_t sound_handle;   // 0x18 o som tocando

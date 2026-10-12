@@ -64,8 +64,8 @@ uint8_t* Clr1_238 = nullptr;         // cores dos dois quadros-chave de uma luz
 uint8_t* Clr2_239 = nullptr;
 
 // Handles de som e outros valores guardados em SSTREAM::obj.
-uint32_t handle_of(const SSTREAM* st) { return uint32_t(reinterpret_cast<uintptr_t>(st->obj)); }
-void set_handle(SSTREAM* st, uint32_t h) { st->obj = reinterpret_cast<void*>(uintptr_t(h)); }
+uint32_t handle_of(const SSTREAM* st) { return nf::p32_u(st->obj); }
+void set_handle(SSTREAM* st, uint32_t h) { st->obj = nf::p32_ptr<void>(h); }
 obj_tag* obj_of(const SSTREAM* st) { return static_cast<obj_tag*>(st->obj); }
 _VECTOR* row3(MATRIX* m) { return reinterpret_cast<_VECTOR*>(&m->m[3][0]); }
 
@@ -178,7 +178,7 @@ SCRIPTINFO* Script_Load(uint32_t hash, _VECTOR* pos, _VECTOR* rot, uint8_t* data
         if (data == nullptr) return nullptr;
         uint8_t* p = data;
         if (BIN_GetWord(&p) != 0x1c) {
-            hashtable_additem(hash, reinterpret_cast<void*>(uintptr_t(0xffffffffu)));
+            hashtable_additem(hash, nf::p32_ptr<void>(0xffffffffu));
             return nullptr;
         }
         def = static_cast<SCRIPTDEF_tag*>(Mem_Malloc(0x214, 0x1404, 0));
@@ -201,7 +201,7 @@ SCRIPTINFO* Script_Load(uint32_t hash, _VECTOR* pos, _VECTOR* rot, uint8_t* data
         p += pad;
         def->keys = reinterpret_cast<KEYED_POSROT*>(p);
         ++g_script_stats.loaded;
-    } else if (def == reinterpret_cast<SCRIPTDEF_tag*>(uintptr_t(0xffffffffu))) {
+    } else if (def == nf::p32_ptr<SCRIPTDEF_tag>(0xffffffffu)) {
         return nullptr;
     }
     if (data != nullptr) return nullptr;
@@ -746,7 +746,7 @@ void Script_Interp(SCRIPTINFO* si, SSTREAM* st) {
             Vec_Copy2(row3(&o->matrix), &from, &to);
             to.y -= 4.0f;
             cel_tag* cel = build_FindCel(&from, glb_world);
-            HITDATA_tag* hit = nullptr;
+            P32<HITDATA_tag> hit = nullptr;
             if (!Collide_RayIntersect(&from, &to, cel, o, nullptr, &hit, 0, 0xf0d, 0)) return;
             if (hit->dist - anim->root_height <= 0.2f) {
                 const uint16_t foot = ScriptFootstepFoot != 0 ? 8 : 4;
@@ -1049,7 +1049,7 @@ void Script_FreeFromHashTable(uint32_t hash) {
     void* p = hashtable_getitem(hash);
     if (p == nullptr) return;
     hashtable_deleteitem(hash);
-    if (p != reinterpret_cast<void*>(uintptr_t(0xffffffffu))) Mem_Free(&p);
+    if (p != nf::p32_ptr<void>(0xffffffffu)) Mem_Free(&p);
 }
 
 // [decomp] 0x001daf00 Script_Set2Start

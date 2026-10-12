@@ -11,7 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
-#include <fstream>
+#include <string>
 #include <vector>
 
 #include "platform/audio_out.h"
@@ -164,7 +164,8 @@ constexpr int kSpuVoices = Spu2::kVoices;
 // ---- globais (os nomes da .symtab do SFX.IRX) ----
 
 Spu2 g_spu;
-std::filesystem::path g_root;
+// O disco (só do port: a pasta, a imagem ISO, o leitor ou a cópia pessoal; nulo: nada carrega).
+std::shared_ptr<const DiscSource> g_disc;
 
 SoundBankHeader SoundBankData[kBankSlots];
 int32_t SoundBankInfo[kBankSlots];
@@ -275,20 +276,15 @@ void sfx_log(const char* fmt, ...) {
 
 // ---- arquivos ----
 
-bool load_file(const std::filesystem::path& path, std::vector<uint8_t>& out) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) return false;
-    f.seekg(0, std::ios::end);
-    const std::streamoff size = f.tellg();
-    f.seekg(0);
-    out.resize(size_t(size));
-    if (size > 0) f.read(reinterpret_cast<char*>(out.data()), size);
-    return bool(f);
+// Um arquivo do disco inteiro (caminho do disco, "PS2/SBINFO.SBI"); sem disco nada é achado.
+bool load_file(const std::string& path, std::vector<uint8_t>& out) {
+    if (g_disc == nullptr) return false;
+    return g_disc->read(path, out);
 }
 
-// "\PS2\" (SFXFilePath) dentro da raiz dos dados; sem raiz nada é achado.
-std::filesystem::path sfx_file_path() { return g_root.empty() ? std::filesystem::path() : g_root / "PS2"; }
-std::filesystem::path language_path() { return sfx_file_path() / SFXLanguage; }
+// "\PS2\" (SFXFilePath) no disco.
+std::string sfx_file_path() { return "PS2"; }
+std::string language_path() { return sfx_file_path() + "/" + SFXLanguage; }
 
 // ---- PRNG ----
 
@@ -699,7 +695,7 @@ public:
     };
     static_assert(sizeof(Marker) == 32 && sizeof(Start) == 52);
 
-    bool open(const std::filesystem::path& smf, const std::filesystem::path& ssd) {
+    bool open(const std::string& smf, const std::string& ssd) {
         close();
         std::vector<uint8_t> d;
         if (!load_file(smf, d) || d.size() < 20) return false;
@@ -713,16 +709,15 @@ public:
         markers_.resize(size_t(h[1]));
         if (!starts_.empty()) std::memcpy(starts_.data(), d.data() + h[2], starts_.size() * sizeof(Start));
         if (!markers_.empty()) std::memcpy(markers_.data(), d.data() + h[3], markers_.size() * sizeof(Marker));
-        ssd_.open(ssd, std::ios::binary);
-        if (!ssd_) return false;
-        ssd_.seekg(0, std::ios::end);
-        ssd_size_ = uint32_t(ssd_.tellg());
+        if (g_disc == nullptr) return false;
+        ssd_ = g_disc->open(ssd);
+        if (!ssd_.is_open()) return false;
+        ssd_size_ = uint32_t(ssd_.size());
         open_ = true;
         return true;
     }
     void close() {
-        if (ssd_.is_open()) ssd_.close();
-        ssd_.clear();
+        ssd_.close();
         open_ = false;
         starts_.clear();
         markers_.clear();
@@ -839,10 +834,7 @@ private:
             cache_off_ = off & ~(kChunk - 1);
             const uint32_t n = std::min(kChunk * 2, ssd_size_ - cache_off_);
             cache_.assign(n, 0);
-            ssd_.clear();
-            ssd_.seekg(std::streamoff(cache_off_));
-            ssd_.read(reinterpret_cast<char*>(cache_.data()), std::streamsize(n));
-            if (!ssd_) {
+            if (ssd_.read_at(cache_off_, cache_.data(), n) != n) {
                 cache_.clear();
                 return nullptr;
             }
@@ -854,7 +846,7 @@ private:
     std::vector<Start> starts_;
     std::vector<Marker> markers_;
     int32_t base_volume_ = 100;
-    std::ifstream ssd_;
+    DiscFile ssd_;
     uint32_t ssd_size_ = 0;
     std::vector<uint8_t> cache_;
     uint32_t cache_off_ = 0;
@@ -881,10 +873,10 @@ int32_t FindMusicTrackNumber(int32_t hash) {
 // trecho inicial (MusicStartSection), as duas vozes ligadas à MusicStream, KeyOn já pedido.
 int32_t music_initialise(StreamData& s, int32_t hash) {
     const int32_t track = FindMusicTrackNumber(hash);
-    if (track < 0 || g_root.empty()) return -1;
-    const std::filesystem::path dir = sfx_file_path() / "MUSIC" / ("MFX_" + std::to_string(track >> 4));
+    if (track < 0 || g_disc == nullptr) return -1;
+    const std::string dir = sfx_file_path() + "/MUSIC/MFX_" + std::to_string(track >> 4);
     const std::string name = "MFX_" + std::to_string(track);
-    if (!g_music.open(dir / (name + ".SMF"), dir / (name + ".SSD"))) return -1;
+    if (!g_music.open(dir + "/" + name + ".SMF", dir + "/" + name + ".SSD")) return -1;
     sfx_log("musica 0x%x -> MFX_%d trecho %d (%d trechos)\n", hash, track, MusicStartSection, g_music.start_count());
     const StreamPlaybackBuffer& b = StreamPlaybackBuffers[0];
     if (b.voice_handle[0] < 0 || b.voice_handle[1] < 0) return -1;
@@ -1002,17 +994,14 @@ int32_t SFXInitialiseStream(int32_t file_ref, int32_t is3d) {
     const uint32_t data_off = StreamLookup[index * 4 + 2];
     const uint32_t data_size = StreamLookup[index * 4 + 3];
     const uint32_t mark_off = StreamLookup[index * 4 + 0];
-    if (g_root.empty()) return -1;
-    std::ifstream f(language_path() / "STREAMS" / "STREAMS.BIN", std::ios::binary);
-    if (!f) return -1;
+    if (g_disc == nullptr) return -1;
+    const DiscFile f = g_disc->open(language_path() + "/STREAMS/STREAMS.BIN");
+    if (!f.is_open()) return -1;
     int32_t marker_header[5] = {};
-    f.seekg(std::streamoff(mark_off));
-    f.read(reinterpret_cast<char*>(marker_header), sizeof(marker_header));
+    f.read_at(mark_off, marker_header, sizeof(marker_header));
     g_spu.detach(s.data.data());  // as vozes ainda podem estar soltando a fala anterior
     s.data.assign(data_size, 0);
-    f.seekg(std::streamoff(data_off));
-    f.read(reinterpret_cast<char*>(s.data.data()), std::streamsize(data_size));
-    if (!f) return -1;
+    if (f.read_at(data_off, s.data.data(), data_size) != data_size) return -1;
     s.IdNumber = slot;
     s.HashCode = file_ref;
     s.Status = 2;
@@ -1133,13 +1122,13 @@ void SFXReleaseAudioStreamSystem() {
 void SFXInitialiseAudioStreamSystem() {
     if (HaveCalledOnceMxi == 0) {
         std::vector<uint8_t> mxi;
-        if (g_root.empty() || !load_file(sfx_file_path() / "MFXINFO.MXI", mxi) || mxi.size() < sizeof(MusicTrackInfo)) return;
+        if (!load_file(sfx_file_path() + "/MFXINFO.MXI", mxi) || mxi.size() < sizeof(MusicTrackInfo)) return;
         std::memcpy(MusicTrackInfo, mxi.data(), sizeof(MusicTrackInfo));
         HaveCalledOnceMxi = 1;
     }
     std::vector<uint8_t> lut;
     StreamLookup.clear();
-    if (!g_root.empty() && load_file(language_path() / "STREAMS" / "STREAMS.LUT", lut)) {
+    if (load_file(language_path() + "/STREAMS/STREAMS.LUT", lut)) {
         // O driver copia 3000 entradas (a LUT do disco tem 1681).
         StreamLookup.assign(3000 * 4, 0);
         std::memcpy(StreamLookup.data(), lut.data(), std::min(lut.size(), StreamLookup.size() * 4));
@@ -2182,7 +2171,7 @@ void SFXDeLoadAllSoundBanks() {
 
 // [irx] 0x0000de98 psiLoadSoundBank
 // Copia o .SBF para a RAM de som a partir de 0x5010 + o já usado; devolve o endereço inicial (0: falhou).
-int32_t psiLoadSoundBank(const std::filesystem::path& path) {
+int32_t psiLoadSoundBank(const std::string& path) {
     std::vector<uint8_t> sbf;
     if (!load_file(path, sbf)) return 0;
     const uint32_t start = 0x5010 + uint32_t(SoundRAMUsed);
@@ -2198,20 +2187,20 @@ void SFXLoadSoundBank(int32_t hash) {
     if (slot == -1) return;
     SoundBankHeader& bank = SoundBankData[slot];
     if (bank.Loaded != 0) return;
-    if (g_root.empty()) return;
-    const std::filesystem::path dir = language_path() / ("SB_" + std::to_string(slot >> 3));
+    if (g_disc == nullptr) return;
+    const std::string dir = language_path() + "/SB_" + std::to_string(slot >> 3);
     const std::string name = "SB_" + std::to_string(slot);
-    if (!load_file(dir / (name + ".SFX"), bank.sfx) || bank.sfx.size() < 4) return;
+    if (!load_file(dir + "/" + name + ".SFX", bank.sfx) || bank.sfx.size() < 4) return;
     bank.SFXCount = *reinterpret_cast<int32_t*>(bank.sfx.data());
     bank.SFXHeaderData = reinterpret_cast<SFXHeader*>(bank.sfx.data() + 4);
-    if (!load_file(dir / (name + ".SHF"), bank.shf) || bank.shf.size() < 4) {
+    if (!load_file(dir + "/" + name + ".SHF", bank.shf) || bank.shf.size() < 4) {
         bank.sfx.clear();
         return;
     }
     bank.SampleCount = *reinterpret_cast<int32_t*>(bank.shf.data());
     bank.SampleHeader = reinterpret_cast<SampleHeaderData*>(bank.shf.data() + 4);
     if (bank.SampleCount != 0) {
-        int32_t addr = psiLoadSoundBank(dir / (name + ".SBF"));
+        int32_t addr = psiLoadSoundBank(dir + "/" + name + ".SBF");
         if (addr == 0) {
             bank.sfx.clear();
             bank.shf.clear();
@@ -2319,7 +2308,7 @@ void SFXInitialise() {
     HasInitialised = 1;
     psiInitialiseSoundRam();
     std::vector<uint8_t> sbi;
-    if (g_root.empty() || !load_file(sfx_file_path() / "SBINFO.SBI", sbi) || sbi.size() < sizeof(SoundBankInfo)) return;
+    if (!load_file(sfx_file_path() + "/SBINFO.SBI", sbi) || sbi.size() < sizeof(SoundBankInfo)) return;
     for (int i = 0; i < kBankSlots; ++i) SoundBankData[i].Loaded = 0;
     std::memcpy(SoundBankInfo, sbi.data(), sizeof(SoundBankInfo));
     InitialiseSFXList();
@@ -2332,8 +2321,11 @@ SFXPoint3 point_at(const int32_t* w) { return SFXPoint3{w[0], w[1], w[2]}; }
 
 Spu2& spu() { return g_spu; }
 
-void sfx_iop_set_root(const std::filesystem::path& root) { g_root = root; }
-const std::filesystem::path& sfx_iop_root() { return g_root; }
+void sfx_iop_set_disc(std::shared_ptr<const DiscSource> disc) { g_disc = std::move(disc); }
+const DiscSource* sfx_iop_disc() { return g_disc.get(); }
+void sfx_iop_set_root(const std::filesystem::path& root) {
+    g_disc = root.empty() ? nullptr : open_disc_folder(root.wstring());
+}
 
 // [irx] 0x0000f600 sifrpc_server__FUiPvi
 // Os comandos do lote, até o 5 (fim: liga e desliga as vozes e devolve SFXActiveData) ou o 0x10. Os comandos 1,

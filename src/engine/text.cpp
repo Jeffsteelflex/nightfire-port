@@ -56,7 +56,7 @@ SpriteInfo SubtitlesInfo;
 DLISTINFO_tag MsgQueue;
 CIRBUF_INFO ReceivedMsgs;
 int32_t ReceivedBuf[0x80];
-TXT_MSG* SubTitleMsg = nullptr;
+P32<TXT_MSG> SubTitleMsg = nullptr;  // passada a Text_UpdateMsg como as palavras das panes do HUD
 sprite* SubTitleSpr = nullptr;
 sprite* SubTitleSpr1 = nullptr;
 sprite* SubTitleSpr2 = nullptr;
@@ -101,8 +101,8 @@ float u32_to_float(uint32_t v) {
     return float(int32_t((v >> 1) | (v & 1))) * 2.0f;
 }
 
-TXT_MSG* first_msg() { return reinterpret_cast<TXT_MSG*>(MsgQueue.used.first); }
-TXT_MSG* next_msg(const TXT_MSG* m) { return reinterpret_cast<TXT_MSG*>(m->node.next); }
+TXT_MSG* first_msg() { return reinterpret_cast<TXT_MSG*>(nf::raw(MsgQueue.used.first)); }
+TXT_MSG* next_msg(const TXT_MSG* m) { return reinterpret_cast<TXT_MSG*>(nf::raw(m->node.next)); }
 
 // Um nó livre que nunca foi usado (tipo 0); sem nenhum, mais 32. Comportamento original preservado: os
 // nós devolvidos por Text_DelMsg guardam o tipo e não são mais aproveitados. Só no port: com a fila sem
@@ -283,7 +283,7 @@ void Text_AddMsg(int8_t player, uint8_t priority, int32_t type, char* text, uint
     }
     if (type != 1 && (type <= 0 || type >= 7 || type < 4)) {
         Txt_LockString(text);
-        char* old = reinterpret_cast<char*>(uintptr_t(uint32_t(CirBuf_Add(&ReceivedMsgs, int32_t(uintptr_t(text))))));
+        char* old = nf::p32_ptr<char>(uint32_t(CirBuf_Add(&ReceivedMsgs, int32_t(nf::p32_u(text)))));
         Txt_UnlockString(old);
     }
     const uint32_t total = uint32_t(std::strlen(text)) & 0xffff;
@@ -345,7 +345,7 @@ void Text_AddMsg(int8_t player, uint8_t priority, int32_t type, char* text, uint
 // e passa para a próxima linha dela, ou para a primeira da fila desse jogador e tipo. Devolve 1 quando
 // *msg mudou (ou estava vazia e foi procurada), 0 se continua a mesma ou se a câmera do jogador não
 // desenha sprites.
-uint32_t Text_UpdateMsg(int8_t player, int32_t type, TXT_MSG** msg) {
+uint32_t Text_UpdateMsg(int8_t player, int32_t type, P32<TXT_MSG>* msg) {
     if (player != -1) {
         const viewer_tag* v = player >= 0 && player < kViewerCount ? glb_viewer[player] : nullptr;
         if (v != nullptr && v->sprites == 0) return 0;
@@ -378,7 +378,7 @@ void Text_Init(int8_t warm) {
         CirBuf_Init(&ReceivedMsgs, 0x80, ReceivedBuf);
     } else {
         for (uint32_t i = 0; i < ReceivedMsgs.size; i = (i + 1) & 0xffff) {
-            Txt_LockString(reinterpret_cast<char*>(uintptr_t(uint32_t(ReceivedMsgs.buffer[i]))));
+            Txt_LockString(nf::p32_ptr<char>(uint32_t(ReceivedMsgs.buffer[i])));
         }
     }
 }
@@ -457,11 +457,12 @@ void Sound_DoSubtitle(uint32_t sound) {
 namespace {
 template <typename T>
 T& at(void* base, uint32_t offset) {
+    static_assert(!nf::is_native_ptr_v<T>, "ponteiro de 4 bytes: use P32<...>");
     return *reinterpret_cast<T*>(static_cast<uint8_t*>(base) + offset);
 }
 M_CONTROL* as_control(void* p) { return static_cast<M_CONTROL*>(p); }
 // Os dados do rótulo (M_LABEL +0xe8 = caixa +0x17c): +0x18 o texto, +0x20 o tamanho.
-uint8_t* label_data(M_TEXTBOX* box) { return at<uint8_t*>(box, 0x17c); }
+uint8_t* label_data(M_TEXTBOX* box) { return at<P32<uint8_t>>(box, 0x17c); }
 int32_t line(const M_TEXTBOX* box) { return int32_t(box->line_height); }
 uint32_t frames_120 = 0;  // ticks com a direção segurada (repete a cada 5 depois de 16)
 
@@ -497,7 +498,7 @@ constexpr KeyDef kKeys[65] = {
 void Text_Init(M_TEXTBOX* box, NEW_CONTROL* desc, M_CONTROL* owner) {
     box->type = 0xc;
     box->state = 0;
-    at<M_CONTROL*>(box, 0xc) = owner;
+    at<P32<M_CONTROL>>(box, 0xc) = owner;
     at<uint32_t>(box, 0x10) = 0;
     at<uint32_t>(box, 0x14) = uint32_t(desc->owner) << 16 | 10;
     at<uint32_t>(box, 0x18) = desc->id;
@@ -524,7 +525,7 @@ void Text_Init(M_TEXTBOX* box, NEW_CONTROL* desc, M_CONTROL* owner) {
     label.unknown_10 = 0;
     Label_Init(reinterpret_cast<M_LABEL*>(box->label), &label, as_control(box));
     std::memset(box->name, 0, sizeof(box->name));
-    if (label_data(box) != nullptr) at<char*>(label_data(box), 0x18) = box->name;
+    if (label_data(box) != nullptr) at<P32<char>>(label_data(box), 0x18) = box->name;
     at<int16_t>(box, 0x220) = int16_t(desc->depth - 3);
     at<uint32_t>(box, 0x1bc) = uint32_t(desc->owner) << 16 | 0xb;
     Component_SetupInstance(as_control(box->cursor), 0, -1, -1, -1, -1);
@@ -552,15 +553,15 @@ int32_t Text_SendMessage(M_TEXTBOX* box, uint32_t message, int32_t a, int32_t b)
             return Script_Play(as_control(box), uint32_t(a), int8_t(b));
         case 0x21:
             if (uint32_t(a) >= 7) return 0;
-            at<M_SCRIPT*>(self, 0x7c + uint32_t(a) * 4) = Script_Select(as_control(box), uint32_t(b));
+            at<P32<M_SCRIPT>>(self, 0x7c + uint32_t(a) * 4) = Script_Select(as_control(box), uint32_t(b));
             return 1;
         case 0x2b:
             box->state = uint8_t(a);
             return 1;
         case 0x39:
-            return int32_t(reinterpret_cast<uintptr_t>(box));
+            return int32_t(nf::p32_u(box));
         case 0x3b:
-            return label_data(box) != nullptr ? int32_t(reinterpret_cast<uintptr_t>(at<char*>(label_data(box), 0x18))) : 0;
+            return label_data(box) != nullptr ? int32_t(nf::p32_u(at<P32<char>>(label_data(box), 0x18))) : 0;
         case 0x3d:
             return int32_t(at<uint32_t>(box, 0x20));
         case 0x47: {
@@ -579,7 +580,7 @@ int32_t Text_SendMessage(M_TEXTBOX* box, uint32_t message, int32_t a, int32_t b)
             at<uint32_t>(box, 0x1c) &= 0xffffff7fu;
             at<uint32_t>(box, 0x1c) |= 0x40;
             box->h = int16_t(line(box) + 5);
-            __Menu_SendMessage(at<M_CONTROL*>(box, 0xc), 0, int32_t(reinterpret_cast<uintptr_t>(box)), 0);
+            __Menu_SendMessage(at<P32<M_CONTROL>>(box, 0xc), 0, int32_t(nf::p32_u(box)), 0);
             return 1;
         default:
             return Label_SendMessage(reinterpret_cast<M_LABEL*>(box->label), message, a, b);
@@ -594,7 +595,7 @@ int32_t Text_SendMessage(M_TEXTBOX* box, uint32_t message, int32_t a, int32_t b)
 // teclado (248 x 126), e com a ação 0x1f usa a tecla: '-' apaga, '+' fecha, as outras escrevem (até 18
 // caracteres, avisando o dono com 0x4a). Por fim posiciona o rótulo e os componentes.
 void TextBox_Update(M_MANAGER* manager, M_PAGE* page, M_TEXTBOX* box) {
-    if ((at<uint8_t>(at<M_CONTROL*>(box, 0xc), 0x7a) & 5) != 0 || (box->state & 1) != 0) {
+    if ((at<uint8_t>(at<P32<M_CONTROL>>(box, 0xc), 0x7a) & 5) != 0 || (box->state & 1) != 0) {
         box->state |= 4;
         Component_Free(as_control(box));
         Component_Free(as_control(box->cursor));
@@ -609,7 +610,7 @@ void TextBox_Update(M_MANAGER* manager, M_PAGE* page, M_TEXTBOX* box) {
     uint32_t& state = at<uint32_t>(box, 0x1c);
     const uint32_t flags = state;
     const int16_t player = at<int16_t>(manager, 0x1cc);
-    if (at<uint32_t>(at<uint8_t*>(page, 0xac), 0x18) != at<uint32_t>(box, 0x18)) {
+    if (at<uint32_t>(at<P32<uint8_t>>(page, 0xac), 0x18) != at<uint32_t>(box, 0x18)) {
         if (int32_t(flags) < 0) {
             Text_SendMessage(box, 0x53, 0, 0);
             state |= 0x10;
@@ -660,19 +661,19 @@ void TextBox_Update(M_MANAGER* manager, M_PAGE* page, M_TEXTBOX* box) {
             if (Menu_InputAction(player, 0x1f, 4) != 0 && data != nullptr) {
                 const uint8_t c = box->keys[box->key].key;
                 uint16_t& length = at<uint16_t>(data, 0x20);
-                char* name = at<char*>(data, 0x18);
+                char* name = at<P32<char>>(data, 0x18);
                 if (c == '-') {
                     if (length != 0) {
                         --length;
                         name[length] = 0;
-                        __Menu_SendMessage(at<M_CONTROL*>(box, 0xc), 0x4a, int32_t(reinterpret_cast<uintptr_t>(box)), 0);
+                        __Menu_SendMessage(at<P32<M_CONTROL>>(box, 0xc), 0x4a, int32_t(nf::p32_u(box)), 0);
                     }
                 } else if (c == '+') {
                     Text_SendMessage(box, 0x53, 0, 0);
                 } else {
                     name[length++] = char(c);
                     if (length < 0x13) {
-                        __Menu_SendMessage(at<M_CONTROL*>(box, 0xc), 0x4a, int32_t(reinterpret_cast<uintptr_t>(box)), 0);
+                        __Menu_SendMessage(at<P32<M_CONTROL>>(box, 0xc), 0x4a, int32_t(nf::p32_u(box)), 0);
                     } else {
                         --length;
                     }
@@ -681,7 +682,7 @@ void TextBox_Update(M_MANAGER* manager, M_PAGE* page, M_TEXTBOX* box) {
             }
         }
         GPOINT extent{};
-        if (label_data(box) != nullptr) Font_GetTextExtent(at<char*>(label_data(box), 0x18), kFmtSerp, &extent, nullptr, -1);
+        if (label_data(box) != nullptr) Font_GetTextExtent(at<P32<char>>(label_data(box), 0x18), kFmtSerp, &extent, nullptr, -1);
     }
     const int32_t over = Menu_CursorOverMe(manager, as_control(box));
     Label_Update(manager, page, reinterpret_cast<M_LABEL*>(box->label), int8_t(over));

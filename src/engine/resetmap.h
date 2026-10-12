@@ -8,6 +8,8 @@
 
 #include <cstdint>
 
+#include "platform/ptr32.h"
+
 void ResetMap_Load();
 void ResetMap_GameInit();
 // A tela de carga (passo 3 do ResetMap_Load, antes do reinício da fase pedida): a imagem da fase, o rótulo 0x3c1, o
@@ -37,5 +39,5 @@ struct obj_tag;
 extern obj_tag* glb_players[4];  // objeto de cada jogador
 extern uint8_t IsWarmReset;
 struct cel_tag;
-extern cel_tag** gbl_room_cels;  // salas do mundo, montada por build_FindCel
+extern P32<cel_tag>* gbl_room_cels;  // salas do mundo, montada por build_FindCel
 extern uint32_t DrawInfo[4];

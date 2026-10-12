@@ -13,6 +13,7 @@
 #include "platform/gamepad.h"
 #include "platform/input_bindings.h"
 #include "platform/psi_input.h"
+#include "platform/fmath.h"
 
 namespace nf::ui {
 
@@ -1197,7 +1198,7 @@ void FrontScreen::draw_title(DrawList& dl, const Frame& f, float alpha) const {
     const MmFront& fr = snap_.front;
     const bool ready = snap_.page == kMmFeStart && !fr.press.empty();
     if (ready) {
-        const float breath = 0.80f + 0.20f * (0.5f + 0.5f * std::sin(f.time * 2.4f));
+        const float breath = 0.80f + 0.20f * (0.5f + 0.5f * nf::fm::sin(f.time * 2.4f));
         const float a = alpha * breath;
         const bool pad = nav_.device == 1;
         const std::wstring text = widen(fr.press);

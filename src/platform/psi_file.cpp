@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 #include "engine/memory.h"
 
@@ -14,7 +15,7 @@ extern uint32_t DirFileLen;
 FILELIST_tag FileList[kFileListCount];
 
 namespace {
-std::FILE* g_files_bin = nullptr;
+nf::DiscFile g_files_bin;
 int32_t m_file = -1;
 int8_t bSingleFileMode = 0;
 int32_t FileIndex = 0;
@@ -36,24 +37,24 @@ bool find_file(const char* name) {
 
 // sceCdRead de "sectors" setores a partir do cursor.
 void read_sectors(void* buffer, uint32_t sectors) {
-    _fseeki64(g_files_bin, int64_t(offset) * 0x800, SEEK_SET);
-    const size_t got = std::fread(buffer, 1, size_t(sectors) * 0x800, g_files_bin);
+    const size_t got = g_files_bin.read_at(uint64_t(offset) * 0x800, buffer, size_t(sectors) * 0x800);
     // O último arquivo pode terminar antes do fim do setor: o resto fica zerado.
     if (got < size_t(sectors) * 0x800) std::memset(static_cast<uint8_t*>(buffer) + got, 0, size_t(sectors) * 0x800 - got);
     offset += sectors;
 }
 }  // namespace
 
-bool psiFileSetup(const wchar_t* files_bin_path) {
+bool psiFileSetup(nf::DiscFile files_bin) {
     psiFileShutdown();
-    if (_wfopen_s(&g_files_bin, files_bin_path, L"rb") != 0) g_files_bin = nullptr;
-    m_file = g_files_bin ? 0 : -1;
-    return g_files_bin != nullptr;
+    g_files_bin = std::move(files_bin);
+    m_file = g_files_bin.is_open() ? 0 : -1;
+    return g_files_bin.is_open();
 }
 
+bool psiFileSetup(const wchar_t* files_bin_path) { return psiFileSetup(nf::DiscFile::open_host(files_bin_path)); }
+
 void psiFileShutdown() {
-    if (g_files_bin) std::fclose(g_files_bin);
-    g_files_bin = nullptr;
+    g_files_bin.close();
     m_file = -1;
 }
 

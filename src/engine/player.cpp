@@ -816,7 +816,7 @@ bool Player_PortMouseLookGate(const obj_tag* obj, bool* yaw_ok, bool* pitch_ok, 
     if (b->cam_mode != 0 || obj->sphere_src == nullptr) return false;
     *yaw_ok = moves_in(obj) && b->move_locked == 0;
     *pitch_ok = aims_in(obj);
-    *aiming = (reinterpret_cast<const ANIMOBJ_tag*>(obj->sphere_src)->flags & 1) != 0;
+    *aiming = (reinterpret_cast<const ANIMOBJ_tag*>(nf::raw(obj->sphere_src))->flags & 1) != 0;
     *zoom = ads_effective_zoom(b);
     return *yaw_ok || *pitch_ok;
 }
@@ -1929,7 +1929,7 @@ obj_tag* Player_FeetOnPoint(obj_tag* obj, HITTEST_tag* test, float* normal_y, in
     HITDATA_tag* stand = nullptr;
     HITDATA_tag* surface = nullptr;
     bool done = false;
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     _VECTOR up;
     Mat_GetUp(&up, &obj->matrix);
     if (normal_y != nullptr) *normal_y = 1.0f;
@@ -2014,9 +2014,9 @@ uint32_t Player_DealWithObjHit(obj_tag* obj, BLData* b, HITDATA_tag* hit) {
     }
     uint8_t* bullet = static_cast<uint8_t*>(o->data);
     obj_tag* shooter;
-    std::memcpy(&shooter, bullet + 0x30, 4);
+    shooter = nf::p32_load<obj_tag>(bullet + 0x30);
     uint8_t* info;
-    std::memcpy(&info, bullet + 0x44, 4);
+    info = nf::p32_load<uint8_t>(bullet + 0x44);
     uint16_t kind;
     std::memcpy(&kind, &hit->unknown_52, 2);
     const auto scale_damage = [&](float k) {
@@ -2027,7 +2027,7 @@ uint32_t Player_DealWithObjHit(obj_tag* obj, BLData* b, HITDATA_tag* hit) {
         if (3 < Control_Plr2Ind(shooter) && shooter != nullptr) {
             const int16_t weapon = read16(info);
             uint8_t* drone;
-            std::memcpy(&drone, static_cast<uint8_t*>(shooter->data) + 0xd1c, 4);
+            drone = nf::p32_load<uint8_t>(static_cast<uint8_t*>(shooter->data) + 0xd1c);
             const uint8_t skill = drone[0xac];
             if (weapon == 1 || weapon == 100 || weapon == 0x65 || weapon == 0x66) {
                 if ((skill & 4) != 0) scale_damage(1.5f);
@@ -2067,7 +2067,7 @@ uint32_t Player_DealWithObjHit(obj_tag* obj, BLData* b, HITDATA_tag* hit) {
         }
     }
     b->hit_dir = hd;
-    std::memcpy(&info, data + 0x44, 4);
+    info = nf::p32_load<uint8_t>(data + 0x44);
     uint32_t info_flags;
     std::memcpy(&info_flags, info + 0x70, 4);
     if ((info_flags & 0x180) == 0) Sound_Play(special ? 0x600 : 0x412, 100.0f, 0, 0);
@@ -2089,7 +2089,7 @@ uint32_t Player_DealWithObjHit(obj_tag* obj, BLData* b, HITDATA_tag* hit) {
 // nela. Devolve se abriu ou fechou alguma porta.
 uint8_t Player_Activate(obj_tag* obj, BLData* b) {
     uint8_t opened = 0;
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     if (b->touch_type == 6) {
         obj_tag* best = nullptr;
         float best_d = 1000.0f;
@@ -2321,7 +2321,7 @@ void Player_PositionCamera(obj_tag* obj, void*) {
             if (b->ride == nullptr) return;
             uint8_t* zip = static_cast<uint8_t*>(b->ride->data);
             obj_tag* line;
-            std::memcpy(&line, zip + 0xc0, 4);
+            line = nf::p32_load<obj_tag>(zip + 0xc0);
             View_SetDrawInAllViews(obj);
             View_SetDrawInNoViews(b->gun);
             View_SetDrawInOtherViewsOnly(b->ride, uint32_t(index));
@@ -2360,10 +2360,10 @@ void Player_GetHeadPos(_VECTOR* out, obj_tag* obj, MATRIX* m) {
 void Player_InShadow(BLData* b, obj_tag* obj) {
     uint32_t sum = uint32_t(int32_t(float(uint32_t(obj->color[0]) + obj->color[1] + obj->color[2]) * 0.33333334f)) & 0xffff;
     uint16_t count = 0;
-    light_tag** lights =
+    P32<light_tag>* lights =
         Lights_CalcClosestLights(reinterpret_cast<sphere_tag*>(&obj->sphere), uint16_t(obj->flags), &count);
     for (uint16_t i = 0; i < count; ++i) {
-        const uint8_t* l = reinterpret_cast<const uint8_t*>(lights[i]);
+        const uint8_t* l = reinterpret_cast<const uint8_t*>(nf::raw(lights[i]));
         _VECTOR pos;
         std::memcpy(&pos, l + 0x10, sizeof(pos));
         float radius;

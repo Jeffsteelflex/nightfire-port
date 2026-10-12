@@ -324,7 +324,7 @@ int32_t Sensor_SetBeam(obj_tag* player, obj_tag* obj, SENSOR* s) {
     // vmulx.xyz + vadd.xyzw: o w do fim do raio é lixo da pilha no PS2 (não importa ao raio); aqui, o da posição.
     const _VECTOR to{obj->pos.x + dir.x * range, obj->pos.y + dir.y * range, obj->pos.z + dir.z * range, obj->pos.w};
     s->beam->scale = range;
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     int32_t seen = 0;
     if (Collide_RayIntersect(&obj->pos, &to, obj->cel, obj, s->beam, &hits, 0, 8, 0)) {
         s->beam->scale = hits->dist;

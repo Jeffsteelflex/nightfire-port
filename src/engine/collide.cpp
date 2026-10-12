@@ -47,7 +47,7 @@ BOXENTRY_tag ColBoxs[600];
 uint32_t BoxCnt = 0;
 
 cel_tag* CelList_194[128];
-HITDATA_tag* SrtList[1100];
+P32<HITDATA_tag> SrtList[1100];  // ordenada com elementos de 4 bytes (QuickSort)
 
 const uint16_t Index_189[6] = {0, 1, 2, 2, 3, 0};  // os dois triângulos de um portal
 constexpr float kBig = 3.4e38f;                    // DAT_0030c748 e DAT_0030d128
@@ -91,8 +91,8 @@ struct Tri {
     uint16_t v[3];
     uint16_t normal;
 };
-const Tri* triangles(const colldata_tag* cd) { return reinterpret_cast<const Tri*>(cd->list); }
-COLLBOX_tag* boxes(const colldata_tag* cd) { return reinterpret_cast<COLLBOX_tag*>(cd->boxes); }
+const Tri* triangles(const colldata_tag* cd) { return reinterpret_cast<const Tri*>(nf::raw(cd->list)); }
+COLLBOX_tag* boxes(const colldata_tag* cd) { return reinterpret_cast<COLLBOX_tag*>(nf::raw(cd->boxes)); }
 
 bool sphere_overlaps_box(const _VECTOR& c, float r, const float min[3], const float max[3]) {
     // Mesma ordem de comparações do original: x, z, y.
@@ -221,7 +221,7 @@ uint32_t ray_box(const HITTEST_tag* test, const float* min, const float* max, fl
 
 // Fim comum de Collide_SphereIntersect e Collide_RayIntersect: devolve ao HitHeap os acertos
 // descartados (dist == 1e8) e ordena os outros pela distância.
-void sort_hits(HITDATA_tag** head) {
+void sort_hits(P32<HITDATA_tag>* head) {
     HITDATA_tag* h = *head;
     if (h == nullptr) return;
     uint32_t n = 0;
@@ -294,8 +294,8 @@ void Coll_ResetHitHeap() {
 
 // [decomp] 0x001ede68 Coll_AddHitToList
 // Pega um nó do HitHeap (alocando de 64 em 64, até 1000) e o põe no começo da lista.
-HITDATA_tag* Coll_AddHitToList(HITDATA_tag** list, float dist, cel_tag* cel, obj_tag* obj) {
-    HITDATA_tag* hit;
+HITDATA_tag* Coll_AddHitToList(P32<HITDATA_tag>* list, float dist, cel_tag* cel, obj_tag* obj) {
+    P32<HITDATA_tag> hit;
     for (;;) {
         hit = reinterpret_cast<HITDATA_tag*>(LList_Cut(&HitHeap));
         if (hit != nullptr) {
@@ -325,7 +325,7 @@ HITDATA_tag* Coll_AddHitToList(HITDATA_tag** list, float dist, cel_tag* cel, obj
 }
 
 // [decomp] 0x001ede00 Collide_FreeHitList
-void Collide_FreeHitList(HITDATA_tag** list) {
+void Collide_FreeHitList(P32<HITDATA_tag>* list) {
     if (list == nullptr) return;
     for (HITDATA_tag* h = *list; h != nullptr;) {
         HITDATA_tag* next = h->next;
@@ -1296,7 +1296,7 @@ void Intersect_CylTriGeom(HITTEST_tag* test, HITDATA_tag* hit) {
 // Esfera em *pos. Com only_cel, só a geometria de "cel" (e objetos) entra na fase fina. No fim,
 // *pos anda o empurrão acumulado e *hits recebe os acertos ordenados pela distância.
 bool Collide_SphereIntersect(_VECTOR* pos, float radius, const cel_tag* cel, const obj_tag* a, const obj_tag* b,
-                             HITDATA_tag** hits, int8_t only_cel, int8_t one_sided, uint32_t mask, uint16_t flags) {
+                             P32<HITDATA_tag>* hits, int8_t only_cel, int8_t one_sided, uint32_t mask, uint16_t flags) {
     *hits = nullptr;
     HITTEST_tag test;
     std::memset(&test, 0, sizeof(test));
@@ -1322,7 +1322,7 @@ bool Collide_SphereIntersect(_VECTOR* pos, float radius, const cel_tag* cel, con
 
 // [decomp] 0x001ec690 Collide_RayIntersect
 bool Collide_RayIntersect(const _VECTOR* from, const _VECTOR* to, const cel_tag* cel, const obj_tag* a,
-                          const obj_tag* b, HITDATA_tag** hits, int8_t only_cel, uint32_t mask, uint16_t flags) {
+                          const obj_tag* b, P32<HITDATA_tag>* hits, int8_t only_cel, uint32_t mask, uint16_t flags) {
     *hits = nullptr;
     HITTEST_tag test;
     std::memset(&test, 0, sizeof(test));
@@ -1352,7 +1352,7 @@ bool Collide_RayIntersect(const _VECTOR* from, const _VECTOR* to, const cel_tag*
 // andam com ele: Intersect_CylGeom). Só RB_RestingContactRot chama (os pêndulos dos corpos rígidos).
 // Divergência: o original deixa test->tester apontando para o testador da pilha depois de voltar; aqui volta ao que
 // era (o dono do teste, que Collide_Update põe a cada tick).
-bool Collide_CylinderIntersect(HITTEST_tag* test, HITDATA_tag** hits, int8_t only_cel, uint16_t flags) {
+bool Collide_CylinderIntersect(HITTEST_tag* test, P32<HITDATA_tag>* hits, int8_t only_cel, uint16_t flags) {
     *hits = nullptr;
     obj_tag tester;
     std::memset(&tester, 0, sizeof(tester));
@@ -1383,7 +1383,7 @@ bool Collide_PlaceObject(_VECTOR* pos, MATRIX* m, float radius, float extent, ob
     Mat_GetUp(&up, m);
     cel_tag* cel = build_FindCel(pos, glb_world);
     alignas(16) _VECTOR below{pos->x + up.x * -3.0f, pos->y + up.y * -3.0f, pos->z + up.z * -3.0f, pos->w};
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     if (!Collide_RayIntersect(pos, &below, cel, obj, nullptr, &hits, 0, 0x1d, 0)) return false;
     std::memcpy(&up, &hits->plane, sizeof(up));
     Vec_Normalise(&up, &up);
@@ -1454,7 +1454,7 @@ bool Collide_PlaceObject(_VECTOR* pos, MATRIX* m, float radius, float extent, ob
 // Nada da geometria (filtrada pelo material, mask | 4) entre from e to.
 bool Collide_LineOfSight(const _VECTOR* from, const _VECTOR* to, const cel_tag* cel, const obj_tag* a,
                          const obj_tag* b, uint32_t mask) {
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     if (!Collide_RayIntersect(from, to, cel, a, b, &hits, 0, mask | 4, 0x10)) return true;
     for (HITDATA_tag* h = hits; h != nullptr;) {
         HITDATA_tag* next = h->next;
@@ -1621,14 +1621,14 @@ void Collide_Update(obj_tag* first) {
 // Marca como descartados (dist = 1e8) os acertos de projéteis (tipo 5) cuja arma tem, em
 // weapon_definition_tag::stats (+0x10), algum bit da máscara; havendo algum, devolve os descartados ao
 // HitHeap e ordena o resto pela distância (o mesmo fim de Collide_SphereIntersect, sort_hits).
-void Collide_FilterBullets(HITDATA_tag** list, uint16_t mask) {
+void Collide_FilterBullets(P32<HITDATA_tag>* list, uint16_t mask) {
     bool any = false;
     for (HITDATA_tag* h = *list; h != nullptr; h = h->next) {
         const obj_tag* o = h->obj;
         if (o == nullptr || o->type != 5) continue;
         uint32_t weapon_addr;  // BU_tag::weapon
         std::memcpy(&weapon_addr, static_cast<const uint8_t*>(o->data) + 0x44, 4);
-        const uint8_t* weapon = reinterpret_cast<const uint8_t*>(uintptr_t(weapon_addr));
+        const uint8_t* weapon = nf::p32_ptr<const uint8_t>(weapon_addr);
         uint16_t stats;
         std::memcpy(&stats, weapon + 0x10, 2);
         if ((stats & mask) == 0) continue;

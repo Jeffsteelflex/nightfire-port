@@ -320,9 +320,9 @@ void Emitter_Draw(obj_tag* obj, viewer_tag*) {
     if (e->done != 0) return;
     EMITTERDEF_tag* def = e->def;
     if (def->glist == nullptr) {
-        psiDrawParticleList(reinterpret_cast<_VECTOR4*>(e->pos), int32_t(def->count), 0xffffffffu,
-                            uint32_t(reinterpret_cast<uintptr_t>(def->texture)),
-                            reinterpret_cast<uint32_t*>(e->colour), int8_t(def->flags == 0 ? 1 : 0), def->size,
+        psiDrawParticleList(reinterpret_cast<_VECTOR4*>(nf::raw(e->pos)), int32_t(def->count), 0xffffffffu,
+                            nf::p32_u(def->texture),
+                            reinterpret_cast<uint32_t*>(nf::raw(e->colour)), int8_t(def->flags == 0 ? 1 : 0), def->size,
                             e->unknown_18);
         return;
     }

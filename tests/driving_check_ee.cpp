@@ -345,7 +345,7 @@ bool compare_info(Emu& e, int slot, const drv::RigidBodyInfo& info, Mismatch& mm
         }
         uint8_t w[0x40];
         e.mem_read(wp, w, 0x40);
-        same &= compare_block("WWorldPos", w, reinterpret_cast<const uint8_t*>(info.lever_pos[i]), 0x40,
+        same &= compare_block("WWorldPos", w, reinterpret_cast<const uint8_t*>(nf::raw(info.lever_pos[i])), 0x40,
                               {{0x0c, 0x10}, {0x1c, 0x20}, {0x30, 0x34}}, mm);
     }
     return same;

@@ -29,6 +29,9 @@ public:
     // map.json e prepara o desenho. Sem a pasta ou com erro no arquivo, fica com a configuração padrão
     // (fontes padrão, sem substitutas) e o erro em status().
     void init(const UiHdOptions& options, const std::wstring& data_dir, Renderer& renderer, RuntimeGfx& gfx);
+    // A procura de init: a pasta pedida, ou a primeira com map.json entre a do executável e as de cima, a dos dados e a
+    // atual (vazia: nenhuma). Também a tela de configuração e a cópia pessoal (que leva a pasta dentro) a usam.
+    static std::wstring find_dir(const std::wstring& option, const std::wstring& data_dir);
     void toggle();  // F4
     bool enabled() const { return enabled_; }
     // Só do PC (opções de vídeo): liga ou desliga (sem Direct2D fica desligada) e a âncora do HUD.

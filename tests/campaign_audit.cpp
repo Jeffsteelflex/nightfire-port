@@ -53,6 +53,7 @@
 #include "engine/trigger.h"
 #include "engine/view.h"
 #include "platform/pending.h"
+#include "platform/fmath.h"
 
 namespace campaign {
 namespace {
@@ -749,7 +750,7 @@ std::string probe_zipline(obj_tag* p) {
     wire_ends(wire, 2.0f, &e1, &e2);
     const _VECTOR hi = e1.y < e2.y ? e2 : e1;
     const _VECTOR lo = e1.y < e2.y ? e1 : e2;
-    const float yaw = std::atan2(lo.x - hi.x, lo.z - hi.z);
+    const float yaw = nf::fm::atan2(lo.x - hi.x, lo.z - hi.z);
     _VECTOR start{};
     bool icon = false;
     const uint32_t before = g_traverse_stats.wires;
@@ -820,10 +821,10 @@ float aim_at(obj_tag* p, const _VECTOR& at) {
     BLData* b = bloke_of(p);
     _VECTOR head{};
     Player_GetHeadPos(&head, p, nullptr);
-    p->rot.y = std::atan2(at.x - head.x, at.z - head.z);
+    p->rot.y = nf::fm::atan2(at.x - head.x, at.z - head.z);
     Control_GetObjMatrix(p, &p->matrix);
     const float dx = at.x - head.x, dz = at.z - head.z;
-    const float want = std::atan2(at.y - head.y, std::sqrt(dx * dx + dz * dz)) / 1.5707964f;
+    const float want = nf::fm::atan2(at.y - head.y, std::sqrt(dx * dx + dz * dz)) / 1.5707964f;
     float best_err = 1e9f, best_pitch = 0.0f;
     for (float s : {1.0f, -1.0f}) {
         b->pitch = std::clamp(s * want, -1.0f, 1.0f);
@@ -871,7 +872,7 @@ bool grapple_from(obj_tag* p, obj_tag* icon, obj_tag* point, std::string* out) {
     BLData* b = bloke_of(p);
     enable_icon(icon);
     const _VECTOR at{icon->sphere.x, icon->sphere.y + 0.5f, icon->sphere.z, 1.0f};
-    const float yaw = std::atan2(point->sphere.x - at.x, point->sphere.z - at.z);
+    const float yaw = nf::fm::atan2(point->sphere.x - at.x, point->sphere.z - at.z);
     place(p, at, yaw);
     const _VECTOR start = p->pos;
     draw_weapon(p, 0x50);
@@ -958,7 +959,7 @@ void stand_before(obj_tag* p, obj_tag* o, float dist) {
     _VECTOR f;
     Mat_GetDir(&f, &o->matrix);
     const _VECTOR at{o->sphere.x + f.x * dist, o->sphere.y, o->sphere.z + f.z * dist, 1.0f};
-    place(p, at, std::atan2(-f.x, -f.z));
+    place(p, at, nf::fm::atan2(-f.x, -f.z));
     aim_at(p, o->sphere);
 }
 
@@ -1172,7 +1173,7 @@ std::string probe_turrets(obj_tag* p) {
         _VECTOR f;
         Mat_GetDir(&f, &o->matrix);
         const _VECTOR at{o->pos.x + f.x * 4.0f, o->pos.y - 1.0f, o->pos.z + f.z * 4.0f, 1.0f};
-        place(p, at, std::atan2(-f.x, -f.z));
+        place(p, at, nf::fm::atan2(-f.x, -f.z));
         const _VECTOR start = p->pos;
         bool open = false;
         for (int t = 0; t < 300; ++t) {
@@ -1182,7 +1183,7 @@ std::string probe_turrets(obj_tag* p) {
         opened += open;
         int used = -1;
         if (draw_weapon(p, 6)) {
-            obj_tag* piece = gt->barrel != nullptr ? gt->barrel : o;
+            obj_tag* piece = gt->barrel != nullptr ? nf::raw(gt->barrel) : o;
             used = click_fire(p, piece, o, 2400, &turret_destroyed);
         }
         destroyed += used >= 0;
@@ -1385,7 +1386,7 @@ std::string probe_sensors(obj_tag* p) {
         if (first.empty() || (alarm && first.find("alarme=1") == std::string::npos)) {
             _VECTOR dir;
             Mat_GetDir(&dir, &o->matrix);
-            first = fmt("%.2f,%.2f,%.2f,%.3f(viu=%d alarme=%d canal=%u)", at.x, at.y, at.z, std::atan2(-dir.x, -dir.z),
+            first = fmt("%.2f,%.2f,%.2f,%.3f(viu=%d alarme=%d canal=%u)", at.x, at.y, at.z, nf::fm::atan2(-dir.x, -dir.z),
                         seen ? 1 : 0, alarm ? 1 : 0, s->alarm);
         }
     }
@@ -1503,7 +1504,7 @@ std::string probe_searchlights(obj_tag* p) {
             if (chain.empty()) chain = here;
         }
         uint16_t count = 0;
-        light_tag** lights = Lights_CalcClosestLights(reinterpret_cast<sphere_tag*>(&spot->pos), 0x80, &count);
+        P32<light_tag>* lights = Lights_CalcClosestLights(reinterpret_cast<sphere_tag*>(&spot->pos), 0x80, &count);
         bool mine = false;
         for (uint16_t k = 0; k < count; ++k) mine = mine || lights[k] == Searchlight_Light(spot);
         light += mine;
@@ -1652,7 +1653,7 @@ bool stand_seeing(obj_tag* p, const _VECTOR& target, float dist, const obj_tag* 
     static const float kDirs[4][2] = {{0.0f, 1.0f}, {1.0f, 0.0f}, {0.0f, -1.0f}, {-1.0f, 0.0f}};
     for (const auto& d : kDirs) {
         const _VECTOR at{target.x + d[0] * dist, target.y, target.z + d[1] * dist, 1.0f};
-        place(p, at, std::atan2(-d[0], -d[1]));
+        place(p, at, nf::fm::atan2(-d[0], -d[1]));
         aim_at(p, target);
         _VECTOR head{};
         Player_GetHeadPos(&head, p, nullptr);
@@ -1703,7 +1704,7 @@ std::string probe_rigid_bodies(obj_tag* p) {
             key(kVkLButton, t % 12 < 2);
             game_tick();
             if ((o->life & 1) != 0) break;
-            tilt = std::max(tilt, std::acos(std::clamp(o->matrix.m[1][1], -1.0f, 1.0f)) * 57.29578f);
+            tilt = std::max(tilt, nf::fm::acos(std::clamp(o->matrix.m[1][1], -1.0f, 1.0f)) * 57.29578f);
             moved = std::max(moved, Vec_Dist3D(&start, &row3_of(o)));
         }
         release_keys();
@@ -1792,7 +1793,7 @@ std::string probe_autoaim(obj_tag* p) {
         _VECTOR f{};
         Mat_GetDir(&f, &o->matrix);
         const _VECTOR at{pos0.x + f.x * 6.0f, pos0.y, pos0.z + f.z * 6.0f, 1.0f};
-        place(p, at, std::atan2(-f.x, -f.z));
+        place(p, at, nf::fm::atan2(-f.x, -f.z));
         if (!draw_any_gun(p)) return " mira_auto=sem_arma";
         // Vida alta durante a prova: o inimigo não morre (um tiro que acerta só tira vida).
         target->health = 1000.0f;

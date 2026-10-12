@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "driving/bigf.h"
+#include "platform/arena.h"
 #include "driving/car_model.h"
 #include "driving/carp.h"
 #include "driving/eagl_loader.h"
@@ -193,9 +194,18 @@ std::string summary(const std::string& rep) {
     return out;
 }
 
+// O disco do jogador (--data: a pasta com DRIVING\\, uma imagem .iso, uma unidade; nf::open_disc).
+std::shared_ptr<nf::DiscSource> open_data(const Args& a) {
+    std::string error;
+    std::shared_ptr<nf::DiscSource> disc = nf::open_disc(std::wstring(a.data.begin(), a.data.end()), &error);
+    if (disc == nullptr) std::fprintf(stderr, "não abri os dados em %s: %s\n", a.data.c_str(), error.c_str());
+    return disc;
+}
+
 int run_census(const Args& a) {
+    const std::shared_ptr<nf::DiscSource> disc = open_data(a);
     drv::Bigf misc;
-    if (!misc.open(a.data + "\\DRIVING\\MISC.VIV")) {
+    if (disc == nullptr || !misc.open(*disc, "DRIVING/MISC.VIV")) {
         std::fprintf(stderr, "não abri MISC.VIV em %s\n", a.data.c_str());
         return 1;
     }
@@ -252,24 +262,28 @@ int run_census(const Args& a) {
 }
 
 int run_check(const Args& a) {
-    WIN32_FIND_DATAA fd;
-    HANDLE h = FindFirstFileA((a.data + "\\DRIVING\\*.VIV").c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) {
+    const std::shared_ptr<nf::DiscSource> disc = open_data(a);
+    std::vector<std::string> vivs;
+    if (disc != nullptr) {
+        // Os .VIV de DRIVING\\, sem o diretório, na ordem do disco (a do FindFirstFile numa pasta do NTFS: por nome).
+        for (const nf::DiscEntry& e : disc->list("DRIVING")) {
+            std::string name = e.path.substr(e.path.find_last_of('/') + 1);
+            const size_t semi = name.find(';');
+            if (semi != std::string::npos) name.resize(semi);
+            if (name.size() > 4 && _stricmp(name.c_str() + name.size() - 4, ".VIV") == 0) vivs.push_back(name);
+        }
+    }
+    if (vivs.empty()) {
         std::fprintf(stderr, "sem arquivos .VIV em %s\\DRIVING\n", a.data.c_str());
         return 1;
     }
-    std::vector<std::string> vivs;
-    do {
-        vivs.push_back(fd.cFileName);
-    } while (FindNextFileA(h, &fd));
-    FindClose(h);
     int ok = 0, fail = 0;
     drv::CarVerifyStats total;
     std::map<std::string, int> methods, fallback;
     for (const std::string& viv : vivs) {
         if (!a.check_viv.empty() && _stricmp(viv.c_str(), a.check_viv.c_str()) != 0) continue;
         drv::Bigf arc;
-        if (!arc.open(a.data + "\\DRIVING\\" + viv)) continue;
+        if (!arc.open(*disc, "DRIVING/" + viv)) continue;
         for (const drv::BigfEntry& e : arc.entries()) {
             std::string lower = e.name;
             for (char& c : lower) c = char(tolower(static_cast<unsigned char>(c)));
@@ -281,7 +295,7 @@ int run_check(const Args& a) {
             drv::CarModel car;
             car.set_verify(a.verify);
             std::string err;
-            if (!car.load(a.data, viv, name, err)) {
+            if (!car.load(*disc, viv, name, err)) {
                 std::printf("FALHOU %s %s: %s\n", viv.c_str(), name.c_str(), err.c_str());
                 ++fail;
                 continue;
@@ -378,8 +392,7 @@ bool parse(int argc, wchar_t** argv, Args& a) {
 
 }  // namespace
 
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-    nf::install_crash_report();
+int app_main() {
     console();
     int argc = 0;
     wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -459,4 +472,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         r.present();
     }
     return 0;
+}
+
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
+    nf::install_crash_report();
+    return nf::run_main([] { return app_main(); });
 }

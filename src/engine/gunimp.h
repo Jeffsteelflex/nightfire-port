@@ -21,6 +21,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 // Uma arma de canhão (TurretGuns, 0x0026f520, 12 de 0x1c bytes, copiada do ELF na partida).
 struct TURRETGUN {
@@ -35,8 +36,8 @@ extern TURRETGUN TurretGuns[12];
 
 // Dados do canhão (0xa0 bytes em obj->data, tipo 0x47).
 struct alignas(16) GUNIMP_tag {
-    obj_tag* gun;          // 0x00 o cano (o modelo de TurretGuns)
-    obj_tag* player;       // 0x04 quem está usando
+    P32<obj_tag> gun;      // 0x00 o cano (o modelo de TurretGuns)
+    P32<obj_tag> player;   // 0x04 quem está usando
     uint32_t unknown_08[2];
     MATRIX base;           // 0x10 a matriz do posicionamento
     uint32_t unknown_50[4];

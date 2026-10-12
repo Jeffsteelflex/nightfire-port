@@ -223,7 +223,7 @@ TEST(script_load_registers_prototype_and_instance) {
     const auto* def = static_cast<SCRIPTDEF_tag*>(hashtable_getitem(0x06000123));
     CHECK(def != nullptr && def->stream_count == 2 && def->key_count == 3 && def->end == 9 && def->loop_start == 2);
     CHECK(def->streams[1].first_key == 2 && def->streams[1].commands[0] == 5);
-    CHECK((reinterpret_cast<uintptr_t>(def->keys) & 15) == 0 && def->keys[1].frame == 5.0f);
+    CHECK((reinterpret_cast<uintptr_t>(nf::raw(def->keys)) & 15) == 0 && def->keys[1].frame == 5.0f);
     // Instância no lugar pedido, com a câmera e os streams no começo.
     _VECTOR pos{10.0f, 20.0f, 30.0f, 0.0f};
     int owner = 0;
@@ -235,7 +235,7 @@ TEST(script_load_registers_prototype_and_instance) {
     // Outro formato: marcado como "não é script" e nunca instanciado.
     data[0] = 0x1b;
     CHECK(Script_Load(0x06000124, zero(), zero(), data, nullptr, nullptr, nullptr) == nullptr);
-    CHECK(hashtable_getitem(0x06000124) == reinterpret_cast<void*>(uintptr_t(0xffffffffu)));
+    CHECK(hashtable_getitem(0x06000124) == nf::p32_ptr<void>(0xffffffffu));
     CHECK(Script_Load(0x06000124, zero(), zero(), nullptr, nullptr, nullptr, nullptr) == nullptr);
     // Hash que não é de script.
     CHECK(Script_Load(0x02000123, zero(), zero(), data, nullptr, nullptr, nullptr) == nullptr);
@@ -495,13 +495,13 @@ TEST(script_hit_damage_and_bullet_filter) {
     uint16_t n = 0;
     CHECK(Collide_GetDamageNObjects(&hits[0], objs, &n, 2) == 7.5f);
     CHECK(n == 2 && objs[0] == &bullets[0] && objs[1] == &bullets[1]);
-    HITDATA_tag* list = &hits[0];
+    P32<HITDATA_tag> list = &hits[0];
     Collide_FilterBullets(&list, 0x106);
     // O tiro da arma filtrada sai; os outros ficam ordenados pela distância.
     CHECK(list == &hits[2] && list->next == &hits[1] && hits[1].next == nullptr && list->prev == nullptr);
     CHECK(Collide_GetDamageNObjects(list, nullptr, &n, 4) == 5.0f && n == 0);
     // Sem nada filtrado a lista fica como estava.
-    HITDATA_tag* same = list;
+    P32<HITDATA_tag> same = list;
     Collide_FilterBullets(&same, 0x8000);
     CHECK(same == list);
 }

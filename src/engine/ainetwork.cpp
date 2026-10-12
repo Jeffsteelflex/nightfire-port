@@ -21,6 +21,7 @@
 #include "engine/parsemap.h"
 #include "engine/resetmap.h"
 #include "engine/vecmath.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -144,7 +145,7 @@ void fill_goal(AITarget_tag* goal, AIPoint_tag* point) {
 
 uint8_t* dcv_drone(DCVars_tag* dcv) {
     uint8_t* drone;
-    std::memcpy(&drone, reinterpret_cast<uint8_t*>(dcv) + 4, 4);
+    drone = nf::p32_load<uint8_t>(reinterpret_cast<uint8_t*>(dcv) + 4);
     return drone;
 }
 
@@ -1580,7 +1581,7 @@ uint32_t LinkCreep_Handler(AIRoute_tag* route, DCVars_tag* dcv) {
     }
     uint8_t* drone = dcv_drone(dcv);
     uint32_t* bits;
-    std::memcpy(&bits, drone + 0x4d8, 4);
+    bits = nf::p32_load<uint32_t>(drone + 0x4d8);
     if (behaviour_util_getProperty(0x36, bits) == 0) {
         int8_t blocked = 0;
         const uint32_t r = LinkCreep_Increment(route, dcv, &blocked);
@@ -1614,7 +1615,7 @@ int8_t move_test(const _VECTOR& from, const cel_tag* from_cel, const _VECTOR& to
     if (!(flat + d.y * d.y <= AINetwork.max_dist_sq)) return 0;
     const float dy = std::fabs(from.y - to.y);
     if (!(dy <= AINetwork.max_height)) return 0;
-    if (AINetwork.slope_height < dy && AINetwork.max_slope < std::fabs(-std::atan2(d.y, std::sqrt(flat)))) return 0;
+    if (AINetwork.slope_height < dy && AINetwork.max_slope < std::fabs(-nf::fm::atan2(d.y, std::sqrt(flat)))) return 0;
     if (AINetwork.bounds_count == 0) return 1;
     int8_t blocked = 0;
     int32_t r = AINetwork_BoundsTest(&from, from_cel, &to, to_cel, out, near_nodes, check != 0 ? &blocked : nullptr);
@@ -1714,7 +1715,7 @@ uint32_t NDrone2_DroneNearPos(_VECTOR* pos, float radius, obj_tag* except) {
     if (pl != nullptr && Vec_SqDist2D(pos, &pl->pos) < 0.3025f && std::fabs(pos->y - pl->pos.y) < 2.0f) return 1;
     for (LLNODE_tag* n = NPCGlobals.drones.first; n != nullptr; n = n->next) {
         obj_tag* o;
-        std::memcpy(&o, reinterpret_cast<uint8_t*>(n) + 0xc, 4);
+        o = nf::p32_load<obj_tag>(reinterpret_cast<uint8_t*>(n) + 0xc);
         if (o == except) continue;
         if (o == nullptr) continue;
         const auto* drone = static_cast<const uint8_t*>(o->data);

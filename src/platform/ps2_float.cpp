@@ -3,6 +3,7 @@
 #include "platform/ps2_float.h"
 
 #include <cmath>
+#include "platform/fmath.h"
 
 namespace ps2 {
 
@@ -160,8 +161,8 @@ int32_t to_int(uint32_t a, int frac) {
 
 uint32_t from_int(int32_t i, int frac) { return from_double(std::ldexp(double(i), -frac)); }
 
-uint32_t efu_atan(uint32_t a) { return from_double(std::atan(value(a))); }
-uint32_t efu_sin(uint32_t a) { return from_double(std::sin(value(a))); }
-uint32_t efu_exp(uint32_t a) { return from_double(std::exp(-value(a))); }
+uint32_t efu_atan(uint32_t a) { return from_double(nf::fm::atan(value(a))); }
+uint32_t efu_sin(uint32_t a) { return from_double(nf::fm::sin(value(a))); }
+uint32_t efu_exp(uint32_t a) { return from_double(nf::fm::exp(-value(a))); }
 
 }  // namespace ps2

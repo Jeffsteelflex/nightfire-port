@@ -36,7 +36,7 @@ uint32_t switch_NO_DRONES = 0;
 uint8_t Drone_bDisableSystem = 0;
 obj_tag* glb_players[4];
 uint8_t IsWarmReset = 0;
-cel_tag** gbl_room_cels = nullptr;
+P32<cel_tag>* gbl_room_cels = nullptr;  // um vetor de palavras de 4 bytes no heap do jogo
 uint32_t DrawInfo[4];
 uint8_t g_port_no_load_screen = 0;
 
@@ -330,7 +330,7 @@ void ResetMap_GenLoadScreen() {
         PS2CacheLoadingBlobs = 1;
         psiPreDraw();
         psiUseCamera(glb_viewer[10], 0);
-        sprite** list = Sprite_BuildList(0x63, &a, &b, &c);
+        P32<sprite>* list = Sprite_BuildList(0x63, &a, &b, &c);
         if (glb_viewer[10] != nullptr) View_DrawSprites(glb_viewer[10], list, a, c);
         psiPostDraw();
     }

@@ -38,10 +38,10 @@ uint32_t enum_state = 0;
 
 namespace {
 
-int32_t val(const void* p) { return int32_t(reinterpret_cast<uintptr_t>(p)); }
+int32_t val(const void* p) { return int32_t(nf::p32_u(p)); }
 template <class T>
 T* ptr(int32_t v) {
-    return reinterpret_cast<T*>(uintptr_t(uint32_t(v)));
+    return nf::p32_ptr<T>(uint32_t(v));
 }
 M_MANAGER* mgr(uint8_t index) { return &menu_manager[index]; }
 int32_t txt(uint32_t label) { return val(Txt_BindLabel(label, 0)); }
@@ -264,9 +264,9 @@ void PS2_DoCardFlow(M_MANAGER* m, uint32_t state, MENU_LS* l) {
     list->base.y = int16_t(y + text_h + 0x1e);
     M_MANAGER* owner = mgr(index);
     owner->input = 0;
-    Memo_Update(owner, reinterpret_cast<M_PAGE*>(memo->base.owner), memo);
-    List_Update(owner, reinterpret_cast<M_PAGE*>(list->base.owner), list);
-    Button_Update(owner, reinterpret_cast<M_PAGE*>(box->base.owner), box);
+    Memo_Update(owner, reinterpret_cast<M_PAGE*>(nf::raw(memo->base.owner)), memo);
+    List_Update(owner, reinterpret_cast<M_PAGE*>(nf::raw(list->base.owner)), list);
+    Button_Update(owner, reinterpret_cast<M_PAGE*>(nf::raw(box->base.owner)), box);
     owner->input = 1;
 }
 

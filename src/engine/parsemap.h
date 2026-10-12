@@ -33,8 +33,8 @@ extern celglist_tag* pCurrCelList;
 extern uint32_t MapEntityCount;
 extern uint32_t* pBMH;              // conteúdo do bloco 0x0e
 extern map_tag* m_pmap;
-extern uint8_t** m_paths;
-extern uint8_t** m_ppaths;
+extern P32<uint8_t>* m_paths;
+extern P32<uint8_t>* m_ppaths;
 extern world_tag* glb_world;
 
 uint32_t parsemap_parsemap(uint32_t hash, int8_t main_map);

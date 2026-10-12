@@ -86,9 +86,9 @@ struct Fixture {
         obj_tag* b = control_create_object(0x100, nullptr, nullptr, nullptr);
         b->type = 5;
         const weapon_definition_tag* w = weapon_def(weapon);
-        std::memcpy(static_cast<uint8_t*>(b->data) + 0x44, &w, 4);
+        nf::p32_store(static_cast<uint8_t*>(b->data) + 0x44, w);
         obj_tag* from = &player;
-        std::memcpy(static_cast<uint8_t*>(b->data) + 0x30, &from, 4);
+        nf::p32_store(static_cast<uint8_t*>(b->data) + 0x30, from);
         Coll_AddHitToList(&target->hits, 1.0f, nullptr, b);
         return b;
     }
@@ -227,7 +227,7 @@ TEST(using_a_lock_without_key_opens_the_keypad_or_plays_locked) {
     obj_tag* keypad = f.lock(0, 2, 0);
     Lock_Activate(keypad, &f.player);
     obj_tag* who = nullptr;
-    std::memcpy(&who, GlobalVars, 4);
+    who = nf::p32_load<obj_tag>(GlobalVars);
     CHECK(keypad->state == 3 && who == &f.player);
     obj_tag* laser = f.lock(1, 3, 0);
     Lock_Activate(laser, &f.player);

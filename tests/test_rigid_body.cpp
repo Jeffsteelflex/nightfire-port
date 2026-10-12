@@ -21,6 +21,7 @@
 #include "engine/vecmath.h"
 #include "platform/psi.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -162,7 +163,7 @@ TEST(rigid_body_falls_to_terminal_velocity) {
     // Um passo a partir do repouso: a = (e^-dt - 1) / dt x (0 - g) ~ g.
     Body rest(0);
     RB_EulerEvolve(&rest.rb, REC_FRAME_RATE, 0);
-    CHECK_NEAR(rest.rb.accel.y, -9.8f * 60.0f * (1.0f - std::exp(-1.0f / 60.0f)), 1e-3f);
+    CHECK_NEAR(rest.rb.accel.y, -9.8f * 60.0f * (1.0f - nf::fm::exp(-1.0f / 60.0f)), 1e-3f);
     CHECK_NEAR(rest.rb.vel.y, rest.rb.accel.y / 60.0f, 1e-5f);
     // Os pêndulos (tipo 1) não andam: sem gravidade, a posição fica.
     Body pend(1);
@@ -176,7 +177,7 @@ TEST(rigid_body_angular_damping_and_impulses) {
     // O arrasto angular do tipo 0 (31): omega x (1 - (1 - e^(-dt/31)) / dt) por passo (a forma do original).
     body.rb.omega = {0.0f, 2.0f, 0.0f, 0.0f};
     RB_EulerEvolve(&body.rb, REC_FRAME_RATE, 0);
-    const float k = 1.0f - (1.0f - std::exp(-(1.0f / 60.0f) / 31.0f)) * 60.0f;
+    const float k = 1.0f - (1.0f - nf::fm::exp(-(1.0f / 60.0f) / 31.0f)) * 60.0f;
     CHECK_NEAR(body.rb.omega.y, 2.0f * k, 1e-4f);
     // Uma força num ponto: o impulso soma a força e o torque r x F; aplicado, o giro vem pela inércia (presa a +-4).
     Body p(1);
@@ -203,11 +204,11 @@ TEST(rigid_body_pendulum_swings_back_to_vertical) {
     float max_tilt = 0.0f;
     for (int i = 0; i < 30; ++i) {
         RB_EulerEvolve(&p.rb, REC_FRAME_RATE, 0);
-        max_tilt = std::max(max_tilt, std::acos(std::min(1.0f, p.m.m[1][1])));
+        max_tilt = std::max(max_tilt, nf::fm::acos(std::min(1.0f, p.m.m[1][1])));
     }
     CHECK(max_tilt > 0.2f);
     for (int i = 0; i < 1200; ++i) RB_EulerEvolve(&p.rb, REC_FRAME_RATE, 0);
-    CHECK(std::acos(std::min(1.0f, p.m.m[1][1])) < 0.05f);
+    CHECK(nf::fm::acos(std::min(1.0f, p.m.m[1][1])) < 0.05f);
 }
 
 TEST(rigid_body_bounces_and_takes_shots) {
@@ -227,7 +228,7 @@ TEST(rigid_body_bounces_and_takes_shots) {
     // Um tiro (acerto de um objeto 5 com dano 4 na direção +z, 0,5 acima do centro): impulso dano x 0,5 e torque.
     obj_tag bullet{};
     bullet.type = 5;
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     HITDATA_tag* h = Coll_AddHitToList(&hits, 1.0f, nullptr, &bullet);
     const float dmg = 4.0f;
     std::memcpy(&h->unknown_08, &dmg, 4);
@@ -325,7 +326,7 @@ TEST(cylinder_intersect_pushes_off_the_floor) {
     test.cel = room.cel;
     test.mask = 0x10;
     test.tester = &owner;
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     // A cápsula com a ponta 0,3 acima do piso sai 0,25 para cima; o acerto é o piso; o testador volta ao dono.
     CHECK(Collide_CylinderIntersect(&test, &hits, 0, 0));
     CHECK(hits != nullptr && hits->cel == room.cel);

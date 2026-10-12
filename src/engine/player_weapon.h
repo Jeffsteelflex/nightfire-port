@@ -16,6 +16,7 @@
 
 #include "engine/object.h"
 #include "engine/weapons.h"
+#include "platform/ptr32.h"
 
 struct ANIMSCRIPT_tag;
 struct BLData;
@@ -111,9 +112,9 @@ struct weapon_definition_tag {
     uint32_t skin;               // 0xdc pele (05xxxxxx) dos braços com a arma; 0: nada na mão
     float offset[2][3];          // 0xe0 posição na tela: modo história, multijogador (e agachado)
     float casing_vel[3];         // 0xf8 velocidade de saída da cápsula no espaço do osso (y negado)
-    void (*on_fire)(obj_tag*);   // 0x104 depois de atirar sem munição a gastar (ex.: aparelhos)
+    F32<void(obj_tag*)> on_fire;  // 0x104 depois de atirar sem munição a gastar (ex.: aparelhos)
     // 0x108 chamada quando o projétil acerta algo (normal e ponto do acerto); a bala é apagada.
-    void (*on_hit)(obj_tag*, plane_equ_tag*, _VECTOR*);
+    F32<void(obj_tag*, plane_equ_tag*, _VECTOR*)> on_hit;
 };
 static_assert(sizeof(weapon_definition_tag) == 0x10c);
 static_assert(offsetof(weapon_definition_tag, flags) == 0x68 && offsetof(weapon_definition_tag, clip) == 0x92);

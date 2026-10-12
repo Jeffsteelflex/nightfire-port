@@ -12,6 +12,7 @@
 #include "render/frame_interp.h"
 #include "render/frame_markers.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 using namespace nf;
 
@@ -36,8 +37,8 @@ std::array<float, 16> make_matrix(float rx, float ry, float rz, float tx, float 
 // Uma câmera como a do jogador (Camera_SetToPlayer, ou set_game_camera do main): frente pelo giro e a elevação,
 // direita horizontal (y x frente), cima = frente x direita; posição em p.
 std::array<float, 16> camera_matrix(float yaw, float elev, float px, float py, float pz) {
-    const float f[3] = {std::sin(yaw) * std::cos(elev), std::sin(elev), std::cos(yaw) * std::cos(elev)};
-    const float r[3] = {std::cos(yaw), 0.0f, -std::sin(yaw)};
+    const float f[3] = {nf::fm::sin(yaw) * nf::fm::cos(elev), nf::fm::sin(elev), nf::fm::cos(yaw) * nf::fm::cos(elev)};
+    const float r[3] = {nf::fm::cos(yaw), 0.0f, -nf::fm::sin(yaw)};
     const float u[3] = {f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2], f[0] * r[1] - f[1] * r[0]};
     return {r[0], r[1], r[2], 0, u[0], u[1], u[2], 0, f[0], f[1], f[2], 0, px, py, pz, 1};
 }

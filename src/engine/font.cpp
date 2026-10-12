@@ -201,7 +201,7 @@ void Font_ParseFormat(char* format, uint32_t& flags, GPOINT&) {
                 if ((flags & 1) == 0) {
                     const auto* t = static_cast<const maptex_tag*>(hashtable_getitem(FontTable[k].hash));
                     if (t != nullptr) {
-                        CharInfo.texture = uint32_t(reinterpret_cast<uintptr_t>(t->rec));
+                        CharInfo.texture = nf::p32_u(t->rec);
                         CharInfo.inv_h = 1.0f / float(uint16_t(t->height));
                         CharInfo.inv_w = 1.0f / float(uint16_t(t->width));
                     }
@@ -285,7 +285,7 @@ GPOINT* __Font_DrawText(float x, float y, uint32_t colour, uint32_t, uint32_t, c
                         if ((flags & 1) == 0) {
                             SPRITE_DRAW* slot = View_AddSprite(0);
                             const auto* t = static_cast<const maptex_tag*>(hashtable_getitem(sc->hash));
-                            slot->texture = t != nullptr ? uint32_t(reinterpret_cast<uintptr_t>(t->rec)) : 0;
+                            slot->texture = t != nullptr ? nf::p32_u(t->rec) : 0;
                             slot->inv_w = t != nullptr ? 1.0f / float(uint16_t(t->width)) : 1.0f;
                             slot->inv_h = t != nullptr ? 1.0f / float(uint16_t(t->height)) : 1.0f;
                             CharInfo.a = uint8_t(colour);

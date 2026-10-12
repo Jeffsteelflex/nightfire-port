@@ -287,16 +287,16 @@ uint32_t psiCreateEntityGfx(celglist_tag* glist, map_tag*, uint32_t) {
         return 0;
     }
     uint8_t* boxes = at(hdr[1]);
-    hdr[1] = uint32_t(reinterpret_cast<uintptr_t>(boxes));
+    hdr[1] = nf::p32_u(boxes);
     const map_tag* map = gfx->map;
     for (int32_t i = 0; i < int32_t(hdr[0]); ++i) {
         uint32_t* box = reinterpret_cast<uint32_t*>(boxes + i * 0x38);
         uint32_t& dma = box[0x20 / 4];
         uint32_t& list_field = box[0x24 / 4];
-        if (dma != 0) dma = uint32_t(reinterpret_cast<uintptr_t>(at(dma)));
+        if (dma != 0) dma = nf::p32_u(at(dma));
         if (list_field == 0) continue;
         uint32_t* list = reinterpret_cast<uint32_t*>(at(list_field));
-        list_field = uint32_t(reinterpret_cast<uintptr_t>(list));
+        list_field = nf::p32_u(list);
         if (dma == 0) continue;
         int32_t n = 0;
         if (list[0] != 0xffffffff) {
@@ -307,7 +307,7 @@ uint32_t psiCreateEntityGfx(celglist_tag* glist, map_tag*, uint32_t) {
                 ++next;
                 // value: deslocamento da etiqueta REF na cadeia; a palavra seguinte é o endereço,
                 // que no arquivo guarda o índice da textura no item.
-                uint32_t* ref = reinterpret_cast<uint32_t*>(dma) + (int32_t(value) / 4 + 1);
+                uint32_t* ref = nf::p32_ptr<uint32_t>(dma) + (int32_t(value) / 4 + 1);
                 const uint32_t item_texture = *ref;
                 uint32_t tex_index = 0xffffffff;
                 if (map != nullptr && item_texture < map->bmp_count) {
@@ -316,7 +316,7 @@ uint32_t psiCreateEntityGfx(celglist_tag* glist, map_tag*, uint32_t) {
                     tex_index = idx;
                 }
                 if (tex_index < uint32_t(kMaxPS2Textures)) {
-                    *ref = uint32_t(reinterpret_cast<uintptr_t>(Tex[tex_index].dma));
+                    *ref = nf::p32_u(Tex[tex_index].dma);
                 } else {
                     // Divergência: o original leria fora de map->bmp ou de Tex.
                     ++g_psi_gfx_guards.bad_texture_ref;
@@ -339,10 +339,10 @@ uint32_t psiCreateEntityGfx(celglist_tag* glist, map_tag*, uint32_t) {
     }
     if (hdr[2] != 0) {
         uint32_t* extra = reinterpret_cast<uint32_t*>(at(hdr[2]));
-        hdr[2] = uint32_t(reinterpret_cast<uintptr_t>(extra));
-        if (extra[0] != 0) extra[0] = uint32_t(reinterpret_cast<uintptr_t>(at(extra[0])));
-        if (extra[2] != 0) extra[2] = uint32_t(reinterpret_cast<uintptr_t>(at(extra[2])));
-        if (extra[3] != 0) extra[3] = uint32_t(reinterpret_cast<uintptr_t>(at(extra[3])));
+        hdr[2] = nf::p32_u(extra);
+        if (extra[0] != 0) extra[0] = nf::p32_u(at(extra[0]));
+        if (extra[2] != 0) extra[2] = nf::p32_u(at(extra[2]));
+        if (extra[3] != 0) extra[3] = nf::p32_u(at(extra[3]));
     }
     return 0;
 }

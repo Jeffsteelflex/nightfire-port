@@ -49,6 +49,7 @@
 #include <cstdint>
 
 #include "engine/menu.h"
+#include "platform/ptr32.h"
 
 // Um item das rodas do menu principal (0x18 bytes): as missões (sp_level), as dificuldades, as opções do
 // codinome (cn_options).
@@ -70,7 +71,7 @@ struct MENU_LS {
     uint32_t next_page;   // 0x08 a página a mostrar no fim (0: nenhuma)
     uint32_t next_flags;  // 0x0c as flags da mensagem 0x44
     uint32_t slot;        // 0x10 o codinome: 0/1 os padrões, 2+ do cartão, 999 nenhum (gravar um novo)
-    M_CONTROL* control;   // 0x14 o controle que recebe os nomes da listagem
+    P32<M_CONTROL> control;  // 0x14 o controle que recebe os nomes da listagem
     char name[0x20];      // 0x18 o codinome
     uint8_t unknown_38;
     uint8_t op;           // 0x39 0 ler, 1 gravar, 2 listar, 3 apagar, 4 listar só o primeiro
@@ -127,8 +128,8 @@ extern int32_t PS2OldY;
 
 // Uma linha dos créditos (Menu_SetupCredits, 12 bytes).
 struct CREDIT_tag {
-    const char* name;    // 0x00 o nome (ou a linha toda)
-    const char* title;   // 0x04 o cargo (a coluna da direita)
+    P32<const char> name;  // 0x00 o nome (ou a linha toda)
+    P32<const char> title;  // 0x04 o cargo (a coluna da direita)
     uint8_t name_font;   // 0x08 1 fonte 1, 2 fonte 3, outro fonte 2 (P_CREDITS_Handler)
     uint8_t title_font;  // 0x09
     uint8_t single;      // 0x0a uma linha só, larga (o cargo escondido)

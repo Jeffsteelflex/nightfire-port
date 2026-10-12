@@ -9,6 +9,7 @@
 #include "core/xxh3.h"
 #include "platform/psi_draw.h"
 #include "platform/vu1.h"
+#include "platform/fmath.h"
 
 namespace nf {
 
@@ -166,10 +167,10 @@ float fog_first_below(float far1, float level, bool or_equal) {
     };
     constexpr int kSteps = 600;
     const float lo = 0.1f, hi = 200000.0f;
-    const float ratio = std::pow(hi / lo, 1.0f / float(kSteps));
+    const float ratio = nf::fm::pow(hi / lo, 1.0f / float(kSteps));
     float prev = lo;
     for (int i = 0; i <= kSteps; ++i) {
-        const float z = lo * std::pow(ratio, float(i));
+        const float z = lo * nf::fm::pow(ratio, float(i));
         if (below(z)) {
             float a = prev, b = z;
             for (int it = 0; it < 30; ++it) {

@@ -15,6 +15,7 @@
 #include "engine/map_types.h"
 #include "engine/object.h"
 #include "engine/player_stats.h"
+#include "platform/ptr32.h"
 
 struct ANIMSET_tag;
 
@@ -72,10 +73,10 @@ struct alignas(16) BLData {
     uint8_t unknown_0d2[0x0e];
     _VECTOR orbit_target;       // 0x0e0 câmera orbital (CAM_ORBIT, modo de câmera 1)
     float orbit[4];             // 0x0f0
-    obj_tag* orbit_obj;         // 0x100
+    P32<obj_tag> orbit_obj;     // 0x100
     uint8_t unknown_104[0x0c];
     float floor_normal_y;       // 0x110 normal do chão (Player_FeetOnPoint); < 0,5 é íngreme
-    void* aim_target;           // 0x114 alvo da mira automática (Check_AutoAim)
+    P32<void> aim_target;       // 0x114 alvo da mira automática (Check_AutoAim)
     float aim_x;                // 0x118 mira dentro da tela, -0,296 a 0,296
     float aim_y;                // 0x11c -0,4 a 0,4
     float aim_cur_x;            // 0x120 a mira suavizada (Player_AutoAim), que a bala e a arma seguem
@@ -88,8 +89,8 @@ struct alignas(16) BLData {
     uint8_t unknown_133[0x0d];
     _VECTOR grapple_point;      // 0x140 onde o gancho prendeu (Player_SetGrapplePoint; segue o objeto que se mexe)
     float grapple_speed;        // 0x150 metros por tick ao ser puxado, crescendo 0,05 por tick até 1,5
-    obj_tag* grapple_obj;       // 0x154 o ponto de gancho (tipo 0x51) em que prendeu
-    obj_tag* rope;              // 0x158 a corda (entidade 0x2000138, Player_InitGrapple; Player_GrappleSetRope)
+    P32<obj_tag> grapple_obj;   // 0x154 o ponto de gancho (tipo 0x51) em que prendeu
+    P32<obj_tag> rope;          // 0x158 a corda (entidade 0x2000138, Player_InitGrapple; Player_GrappleSetRope)
     // 0x15c o gancho: 1 puxando o jogador, 2 chegou (pendurado enquanto segura o gatilho), 4 soltou
     int16_t unknown_15c;
     int16_t grapple_wait;       // 0x15e ticks antes de o chão poder soltar o gancho (15 ao prender)
@@ -100,20 +101,20 @@ struct alignas(16) BLData {
     PLRWEAPON_tag weapons[114]; // 0x1b4 por arma (classe): pente, se tem, modo, variante
     uint8_t unknown_70c[0x34];  // 0x70c (Player_RamSave guarda 0x33 bytes daqui)
     HITTEST_tag hit_test;       // 0x740 cápsula do corpo (obj_tag::hit_test aponta para cá)
-    void* hud;                  // 0x7e0 HUDINFO_tag (engine/hud.h), de HUD_Init
+    P32<void> hud;              // 0x7e0 HUDINFO_tag (engine/hud.h), de HUD_Init
     uint32_t unknown_7e4;
-    obj_tag* gun;               // 0x7e8 objeto da arma na mão (Player_InitWeapon)
-    obj_tag* fx[32];            // 0x7ec objetos de efeito só da câmera do jogador (Player_InitWeapon)
-    obj_tag* glow;              // 0x86c brilho (entidade 0x2000132)
+    P32<obj_tag> gun;           // 0x7e8 objeto da arma na mão (Player_InitWeapon)
+    P32<obj_tag> fx[32];        // 0x7ec objetos de efeito só da câmera do jogador (Player_InitWeapon)
+    P32<obj_tag> glow;          // 0x86c brilho (entidade 0x2000132)
     uint32_t unknown_870;
-    obj_tag* muzzle_obj;        // 0x874
-    obj_tag* ride;              // 0x878 veículo, câmera de controle remoto...
-    obj_tag* unknown_87c;
-    obj_tag* target;            // 0x880 objeto em que as armas 0x56-0x58 agem (PDA, ...)
-    obj_tag* ladder;            // 0x884 a escada, o fio (corda ou tirolesa) ou a parede de esgueirar em uso
+    P32<obj_tag> muzzle_obj;    // 0x874
+    P32<obj_tag> ride;          // 0x878 veículo, câmera de controle remoto...
+    P32<obj_tag> unknown_87c;
+    P32<obj_tag> target;        // 0x880 objeto em que as armas 0x56-0x58 agem (PDA, ...)
+    P32<obj_tag> ladder;        // 0x884 a escada, o fio (corda ou tirolesa) ou a parede de esgueirar em uso
     float visibility;           // 0x888 0 a 1 (sombra): obj_tag::unknown_107[0] = 255 * isto
-    void* body_glow;            // 0x88c
-    ANIMSET_tag* anim_set;      // 0x890 conjunto de animações (PlayerAnimSetInit*)
+    P32<void> body_glow;        // 0x88c
+    P32<ANIMSET_tag> anim_set;  // 0x890 conjunto de animações (PlayerAnimSetInit*)
     float health;               // 0x894
     uint32_t zoom_sound;        // 0x898 som do zoom tocando
     uint32_t water_sound;       // 0x89c

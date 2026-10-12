@@ -267,7 +267,7 @@ void UpdateAllShards() {
         if (s->chain != nullptr) {
             if (s->life <= 0.0f) {
                 void* node = LList_Remove(&ShardList, n);
-                psiDeleteShard(reinterpret_cast<int32_t*>(&s->chain));
+                psiDeleteShard(&s->chain);
                 Mem_Free(&node);
             } else if (s->delay <= 0.0f) {
                 s->pos = add4(s->pos, s->vel);
@@ -365,7 +365,7 @@ obj_tag* Destroy_Create(_VECTOR* pos, _VECTOR* rot, level_tag* level, celglist_t
     Control_SetGList(obj, glist);
     build_LinkToRoom(obj, 0, glb_world);
     DESTROY_tag* d = destroy_of(obj);
-    d->smashed = glist->lod != nullptr ? glist->lod : next_glist;
+    d->smashed = glist->lod != nullptr ? nf::raw(glist->lod) : next_glist;
     d->channel_in = uint16_t(level->params[1]);
     d->channel_out = uint16_t(level->params[0]);
     d->explosion = int8_t(level->params[2]);

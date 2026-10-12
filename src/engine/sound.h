@@ -21,11 +21,12 @@
 #include <cstdint>
 
 #include "engine/ps2types.h"
+#include "platform/ptr32.h"
 
 // Nó da lista de sons (0x60 bytes).
 struct DYNAMICSOUNDS {
-    void* prev;            // 0x00 LLNODE_tag
-    DYNAMICSOUNDS* next;   // 0x04
+    P32<void> prev;        // 0x00 LLNODE_tag
+    P32<DYNAMICSOUNDS> next;  // 0x04
     uint32_t pad_08[2];
     _VECTOR pos;           // 0x10
     _VECTOR vel;           // 0x20 (sempre zero: ninguém a escreve)

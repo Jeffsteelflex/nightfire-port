@@ -58,7 +58,7 @@ The aim is to play the original game the way it was made, plus the PC features i
 - Windows 10 or 11.
 - A GPU with Direct3D 11. Integrated GPUs are fine.
 - Your own copy of the game: *007: Nightfire*, PS2, US version (SLUS-20579).
-- To build:
+- To build (not needed to play with the release zip):
   - Visual Studio Build Tools with the C++ workload (MSVC, x86 target), CMake and Ninja;
   - Python 3.12 for the tools (standard library only).
 - Optional: Microsoft's *MPEG-2 Video Extension* (Microsoft Store), for the movies.
@@ -79,18 +79,45 @@ The executables land in `build\Release\`:
 | `nf_tests.exe` | the unit tests (no game data needed) |
 | `nf_level_check.exe` | a regression check on your data: every level |
 | `nf_loader_check.exe` | a regression check on your data: the original loader |
+| `nf_disc_check.exe` | compares two copies of the disc file by file (the `.iso` against the extracted files, the drive) |
+
+`build.bat Release x64` builds the 64-bit version into `build\x64\Release\` (experimental: it passes the same checks).
+`python tools/make_release.py` packs both builds into the release zip (`out\release\`), with nothing from the game.
 
 ## Game data
 
-Extract the contents of your disc into the repository root: `ACTION.ELF`, `BASE.ELF`, `FILES.BIN`, `DRIVING\`,
-`MODULES\`, `MOVIES\`, `PS2\` and the rest. These files are ignored by git.
+The game reads your disc wherever it is: a disc image (`.iso`), the disc in a DVD drive, or the files extracted into a
+folder. For development, extract the contents of your disc into the repository root (`ACTION.ELF`, `BASE.ELF`,
+`FILES.BIN`, `DRIVING\`, `MODULES\`, `MOVIES\`, `PS2\` and the rest; ignored by git): `build\Release\nightfire.exe` finds
+them there. Only the US version (SLUS-20579) is supported; the program checks `SYSTEM.CNF` and tells you if a disc is
+another version.
 
 ## Running
 
+**From the release zip** (no build tools needed):
+
+1. Unzip it anywhere and run `nightfire.exe` (the 32-bit build, the reference; `nightfire64.exe` is the experimental
+   64-bit build).
+2. The first time, a setup screen asks for your disc: **Select disc image** opens a file picker for the `.iso` of your
+   *007: Nightfire* PS2 disc (USA), or **Use the disc in drive X:** reads the disc in your DVD drive. The choice is
+   saved in `nightfire.ini`; **Play** starts the game, and next time it starts directly. An `.iso` placed next to
+   `nightfire.exe` is found without the setup screen.
+3. Optional: **Make a single-file copy** writes one `.exe` with your game inside (about 1.8 GB) to play without the
+   disc image. It contains your copy of the game: it is for you only, do not share it.
+
+**From a build:**
+
 ```bat
-build\Release\nightfire.exe                      :: the game's front end (Press START, codenames, mission map)
-build\Release\nightfire.exe --level 07000001     :: start a level directly
+build\Release\nightfire.exe                                   :: the game's front end (Press START, codenames, mission map)
+build\Release\nightfire.exe --level 07000001                  :: start a level directly
+build\Release\nightfire.exe --disc "D:\007 - Nightfire.iso"   :: use this disc: an .iso, a folder, a drive ("E:")
+build\Release\nightfire.exe --setup                           :: show the setup screen again
+build\Release\nightfire.exe --pack-disc <disc> --out <file.exe>   :: make the single-file copy (never inside a git repository)
 ```
+
+Without `--disc`, the program looks for the disc in this order: a single-file copy (itself), the folder of the
+executable (the extracted files or an `.iso`), the current folder and the folders above the executable (the repository
+root, for developers), `[game] disc` in `nightfire.ini`, and the DVD drives.
 
 Settings are kept in `nightfire.ini` next to the executable. Saves go to `saves\`. Both can be changed in the in-game
 OPTIONS.

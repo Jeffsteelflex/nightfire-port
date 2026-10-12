@@ -28,7 +28,7 @@
 #include "platform/psi_draw.h"
 
 DLISTINFO_tag SpriteList;
-sprite* SprActiveList[kSprActive];
+P32<sprite> SprActiveList[kSprActive];  // ordenada com elementos de 4 bytes (QuickSort)
 SPRITE_DRAW SprBuffList[kSprBuff];
 Psi2DOrigin SprOriginList[kSprBuff];
 int32_t SprCnt = 0;
@@ -36,7 +36,7 @@ SpriteGuards g_sprite_guards;
 
 namespace {
 
-char* const kNoFormat = reinterpret_cast<char*>(uintptr_t(0xfcfcfcfcu));
+char* const kNoFormat = nf::p32_ptr<char>(0xfcfcfcfcu);
 // Só no PC: o hashcode da textura que hashtable_set_sprite pôs em cada sprite (para a origem do desenho).
 std::unordered_map<const sprite*, uint32_t> g_sprite_texture_hash;
 // E o de cada registro de textura (sprite::texture) que ela já viu: um sprite que recebeu a textura por
@@ -114,7 +114,7 @@ Psi2DOrigin* View_SpriteOrigin(const SPRITE_DRAW* entry) {
 uint32_t hashtable_set_sprite(sprite* s, uint32_t hash) {
     const auto* t = static_cast<const maptex_tag*>(hashtable_getitem(hash));
     if (t == nullptr) return 0;
-    s->texture = uint32_t(reinterpret_cast<uintptr_t>(t->rec));
+    s->texture = nf::p32_u(t->rec);
     s->tex_w = uint16_t(t->width);
     s->tex_h = uint16_t(t->height);
     s->w = t->width;
@@ -266,7 +266,7 @@ void Sprite_Delete(sprite* s) {
 // com os 4 bits baixos das flags zerados, em ordem decrescente de prioridade (QuickSort COMP_SPR).
 // count_a = 0; count_c = quantos; count_b = o índice do último sprite de fundo (prioridade >= 50), ou 0.
 // Comportamento original preservado: count_b é um a menos que o número de sprites de fundo.
-sprite** Sprite_BuildList(uint16_t camera, uint32_t* count_a, uint32_t* count_b, uint32_t* count_c) {
+P32<sprite>* Sprite_BuildList(uint16_t camera, uint32_t* count_a, uint32_t* count_b, uint32_t* count_c) {
     uint32_t n = 0;
     for (LLNODE_tag* node = SpriteList.used.first; node != nullptr; node = node->next) {
         sprite* s = reinterpret_cast<sprite*>(node);
@@ -302,7 +302,7 @@ sprite** Sprite_BuildList(uint16_t camera, uint32_t* count_a, uint32_t* count_b,
 // SPRF_CENTRE centra; SPRF_SHADOW põe antes uma cópia preta e desloca a imagem de
 // clamp(tamanho / 64, 1, 5) pixels. y começa em pixel inteiro. SprBuffList descarrega a cada 63.
 // Comportamento original preservado: o espelhamento usa u = uw, não u + uw.
-void View_DrawSprites(viewer_tag* viewer, sprite** list, uint32_t first, uint32_t end) {
+void View_DrawSprites(viewer_tag* viewer, P32<sprite>* list, uint32_t first, uint32_t end) {
     if (viewer->sprites == 0) return;
     psiSetTweakARGB(0xff, 0xff, 0xff, 0xff);
     psiSetUpColourBlend(2);

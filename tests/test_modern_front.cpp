@@ -94,7 +94,7 @@ struct MenuFile {
     }
 };
 
-uint32_t ptr32(const void* p) { return uint32_t(reinterpret_cast<uintptr_t>(p)); }
+uint32_t ptr32(const void* p) { return nf::p32_u(p); }
 void put32(uint8_t* p, uint32_t v) { std::memcpy(p, &v, 4); }
 
 char kEmptyText[] = "";
@@ -110,7 +110,7 @@ char kLockedText[] = "Complete the previous mission.";
 char kGoldMedal[] = "GOLD MEDAL";
 char kKeyA[] = "A";
 char kKeyB[] = "B";
-char* g_bank[0x400];
+P32<char> g_bank[0x400];
 uint32_t g_fixups[1] = {0};
 
 // O heap, a camada 2D, a entrada, os menus com a ponte instalada, o cartão em memória e as tabelas de que o menu
@@ -125,7 +125,7 @@ struct FrontWorld {
         hashtable_debug_power_on();
         hashtable_initialise();
         txt_debug_power_on();
-        for (char*& s : g_bank) s = kEmptyText;
+        for (P32<char>& s : g_bank) s = kEmptyText;
         g_bank[0x29b] = kNewCodename;
         g_bank[0x211] = kDefault;
         g_bank[0x100] = kParis;

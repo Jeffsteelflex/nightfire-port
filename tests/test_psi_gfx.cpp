@@ -93,9 +93,9 @@ TEST(psi_create_map_textures_dedups_and_builds_records) {
 
     CHECK(NumPS2TexturesLoaded == 2);  // a 1 reaproveita a 0 e a 3 não vira textura
     CHECK(rec.textures.size() == 2 && rec.textures[0] == 0 && rec.textures[1] == 1);
-    const pstex_tag* r0 = reinterpret_cast<const pstex_tag*>(t.bmp[0].data);
-    const pstex_tag* r1 = reinterpret_cast<const pstex_tag*>(t.bmp[1].data);
-    const pstex_tag* r2 = reinterpret_cast<const pstex_tag*>(t.bmp[2].data);
+    const pstex_tag* r0 = reinterpret_cast<const pstex_tag*>(nf::raw(t.bmp[0].data));
+    const pstex_tag* r1 = reinterpret_cast<const pstex_tag*>(nf::raw(t.bmp[1].data));
+    const pstex_tag* r2 = reinterpret_cast<const pstex_tag*>(nf::raw(t.bmp[2].data));
     CHECK(t.map.tex[0].rec == r0 && t.map.tex[1].rec == r1 && r0 != r1);
     CHECK(r0->tex_index == 0 && r1->tex_index == 0 && r2->tex_index == 1);
     CHECK(r1->pixels == r0->pixels);  // a cópia do registro aponta para os mesmos dados
@@ -154,16 +154,16 @@ TEST(psi_create_entity_gfx_relocates_block_and_texture_refs) {
 
     CHECK(rec.entities == 1 && rec.first_word_at_call == 0x20);  // o backend vê o bloco cru
     CHECK(psi_gfx_entity_mesh(&glist) == 7);
-    const uint32_t* hdr = reinterpret_cast<const uint32_t*>(gfx.ps2_gfx);
+    const uint32_t* hdr = reinterpret_cast<const uint32_t*>(nf::raw(gfx.ps2_gfx));
     CHECK(gfx.ps2_gfx == blk + 0x20);
-    CHECK(hdr[1] == uint32_t(reinterpret_cast<uintptr_t>(blk + 0x30)) && hdr[2] == 0);
+    CHECK(hdr[1] == nf::p32_u(blk + 0x30) && hdr[2] == 0);
     const uint32_t* box = reinterpret_cast<const uint32_t*>(blk + 0x30);
-    CHECK(box[0x20 / 4] == uint32_t(reinterpret_cast<uintptr_t>(blk + 0x70)));
-    CHECK(box[0x24 / 4] == uint32_t(reinterpret_cast<uintptr_t>(blk + 0xa0)));
+    CHECK(box[0x20 / 4] == nf::p32_u(blk + 0x70));
+    CHECK(box[0x24 / 4] == nf::p32_u(blk + 0xa0));
     // Referências: índice de textura do item -> pacote do GS da entrada de Tex.
-    CHECK(w[0x74 / 4] == uint32_t(reinterpret_cast<uintptr_t>(Tex[0].dma)));
-    CHECK(w[0x84 / 4] == uint32_t(reinterpret_cast<uintptr_t>(Tex[0].dma)));  // a 1 reaproveita a 0
-    CHECK(w[0x94 / 4] == uint32_t(reinterpret_cast<uintptr_t>(Tex[1].dma)));
+    CHECK(w[0x74 / 4] == nf::p32_u(Tex[0].dma));
+    CHECK(w[0x84 / 4] == nf::p32_u(Tex[0].dma));  // a 1 reaproveita a 0
+    CHECK(w[0x94 / 4] == nf::p32_u(Tex[1].dma));
     CHECK(w[0xa0 / 4] == 0 && w[0xa4 / 4] == 1 && w[0xa8 / 4] == 0xffffffff);  // índices de Tex, sem repetição
 
     // Bloco vazio (cabeçalho em 0x10): zera o cabeçalho.

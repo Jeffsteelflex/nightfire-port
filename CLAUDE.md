@@ -68,21 +68,21 @@ save/load/enumerate/delete over `nf::PcCard`: a folder, `saves\` or `--save-dir`
 EE side of the sound driver (`SFX*`: command batches, `SFXUpdate`, volumes and mode), `sfx_iop` the IOP sound driver
 `SFX.IRX` ported (banks, items, voices, 3D, streams, music markers), `spu2` the SPU2 in software (PS-ADPCM, 48 voices,
 reverb, the core-0 data input of the movies), `audio_out` the output (XAudio2, a WAV or nothing, paced by VBlanks); `psi_movie` the movies (the game's `psi*Movie*` functions and the PC player under them), `pss` (GPU-free: the PSS demuxer, the "SS" PCM audio, the video units, the movie clock) and `movie_decoder` (the Windows MPEG-2 MFT through Media Foundation, NV12 to BGRA); `pc_gameplay` the port-only `[game] aim_style` and `wheel_slowmo`; `game_options` the game's own options (accessors by
-`nf::GameOption`) and their rule with `nightfire.ini`; `crash_report` prints the call stack of an unhandled exception (dbghelp + the Release PDB). `settings` (`nightfire.ini`) and `video_settings` (PC video/UI options: ini keys, value lists, the
+`nf::GameOption`) and their rule with `nightfire.ini`; `crash_report` prints the call stack of an unhandled exception (dbghelp + the Release PDB, looked for next to the executable). `disc_source` (the user's disc behind one interface: a folder of extracted files, an ISO 9660 image, a DVD drive, the personal copy; `DiscFile`, the version from `SYSTEM.CNF` (`check_disc`), the search `find_disc`) and `disc_pack` (the single-file personal copy: the files after the PE image, the index and footer, `inside_git_tree`). `ptr32` (`P32<T>`/`F32<Sig>`, the 4-byte pointer fields of game structures in both builds, and the `nf::p32_*` helpers), `arena` (x64 only: the 4 GB window from `__ImageBase`, the game heap, the replaced `operator new` in `arena_new.cpp`, the game stack with `arena_stack_x64.asm`) and `fmath` (`nf::fm::`, float math with the same results in x86 and x64). `settings` (`nightfire.ini`) and `video_settings` (PC video/UI options: ini keys, value lists, the
 apply-and-confirm controller); `gpu_adapter` (the graphics adapter preference `[video] adapter` and the rule that picks
 one, GPU-free) and `bench_stats` (the `--bench` frame-time statistics); game-agnostic PS2 pieces: `ps2_float` (the EE FPU and VU float arithmetic bit for bit: no denormals, no inf/NaN, round toward zero), `vu_interp` (`ps2::VuMachine`, a VU0/VU1 interpreter: micro mode with Q/P/flag latencies, delay slots, the E bit and XGKICK capture, and macro mode) and `vu0_macro` (the VU vector ops with dest masks for ported VU0 macro code and hand-ported microcode). Built as `nf_platform`, which `nf_engine` links |
 | `src/driving` | the DRIVING.ELF port (namespace `drv`, library `nf_drv`, conventions in `drv.h`): `physics/` (`rigid_body` the RigidBody/RigidBodyInfo layouts and functions, `vu0_physics` the VU0_physics microprogram hand-ported plus the EE side that loads and collects it, `collision` GenerateImpulse and ResolveCollision with ModifyLevers/ScaleObjObjForces, `simulation` SimulateGame and ESimFrameUpdate's physics, `world` the ground interface and `FlatGround`), `real/vu0_math` (EA REAL matrix and quaternion routines); docs/driving.md section 11. The render (docs/driving.md section 10): `bigf` (BIGF + RefPack), `shps` (SHPS to RGBA), `carp` (the CARP UGroup tree, the `in` instances and the `vd` per-view draw lists), `eagl_loader` (`EAGL::DynamicLoader`), `eagl_model` (`EAGL::Model`, `GeoPrim::Construct/Draw`, the DMA buffer), `eagl_state` (`GeoPrimState`, `RStateManager`, `EAGL::TAR`), `vif` (DMA chain + VIF1 into a 16 KB VU memory), `mat_car` (the MatCar render-method family read from the VU1 microprogram: layouts, CPU reference), `mat_car_verify` (the original microprogram in `ps2::VuMachine` vs the reference), `render_method` (the census of the 115 methods), `car_model` (a car loaded, its batches, parts and instances); `src/driving_app` is `nf_driving` (D3D11 viewer, captures, `--check`, `--census`, `--verify`) |
 | `src/render` | Direct3D 11 renderer (resources by `Tex` slot / mesh id, draws a `DrawItem` list of rigid and GPU-skinned meshes, particle sprites, loose triangles (shards) and screen-space 2D quads, with the GS state, tweak, VU1 lighting and env map of each draw, plus the fog pass); `runtime_gfx` is the psi_gfx backend and turns the `psi_draw` frame record (camera 0, or 4 during a scripted scene) + provisional objects into the draw list (`frame_markers`, GPU-free in `nf_frame_interp`: where the fog pass and the list-2 depth clear go); `ui_hd*` the optional HD 2D layer (`ui_hd` GPU-free logic in `nf_ui_hd`, `ui_hd_draw` Direct2D/DirectWrite/WIC, `ui_hd_game` what it reads from the game, `ui_hd_app` the nightfire.exe glue); the renderer's PC options: the 3D scene in its own target at a render
 scale and/or with MSAA, then the 2D at window size; texture filter, VSync, DXGI exclusive fullscreen; `frame_interp` (`nf_frame_interp`, GPU-free and tested) the tick interpolation: the last two tick records, draw matching, cuts, the matrix/palette/camera maths, the instant mouse look, the frame-cap timing and `plan_tick` (the tick scheduler with the weapon wheel's slow motion); `movie_layer` the movie frame drawn first in the frame (black target, the image in the PS2 screen, Catmull-Rom); `gpu_adapters` the DXGI adapter enumeration (`--list-adapters`,
-`[video] adapter`) and the GPU timestamp queries of `--bench` live in `renderer`; `remix_d3d9` the optional Direct3D 9 fixed-function path for RTX Remix (`--renderer d3d9ff`, a prototype; docs/remix.md) |
+`[video] adapter`) and the GPU timestamp queries of `--bench` live in `renderer`; `remix_d3d9` the optional Direct3D 9 fixed-function path for RTX Remix (`--renderer d3d9ff`, a prototype; docs/remix.md); `setup_app` the setup screen's loop in nightfire.exe (the Windows file picker, the DVD drives, the personal copy's thread) |
 | `src/driving` | the driving missions' port (`DRIVING.ELF`, EA's engine; docs/driving.md): library `nf_drv` (its `.cpp` files are globbed), namespace `drv`, no dependency on `src/engine`; ported functions marked `// [driving] 0x<address> <Name>` (DRIVING.SYM / `out/ghidra_driving` names); the PS2 is the truth, the Xbox build only explains; tests in `tests/test_driving_*.cpp` (globbed into `nf_tests`); conventions in `src/driving/drv.h` |
 | `src/ui` | the Modern menu style (port-only, `nf_ui_modern`, GPU-free and tested): `modern_ui` (tokens, the 1920x1080 virtual canvas, motion curves and tweens, the draw list), `modern_kit` (the components), `modern_input` (the navigation input of the game-menu screens), `modern_options`
 (the Modern PC options screen), `modern_pause` (the Modern pause), `modern_end` (mission failed, results and the controller-disconnected warning),
-`modern_front` (the Modern front end), `modern_dossier` (the Modern dossier, a view of the front end), `modern_wheel` (the weapon wheel's drawing over the game); drawn by `src/render/ui_modern_draw` (Direct2D/DirectWrite) and wired to `nightfire.exe` by `src/render/ui_modern_app` |
+`modern_front` (the Modern front end), `modern_dossier` (the Modern dossier, a view of the front end), `modern_wheel` (the weapon wheel's drawing over the game), `modern_setup` (the first-run setup screen, before any disc); drawn by `src/render/ui_modern_draw` (Direct2D/DirectWrite) and wired to `nightfire.exe` by `src/render/ui_modern_app` |
 | `hd_ui/` | the HD 2D layer's `map.json` (font mapping, image replacements) and its SVG assets (`svg/`, generated by `tools/ui_hd_assets.py`); `hd_ui/fonts/` is the user's font folder and is git-ignored; `hd_ui/fonts_ofl/rajdhani` (OFL) and `hd_ui/design/tokens.json` belong to the Modern menu style |
 | `src/main.cpp` | `nightfire.exe`: main loop modeled on the PS2 `main` + `GameFlow_Main` |
-| `tests/` | `nf_tests` (unit tests, no game data), `nf_level_check` and `nf_loader_check` (regressions on real data; `nf_loader_check <data> --miras` measures the guns' sight lines, `tests/sights_measure.cpp`), `nf_driving_check` (DRIVING.ELF's physics: the original VU0 microcode in the interpreter vs the hand port, the whole step both ways, the original EE code in the MIPS interpreter vs the C++ port; `driving_check.cpp`, `driving_check_ee.cpp`) |
-| `tools/` | Python tools (formats, exporters, analysis; `vudis.py` disassembles the VU0/VU1 microcode, `scripts.py` decodes the scene scripts, `morph.py` the faces' morph targets and face sequences, `movies.py` lists and demuxes the PSS movies; `driving_sym.py` reads `DRIVING/DRIVING.SYM` and matches it to `DRIVING.ELF`, `driving_data.py` lists and extracts the `DRIVING/` BIGF archives, `xbox.py` reads the Xbox disc image (XDVDFS: `.xiso` or a full image) and XBE headers, writes an equivalent PE32 for Ghidra (`pe`: flat layout, kernel thunk and XDK section labels) and disassembles NV2A vertex programs of Xbox EAGL render methods (`vsh`): the user's NTSC-U Xbox copy in `xbox/`, git-ignored, a reading reference for the driving code only; `xbox_match.py` matches `Driving.xbe` functions to `DRIVING.ELF` ones (strings, constants, call graph, vtables, globals); `vudis.py DRIVING.ELF --prog=N` and `--eagl <obj> <method>` read the driving VU0 programs and the EAGL VU1 render methods) and Ghidra scripts (`ghidra_driving.sh`: the separate `out/ghidra_driving` project for `DRIVING.ELF` and `BASE.ELF`; `ghidra_xbox.sh`: the `out/ghidra_xbox` project for the Xbox PE; `ApplySymbolTable.java` applies a name table; `ExportMatchFeatures.java` exports the matcher's per-function facts; `XboxVtables.java` finds MSVC vtables and creates their functions) |
+| `tests/` | `nf_tests` (unit tests, no game data; `test_ptr32.cpp` the 64-bit pointer scheme; `test_disc.cpp` the disc sources, a hand-built ISO, the personal copy and the setup screen), `nf_disc_check` (two disc sources compared file by file, `disc_check.cpp`), `nf_level_check` and `nf_loader_check` (regressions on real data; `nf_loader_check <data> --miras` measures the guns' sight lines, `tests/sights_measure.cpp`), `nf_driving_check` (DRIVING.ELF's physics: the original VU0 microcode in the interpreter vs the hand port, the whole step both ways, the original EE code in the MIPS interpreter vs the C++ port; `driving_check.cpp`, `driving_check_ee.cpp`) |
+| `tools/` | Python tools (`make_release.py` the release zip, with `tools/release/README.txt` and `LICENSES.txt`; formats, exporters, analysis; `vudis.py` disassembles the VU0/VU1 microcode, `scripts.py` decodes the scene scripts, `morph.py` the faces' morph targets and face sequences, `movies.py` lists and demuxes the PSS movies; `driving_sym.py` reads `DRIVING/DRIVING.SYM` and matches it to `DRIVING.ELF`, `driving_data.py` lists and extracts the `DRIVING/` BIGF archives, `xbox.py` reads the Xbox disc image (XDVDFS: `.xiso` or a full image) and XBE headers, writes an equivalent PE32 for Ghidra (`pe`: flat layout, kernel thunk and XDK section labels) and disassembles NV2A vertex programs of Xbox EAGL render methods (`vsh`): the user's NTSC-U Xbox copy in `xbox/`, git-ignored, a reading reference for the driving code only; `xbox_match.py` matches `Driving.xbe` functions to `DRIVING.ELF` ones (strings, constants, call graph, vtables, globals); `vudis.py DRIVING.ELF --prog=N` and `--eagl <obj> <method>` read the driving VU0 programs and the EAGL VU1 render methods) and Ghidra scripts (`ghidra_driving.sh`: the separate `out/ghidra_driving` project for `DRIVING.ELF` and `BASE.ELF`; `ghidra_xbox.sh`: the `out/ghidra_xbox` project for the Xbox PE; `ApplySymbolTable.java` applies a name table; `ExportMatchFeatures.java` exports the matcher's per-function facts; `XboxVtables.java` finds MSVC vtables and creates their functions) |
 | `tools/viewer/` | three.js web viewer for exported `.glb` files |
 | `docs/formats.md` | every file format decoded so far |
 | `docs/engine.md` | ACTION.ELF architecture: boot, main loop, GameFlow, frame pipeline, code layers |
@@ -94,7 +94,8 @@ scale and/or with MSAA, then the 2D at window size; texture filter, VSync, DXGI 
 
 ## Environment (this machine)
 
-- Windows 11, Git Bash for shell commands. Game files extracted from the ISO sit in the repo root.
+- Windows 11, Git Bash for shell commands. Game files extracted from the ISO sit in the repo root, and so does the ISO
+  itself (`007 - Nightfire (USA).iso`, git-ignored; `Mount-DiskImage` on it gives a drive letter like a real DVD).
 - Remotes (user, 2026-10-11/12): `origin` is a private GitHub repository with the full history, only `main` pushed
   (to work from other devices; push main after each merge). `public` is a public repository (user decision, 2026-10-12)
   that only gets versions: one commit per version, the tree of `main` at that point, authored by that account (its
@@ -116,9 +117,19 @@ scale and/or with MSAA, then the 2D at window size; texture filter, VSync, DXGI 
 ```bash
 # Release build into build/Release (CMake + Ninja). From Git Bash, go through PowerShell:
 powershell.exe -NoProfile -Command "& cmd.exe /c '\"C:\Projects\Nightifire Port\build.bat\" Release'"
+# The 64-bit build (see "Two builds" in the conventions) into build/x64/Release; the same tools and checks run there:
+powershell.exe -NoProfile -Command "& cmd.exe /c '\"C:\Projects\Nightifire Port\build.bat\" Release x64'"
+./build/x64/Release/nf_tests.exe          # x86's tests plus arena_* (window, allocator, game stack)
+./build/x64/Release/nf_loader_check.exe . # must match x86's output (addresses masked); see docs/port.md "64 bits"
 ./build/Release/nf_tests.exe              # unit tests; optional name filter as first argument
 ./build/Release/nf_level_check.exe .      # loads all 35 levels from the real data; must report 0 unresolved
 ./build/Release/nf_loader_check.exe .     # loads all 36 packs with the ported original loader; must report 0 differences
+./build/Release/nf_disc_check.exe "007 - Nightfire (USA).iso" .   # every file of the ISO against the extracted copy: 177 equal
+./build/Release/nightfire.exe --disc "007 - Nightfire (USA).iso" --level 07000012 --screenshot out/shots/iso.png  # the disc from the ISO (also a drive "H:", a folder, a personal copy); report line `disco`
+./build/Release/nightfire.exe --setup --width 1920 --height 1080 --wait 1.5 --screenshot out/shots/setup.png  # the first-run setup screen (report line `configuracao`; without --setup it shows only when no disc is found)
+./build/Release/nightfire.exe --config out/s.ini --setup --setup-pick "007 - Nightfire (USA).iso" --setup-input "none:0.5 up:0.1 none:0.3 enter:0.1 none:0.5 enter:0.1" --input "none:4.5 enter:0.1" --wait 7 --screenshot out/shots/s.png  # setup: pick the ISO, store it in out/s.ini, Play, the front end
+./build/Release/nightfire.exe --pack-disc "007 - Nightfire (USA).iso" --out C:/somewhere/nightfire-personal.exe  # the single-file personal copy (refused inside a git tree)
+python tools/make_release.py --version 0.2       # the release zip from build/Release and build/x64/Release into the main checkout's out/release/
 ./build/Release/nightfire.exe --level 07000001
 ./build/Release/nightfire.exe                    # no --level: the game's front end (Press START, main menu, codenames, mission map)
 ./build/Release/nightfire.exe --save-dir out/saves   # the memory card in another folder (default: saves\ next to the exe)
@@ -275,13 +286,42 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   interpolated between the last two ticks (see "Tick interpolation").
 - Hashcodes: the high byte is the type (`01` map item, `02` entity, `04` animation, `05` skin,
   `06` script, `07` level pack). The global table lives in `src/engine/hashtable.cpp`.
-- **The port is a 32-bit (x86) program** (decided with the user): game structures and loaded data
-  hold 4-byte pointers, so struct layouts match the PS2 and decompiled code needs no pointer
-  translation. CMake refuses a 64-bit configuration and `ps2types.h` asserts `sizeof(void*) == 4`.
-  `build.bat` uses `vcvarsamd64_x86.bat` (x64-hosted compiler targeting x86), linked
-  `/LARGEADDRESSAWARE`.
+- **Two builds, x86 (the reference) and x64** (`platform/ptr32.h`, `platform/arena.h`, header comments; docs/port.md
+  "64 bits"). Game structures and loaded data hold 4-byte pointers, so struct layouts match the PS2 and decompiled
+  code needs no pointer translation. x86 (`build.bat Release`, `vcvarsamd64_x86.bat`, `/LARGEADDRESSAWARE`) is the
+  default and the reference: every check and capture compares against it. x64 (`build.bat Release x64`,
+  `-DNF_ARCH64=ON`, `vcvars64.bat`, build/x64/Release) keeps the same layouts: a pointer field of a game structure is
+  `P32<T>` (on x86 an alias of `T*`, so x86 compiles exactly as before; on x64 a 4-byte class holding the offset from
+  `__ImageBase`, 0 = null) and a function pointer field `F32<Sig>` (the code's offset in the image). Everything a field
+  can point to lives in the 4 GB window that starts at the image: the image itself (code, globals, literals) and the
+  arena (`nf::arena`, reserved in the largest free region of the window after the image) that holds the game heap
+  (`psiMem_Init`), every `new`/`delete` and the STL (`operator new` replaced, static CRT `/MT` on x64) and the stack the
+  game runs on (`nf::run_main` / `run_on_game_stack`: decompiled code stores addresses of locals). `NF_P32_CHECK` (on
+  by default in x64) stops with the call stack when a pointer outside the window is encoded. `ps2types.h` asserts
+  `sizeof(void*) == 4 || NF_PTR64`, and `/we4311 /we4312 /we4302` make pointer truncations errors on x64. Platform,
+  render and UI code keep native pointers; so do port-only structures never shared with game data
+  (`ProvisionalObject`, `PcTab`, `MenuHandlerEntry`, `CREDIT_SOURCE`, `CONTROLFUNCS_tag`, the driving `Simulation`).
+  Rules for new code (the x64 build catches some at compile time; the others are silent there, so test both builds):
+  - a pointer field of a structure with the PS2 layout (or one stored in game memory) is `P32<T>`, a function pointer
+    `F32<Sig>`; a struct with such fields gets a `static_assert(sizeof(...))`;
+  - a pointer word read or written by offset: `nf::p32_load<T>(addr)` / `nf::p32_store(addr, p)`, never
+    `memcpy(&p, addr, 4)`, `*reinterpret_cast<T**>(addr)` or `rd<T*>`/`at<T*>` (the raw accessor templates refuse a
+    native pointer type on x64 through `nf::is_native_ptr_v`: write `rd<P32<T>>`);
+  - a pointer stored as an integer: `nf::p32_u(p)` and `nf::p32_ptr<T>(v)` (also for sentinels such as `0xffffffff`);
+  - arrays of pointers in the game heap are `P32<T>*` with `n * 4` bytes, never `sizeof(T*)`; `QuickSort` over them
+    uses element size 4;
+  - the native pointer of a field (for `reinterpret_cast`, `auto*`, `?:` with a `T*`): `nf::raw(field)`;
+  - float math: `nf::fm::sin/cos/tan/asin/acos/atan/atan2/exp/log/log10/pow` (`platform/fmath.h`), not `std::` on a
+    `float`: the x64 CRT's float functions differ from x86's (which compute in double) by 1 ulp;
+  - a local `MATRIX` built by `RotMatrix*`/`Quat_QuatToMat` has only its rotation written: zero it (`MATRIX m{}`)
+    when the whole matrix is used afterwards (`Concat`, `Mat_Copy`), or it carries stack garbage.
+  Results: every check output and capture of x64 is identical to x86's. Internally the float state can still differ by
+  an ulp: MSVC x86 returns `float`s in the x87 `ST(0)` and keeps computing there at 53-bit precision until a store (79
+  functions, ~30 in game logic); an x86 build compiled with `/Gv` (an experiment, not in the repository) is
+  bit-identical to x64 tick by tick (docs/port.md "64 bits"). Reads of stack garbage differ between the builds: give
+  matrices and vectors whose whole value is used an initial value.
 - Memory: one heap (`Mem_*`, `src/engine/memory.cpp`) with 12-byte block headers; `psiMem_Init`
-  reserves `psiMemHeapSize` bytes with `VirtualAlloc`. `ResetMap_Load` re-runs `Mem_Init` on every
+  reserves `psiMemHeapSize` bytes with `VirtualAlloc` (x64: `nf::arena::alloc_pages`, inside the 4 GB window). `ResetMap_Load` re-runs `Mem_Init` on every
   level load. Allocation tags: high byte =
   category (`Mem_Info` sums per category), low byte = default alignment (never 0 in practice).
 - Original loader: `LoaderLoad` is a state machine called until it returns 0; `ResetMap_Load` loads
@@ -1952,6 +1992,34 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   frame (PS2: after 0x6000 bytes reach the IOP), no 07360048 trap. Tests: `tests/test_movie.cpp` (demuxer on a hand-built
   stream, SS audio, units, clock, CSC, SPU2 input, the player's end/loop/BVOL/refusals with a hand-built PSS and no
   decoder, the menu and `GF_MOVIE` skip rules), `modern_front_title_and_warning`.
+- The user's disc (`platform/disc_source.h`, `disc_pack.h`, `ui/modern_setup.h`, `render/setup_app.h`, header comments;
+  docs/port.md "Instalação fácil"; port-only): every read of the disc's files goes through an `nf::DiscSource` (never a
+  path into the data folder): `ACTION.ELF` (`install_game_tables(const DiscSource&)`, `FilesBin(disc)`), `FILES.BIN`
+  (`psiFileSetup(DiscFile)`), `PS2\` (`sfx_iop_set_disc`), `MOVIES\30_FPS` (`movie_set_disc`; `PssFile::open(DiscFile)`),
+  `DRIVING\`/`DRIVING.ELF` in the driving tools (`drv::Bigf::open(disc, path)`). Paths are the disc's, '/'-separated,
+  case-insensitive, without ";1". Sources: a folder (the repo root for developers), an ISO 9660 image (`parse_iso9660`:
+  files are contiguous extents; no UDF), a DVD drive (a folder at `X:\`; `Mount-DiskImage` behaves the same), the
+  personal copy (the files appended after the exe's PE image with an index and a 64-byte footer, `NFPC-DISC-PACK-1`;
+  `--pack-disc <src> [--out x.exe] [--pack-no-movies]` or the setup screen; ACTION.ELF, SYSTEM.CNF, FILES.BIN, PS2\,
+  MOVIES\ and the port's `hd_ui` as `PORT/HD_UI/`, extracted to `%LOCALAPPDATA%\Nightfire PC` when the copy runs alone;
+  never written inside a git working tree). The version is `SYSTEM.CNF`'s BOOT2 (`SLUS-20579`; `nightfire_disc()` in
+  `game/boot.h`); other versions are refused with the reason; a folder without SYSTEM.CNF but with ACTION.ELF and
+  FILES.BIN is accepted unverified (the old way). `--disc <iso|folder|drive|exe>` (`--data` is the old name) alone;
+  otherwise `find_disc`: the personal copy (itself), the exe's folder (files or an `.iso`), the cwd and the 3 folders above
+  the exe (developers), `[game] disc` in the ini, the CD/DVD drives. Nothing found (or `--setup`): the Modern setup screen
+  before the game (window and renderer are now created before the data is read; `IFileOpenDialog` on its own STA thread;
+  drives rescanned every 2 s; the choice goes to `[game] disc` only when the ini may be written). Captures: `--setup-pick`,
+  `--setup-input`, the report's `configuracao` line; the capture report's `disco` line (kind, location, origin, version).
+  The HD texture pack defaults to `textures\SLUS-20579\replacements` next to the disc (its folder, the ISO's folder),
+  then next to the exe and above, then the cwd (with a DVD drive pass `--textures` or keep it next to the exe). With the
+  data in a folder everything is exactly as before (checks and captures identical); from the ISO, the mounted drive and
+  the personal copy too (2026-10-12).
+- Release zip (`tools/make_release.py`): x86 `nightfire.exe` + `nightfire.pdb` (the default), x64 as `nightfire64.exe` +
+  `nightfire64.pdb` (CMake names the x64 PDB so; experimental in the readme), `msvcp140.dll` + `vcruntime140.dll` (x86 is
+  `/MD`; x64 is `/MT`), the tracked `hd_ui` files, `tools/release/README.txt` and `LICENSES.txt`; it refuses game files
+  and scans for the git account name/e-mail and the Windows user name. Release executables embed only the PDB file name
+  (`/PDBALTPATH:%_PDB%`); `build.bat` points TMP/TEMP at `build\<config>\tmp`, or the PDB would carry the linker's
+  `%TEMP%` paths (with the Windows user name). The zip goes to the main checkout's `out/release/`; nothing is published.
 - Crashes: `nightfire.exe` and `nf_loader_check` install `nf::install_crash_report()` (`platform/crash_report.h`); an
   access violation prints the call stack with file and line (Release builds carry a PDB).
 - Static constructors: tables filled at PS2 boot by GCC global constructors (`weapon_data`) are never
@@ -2546,7 +2614,32 @@ Done:
   unchanged. The env-map routine 0x2e0 was already in the shader (f654ae6). Captures away from these features are
   pixel-identical to main with `--no-env` (they now draw `Rand` like the PS2, so `Rand`-dependent results shift without
   it); iGPU cost at 1080p: 0700000b 353 -> 204 fps, 07000005 288 -> 252, 0700000c and 07000001 unchanged.
-- The port builds as 32-bit x86 (see conventions).
+- The port builds as 32-bit x86 (the default and the reference) and, since 2026-10-12, as 64-bit x64 (`build.bat
+  Release x64`; stage 1 of the macOS port, see "Two builds" in the conventions and docs/port.md "64 bits"): game
+  structures keep their PS2 layouts with `P32`/`F32` fields holding offsets into a 4 GB window from `__ImageBase` (the
+  image plus an arena with the game heap, `operator new` and the game stack). The x86 build is unchanged (every check
+  and capture identical to main). x64 passes every check: `nf_tests`, `nf_level_check`, `nf_driving_check` and
+  `nf_driving --check --verify` identical to x86 (bar the process memory); `nf_loader_check` identical to x86
+  (addresses masked); the 16 reference captures pixel-identical (reports equal bar timings), as are a movie frame, a
+  14 s gunfight WAV and a saved codename. Comparing x64 tick by tick against an x86 build compiled with `/Gv` (no x87;
+  an experiment) found
+  two x64 bugs (`rd<T*>`/`at<T*>` reading 8 bytes from 4-byte pointer fields) and two stack-garbage reads of the
+  original that x64 exposed (the turret barrel's `RotMatrixZ` matrix, a pose-less drone's dropped weapon), all fixed;
+  what remains between x86 and x64 is the x87 precision of x86's `float` returns (1-ulp internal differences that reach
+  no check output and no capture pixel). `--bench` at 1080p: the same on the Radeon iGPU (GPU-bound: 0700000c 237 vs
+  236 fps offscreen), about 1.6x faster on the RTX 5090 (CPU-bound: 2690 vs 4393 fps). The x64 process commits ~0.8 GB
+  more private memory, nearly all in the 64-bit graphics driver's 32 MB blocks (the arena holds ~90 MB; the capture
+  report's `arena` line, x64 only).
+- Easy install (user request, 2026-10-12; see "The user's disc" and "Release zip" in the conventions; docs/port.md
+  "Instalação fácil"): the game reads the user's disc from an `.iso`, a DVD drive (or the mounted image), the extracted
+  folder or a single-file personal copy (the exe with the disc appended, 1,909,214,396 bytes with the movies; Windows 11
+  runs it as x86 and x64, the first start a few seconds slower while Defender reads it), found on its own or chosen on a
+  Modern first-run setup screen (stored in `[game] disc`). `nf_disc_check`: the ISO's 177 files equal the extracted copy
+  and the mounted drive byte for byte; `nf_level_check`/`nf_loader_check` give the same output from the ISO; captures
+  (07000012 at 2 s and 9 s, 07000001 at 11.7 s, the Modern and Original main menu, a movie frame, a mission intro, their
+  WAVs) are pixel-identical from the folder, the ISO, the drive and the personal copy, and the folder ones identical to
+  main. The release zip (`tools/make_release.py`) was unzipped into a clean folder outside the repo, pointed at the ISO
+  through the setup screen and captured.
 - `nightfire.exe` calls `Mem_Init` at boot like the PS2 `main`; nothing allocates from the heap yet.
 - PC-standard keyboard and mouse (user request, 2026-10-10; see "Input"; docs/port.md "Controles" has the table): Esc
   pauses (and is back in menus, closing the pause at its top in both styles; the mouse is released by the menu, and in
@@ -2723,7 +2816,16 @@ Known gaps / next steps (agreed order: 1 next, then the rest):
    and `Input_Ready` (needs `ComboKeysList`); the main.cpp debug keys (F2-F4, F12, PgUp/PgDn are refused
    by the capture; V, H, P, T are not and still toggle their debug views when bound); a rebinding entry for
    the free camera.
-7. Platform: VU0 intrinsics header for the 233 inline-VU0 functions, saves. Done: the movies (see "Movies"); their
+7. Platform: VU0 intrinsics header for the 233 inline-VU0 functions, saves. Easy-install leftovers: other disc versions
+   (PAL `SLES-...`, Japanese) are refused (their data and offsets differ: a port of their own ELFs); images that are not
+   2048-byte ISO 9660 (a raw `.bin/.cue`, a UDF-only image) are refused; a signed executable (SmartScreen warns about an
+   unknown publisher); the x86 single-file copy needs the Visual C++ runtime (installed, or the zip's DLLs next to it);
+   the HD texture pack is not looked for next to a DVD drive; drag-and-drop of an `.iso` on the setup window. 64 bits (done for Windows, see "Two
+   builds"): the macOS port itself (a platform layer for window, input, rendering, sound, movies and crash reports; the
+   arena with `mmap` near the image and the game stack as a `pthread` stack in the arena; clang with
+   `-ffp-contract=off`; its libm differs from the UCRT, so identical results would need the port's own math functions);
+   the x64 `RemixD3D9Renderer` path is untested (RTX is parked); x64 interactive play was exercised only through
+   captures and `--bench` (no hand-played session yet). Done: the movies (see "Movies"); their
    leftovers: the D3D9 Remix path does not draw them, the movie's memory is not taken from the game heap
    (`AllocateMovieMemory`), and a machine without any MPEG-2 MFT simply skips them (the Store's "MPEG-2 Video Extension"
    is the one that works here). Done: the tick interpolation (see "Tick interpolation"; the view is smooth above 60 fps, with the frame

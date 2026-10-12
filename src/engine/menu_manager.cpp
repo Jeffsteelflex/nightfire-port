@@ -62,9 +62,9 @@ const char ps2_multitap_153[] = "1-A\0" "1-B\0" "1-C\0" "1-D";
 
 template <class T>
 T* ptr(int32_t v) {
-    return reinterpret_cast<T*>(uintptr_t(uint32_t(v)));
+    return nf::p32_ptr<T>(uint32_t(v));
 }
-int32_t val(const void* p) { return int32_t(reinterpret_cast<uintptr_t>(p)); }
+int32_t val(const void* p) { return int32_t(nf::p32_u(p)); }
 
 uint32_t get_dword(uint8_t** p) {
     uint32_t v;
@@ -88,7 +88,7 @@ uint32_t mp_word(uint32_t offset) {
 
 M_PAGE* first_page(M_MANAGER* m) { return static_cast<M_PAGE*>(ll_first(m->pages)); }
 M_PAGE* next_page(M_PAGE* p) {
-    return p->next != nullptr ? reinterpret_cast<M_PAGE*>(reinterpret_cast<uint8_t*>(p->next) - 0xa4) : nullptr;
+    return p->next != nullptr ? reinterpret_cast<M_PAGE*>(reinterpret_cast<uint8_t*>(nf::raw(p->next)) - 0xa4) : nullptr;
 }
 M_CONTROL* first_control(M_PAGE* p) { return static_cast<M_CONTROL*>(ll_first(p->controls)); }
 
@@ -129,11 +129,12 @@ void LinkedList_ReInit(LINKEDLIST* list) {
 
 // [decomp] 0x002192c0 LinkedList_Add
 // Põe o nó no fim: node->next = 0, *prev_field = o último.
+// Os nós são palavras de ponteiro de 4 bytes (P32: em x64 deslocamentos na janela, platform/ptr32.h).
 uint32_t LinkedList_Add(LINKEDLIST* list, void* prev_field, void* node) {
     if (list == nullptr || prev_field == nullptr || node == nullptr) return 0;
-    if (list->tail != nullptr) *static_cast<void**>(list->tail) = node;
-    *static_cast<void**>(node) = nullptr;
-    *static_cast<void**>(prev_field) = list->tail;
+    if (list->tail != nullptr) *static_cast<P32<void>*>(nf::raw(list->tail)) = node;
+    *static_cast<P32<void>*>(node) = nullptr;
+    *static_cast<P32<void>*>(prev_field) = list->tail;
     if (list->count == 0) list->head = node;
     list->tail = node;
     ++list->count;
@@ -144,19 +145,19 @@ uint32_t LinkedList_Add(LINKEDLIST* list, void* prev_field, void* node) {
 // Põe o nó depois de `after` (nulo: no começo).
 uint32_t LinkedList_Insert(LINKEDLIST* list, void* after, void* prev_field, void* node) {
     if (list == nullptr || prev_field == nullptr || node == nullptr) return 0;
-    void** n = static_cast<void**>(node);
+    P32<void>* n = static_cast<P32<void>*>(node);
     if (after == nullptr) {
-        if (list->head != nullptr) static_cast<void**>(list->head)[1] = node;
+        if (list->head != nullptr) static_cast<P32<void>*>(nf::raw(list->head))[1] = node;
         n[0] = list->head;
-        *static_cast<void**>(prev_field) = nullptr;
+        *static_cast<P32<void>*>(prev_field) = nullptr;
         list->head = node;
     } else {
-        void** a = static_cast<void**>(after);
-        void** next = static_cast<void**>(a[0]);
+        P32<void>* a = static_cast<P32<void>*>(after);
+        P32<void>* next = static_cast<P32<void>*>(nf::raw(a[0]));
         if (next != nullptr) next[1] = node;
         a[0] = node;
         n[0] = next;
-        *static_cast<void**>(prev_field) = after;
+        *static_cast<P32<void>*>(prev_field) = after;
     }
     if (n[0] == nullptr) list->tail = node;
     ++list->count;
@@ -166,8 +167,8 @@ uint32_t LinkedList_Insert(LINKEDLIST* list, void* after, void* prev_field, void
 // [decomp] 0x002193b0 LinkedList_Remove
 uint32_t LinkedList_Remove(LINKEDLIST* list, void* prev_field, void* node) {
     if (list == nullptr || prev_field == nullptr || node == nullptr) return 0;
-    void** prev = static_cast<void**>(*static_cast<void**>(prev_field));
-    void* next = *static_cast<void**>(node);
+    P32<void>* prev = static_cast<P32<void>*>(nf::raw(*static_cast<P32<void>*>(prev_field)));
+    void* next = *static_cast<P32<void>*>(node);
     if (prev == nullptr) {
         list->head = next;
     } else {
@@ -176,7 +177,7 @@ uint32_t LinkedList_Remove(LINKEDLIST* list, void* prev_field, void* node) {
     if (next == nullptr) {
         list->tail = prev;
     } else {
-        static_cast<void**>(next)[1] = prev;
+        static_cast<P32<void>*>(next)[1] = prev;
     }
     if (--list->count == 0) {
         list->tail = nullptr;
@@ -194,7 +195,7 @@ void* LinkedList_GetIndex(LINKEDLIST* list, uint32_t index) {
     for (uint32_t i = 0;; ++i) {
         if (node == nullptr) return nullptr;
         if (i == index) break;
-        node = *reinterpret_cast<uint8_t**>(node + list->offset * 4);
+        node = *reinterpret_cast<P32<uint8_t>*>(node + list->offset * 4);
     }
     return node - list->offset * 4;
 }
@@ -423,7 +424,7 @@ uint32_t MenuManager_Create(uint32_t menu, uint32_t page, int16_t player, uint8_
                 desc.depth = get_word(&p);
                 desc.unknown_0c = get_dword(&p);
                 desc.owner = get_word(&p);
-                desc.format = reinterpret_cast<char*>(uintptr_t(get_dword(&p)));
+                desc.format = nf::p32_ptr<char>(get_dword(&p));
                 desc.unknown_08 = get_dword(&p);
                 const uint8_t type = record[0x21];
                 record[0x20] = type == MCT_SCROLL ? 1 : 0;
@@ -565,7 +566,7 @@ void MenuManager_Update() {
                     bool played = false;
                     if (cur != nullptr) {
                         M_CONTROL* c = cur->player_focus[player];
-                        played = Script_PlayDefault(c != nullptr ? c : cur->focus, 0x5b) != 0;
+                        played = Script_PlayDefault(c != nullptr ? c : nf::raw(cur->focus), 0x5b) != 0;
                     }
                     if (played) {
                         page = m->page;
@@ -635,7 +636,7 @@ int32_t Manager_SendMessage(M_MANAGER* m, uint32_t message, int32_t a, int32_t b
         case 0x42: {
             NEW_CONTROL* desc = ptr<NEW_CONTROL>(a);
             const uint8_t type = reinterpret_cast<uint8_t*>(desc)[0x21];
-            M_CONTROL* owner = reinterpret_cast<M_CONTROL*>(m->page);
+            M_CONTROL* owner = reinterpret_cast<M_CONTROL*>(nf::raw(m->page));
             M_CONTROL* c = nullptr;
             switch (type) {
                 case MCT_RADIO:
@@ -710,7 +711,7 @@ int32_t Manager_SendMessage(M_MANAGER* m, uint32_t message, int32_t a, int32_t b
                         Menu_EnableSounds(uint32_t(a));
                         if (push != 0) {
                             if (m->page != nullptr) {
-                                M_CONTROL** e = static_cast<M_CONTROL**>(Menu_Malloc(8, 8));
+                                P32<M_CONTROL>* e = static_cast<P32<M_CONTROL>*>(Menu_Malloc(8, 8));
                                 e[0] = &m->page->base;
                                 e[1] = m->page->focus;
                                 Stack_Push(&m->stack, val(e));
@@ -862,7 +863,7 @@ int32_t Manager_SendMessage(M_MANAGER* m, uint32_t message, int32_t a, int32_t b
                 if (pg == nullptr) continue;
                 for (M_CONTROL* c = first_control(pg); c != nullptr; c = c->next) {
                     if (a == 0 || c->id != uint32_t(a) || c->tag != uint32_t(b)) continue;
-                    M_CONTROL*& slot = pg->player_focus[b];
+                    P32<M_CONTROL>& slot = pg->player_focus[b];
                     if (slot != nullptr) Manager_SendMessage(m, 0x60, val(slot), 0);
                     slot = c;
                     Manager_SendMessage(m, 0x5c, val(c), 0);
@@ -883,7 +884,7 @@ int32_t Manager_SendMessage(M_MANAGER* m, uint32_t message, int32_t a, int32_t b
                 if (v == -2) return 1;
             }
             if (Stack_IsEmpty(&m->stack) == 0) {
-                M_CONTROL** e = ptr<M_CONTROL*>(Stack_Top(&m->stack));
+                P32<M_CONTROL>* e = ptr<P32<M_CONTROL>>(Stack_Top(&m->stack));
                 bool played = false;
                 if (cur != nullptr) played = Script_PlayDefault(&cur->base, 99) != 0;
                 if (!played) {
@@ -1192,7 +1193,7 @@ int32_t Page_SendMessage(M_PAGE* page, uint32_t message, int32_t a, int32_t b) {
     M_PAGE* self = page;
     switch (message) {
         case 0x42: {
-            M_CONTROL* c = reinterpret_cast<M_CONTROL*>(uintptr_t(uint32_t(a)));
+            M_CONTROL* c = nf::p32_ptr<M_CONTROL>(uint32_t(a));
             LinkedList_Add(&page->controls, &c->prev, c);
             return 1;
         }
@@ -1209,12 +1210,12 @@ int32_t Page_SendMessage(M_PAGE* page, uint32_t message, int32_t a, int32_t b) {
             return 1;
         }
         case 0x48:
-            return Menu_CursorOverMe(reinterpret_cast<M_MANAGER*>(page->base.owner), page->focus);
+            return Menu_CursorOverMe(reinterpret_cast<M_MANAGER*>(nf::raw(page->base.owner)), page->focus);
         case 0x49:
         case 0x4e:
         case 0x4f:
         case 0x51:
-            Script_PlayDefault(reinterpret_cast<M_CONTROL*>(uintptr_t(uint32_t(a))), message);
+            Script_PlayDefault(nf::p32_ptr<M_CONTROL>(uint32_t(a)), message);
             break;
         case 0x4a:
         case 0x52:
@@ -1229,7 +1230,7 @@ int32_t Page_SendMessage(M_PAGE* page, uint32_t message, int32_t a, int32_t b) {
             if (b == 0) {
                 __Menu_SendMessage(page->base.owner, message, val(page), a);
             }
-            Script_PlayDefault(reinterpret_cast<M_CONTROL*>(uintptr_t(uint32_t(a))), message);
+            Script_PlayDefault(nf::p32_ptr<M_CONTROL>(uint32_t(a)), message);
             break;
         case 0x6f:
             page->input_delay = uint32_t(a);
@@ -1389,7 +1390,7 @@ int32_t Window_SendMessage(M_WINDOW* w, uint32_t message, int32_t a, int32_t b) 
             return Script_Play(&w->base, uint32_t(a), int8_t(b));
         case 0x21:
             if (uint32_t(a) >= 7) return 0;
-            reinterpret_cast<M_SCRIPT**>(w->base.defaults)[a] = Script_Select(&w->base, uint32_t(b));
+            reinterpret_cast<P32<M_SCRIPT>*>(w->base.defaults)[a] = Script_Select(&w->base, uint32_t(b));
             return 1;
         case 0x39:
             return val(w);

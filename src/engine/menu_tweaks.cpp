@@ -30,7 +30,7 @@ uint8_t show_frame_count = 0;
 
 namespace {
 
-int32_t val(const void* p) { return int32_t(reinterpret_cast<uintptr_t>(p)); }
+int32_t val(const void* p) { return int32_t(nf::p32_u(p)); }
 M_MANAGER* mgr(uint8_t index) { return &menu_manager[index]; }
 int32_t value_of(uint8_t index, uint32_t id) { return __Menu_Send(index, id, 0x40, 0, 0); }
 

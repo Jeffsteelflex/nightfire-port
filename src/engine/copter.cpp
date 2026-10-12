@@ -385,7 +385,7 @@ void Copter_Update(obj_tag* obj) {
             obj_tag* o = h->obj;
             if (o != nullptr && o->type == 5) {
                 obj_tag* from;
-                std::memcpy(&from, static_cast<const uint8_t*>(o->data) + 0x30, 4);
+                from = nf::p32_load<obj_tag>(static_cast<const uint8_t*>(o->data) + 0x30);
                 if (from != nullptr && from->type == 3) by_player = true;
             }
             c->damage += d * Bits[i].mul;

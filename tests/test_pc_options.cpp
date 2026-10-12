@@ -95,7 +95,7 @@ struct MenuFile {
     }
 };
 
-uint32_t ptr32(const void* p) { return uint32_t(reinterpret_cast<uintptr_t>(p)); }
+uint32_t ptr32(const void* p) { return nf::p32_u(p); }
 
 // Uma fonte só com ASCII ('!', 'A', 'a': os outros códigos desenham o glifo anterior, como no jogo) nas três
 // entradas de FontTable: as listas medem as linhas com ela, e os caracteres acima de 0x7f não têm glifo.
@@ -313,7 +313,7 @@ float cy(const M_CONTROL* c) { return float(c->y) + float(c->h) * 0.5f; }
 
 // O texto da opção escolhida de um rádio e o do nome de uma linha.
 const char* radio_text(M_CONTROL* c) {
-    return c != nullptr ? reinterpret_cast<char*>(uintptr_t(uint32_t(Radio_SendMessage(reinterpret_cast<M_RADIO*>(c), 0x3b, 0, 0)))) : "";
+    return c != nullptr ? nf::p32_ptr<char>(uint32_t(Radio_SendMessage(reinterpret_cast<M_RADIO*>(c), 0x3b, 0, 0))) : "";
 }
 const char* label_text(M_CONTROL* c) { return c != nullptr ? reinterpret_cast<M_LABEL*>(c)->string : ""; }
 

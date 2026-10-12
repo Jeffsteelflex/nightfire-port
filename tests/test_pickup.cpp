@@ -35,6 +35,7 @@
 #include "platform/psi.h"
 #include "platform/psi_input.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -459,7 +460,7 @@ TEST(pickup_lifetime_and_spin) {
     CHECK(spin != nullptr && pickup_of(spin)->spin == 1 && (spin->flags & 0x800) == 0);
     CHECK(pending("MP_RegisterPickup") == registered + 1);  // parado: registrado já na criação
     for (int i = 0; i < 30; ++i) Pickup_Update(spin);
-    const float yaw = std::atan2(spin->matrix.m[2][0], spin->matrix.m[2][2]);
+    const float yaw = nf::fm::atan2(spin->matrix.m[2][0], spin->matrix.m[2][2]);
     CHECK_NEAR(std::fabs(yaw), 0.5, 1e-3);
     CHECK_NEAR(spin->matrix.m[1][1], 1.0, 1e-5);
     CHECK(row3(spin->matrix).x == -3.0f && row3(spin->matrix).z == 2.0f);

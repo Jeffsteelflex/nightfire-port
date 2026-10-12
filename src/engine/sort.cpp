@@ -4,21 +4,26 @@
 
 #include <cstring>
 
+#include "platform/ptr32.h"
+
 namespace {
 
 using CompFn = int32_t (*)(const void*, const void*);
 CompFn Comp = nullptr;
 
+// O elemento é um ponteiro de 4 bytes (P32: em x64 o deslocamento na janela).
 template <typename T>
 T deref(const void* p, int offset) {
-    const uint8_t* q;
-    std::memcpy(&q, p, sizeof(q));
+    uint32_t w;
+    std::memcpy(&w, p, sizeof(w));
+    const uint8_t* q = nf::p32_ptr<const uint8_t>(w);
     T v;
     std::memcpy(&v, q + offset, sizeof(T));
     return v;
 }
 template <typename T>
 T at(const void* p, int offset) {
+    static_assert(!nf::is_native_ptr_v<T>, "ponteiro de 4 bytes: use P32<...>");
     T v;
     std::memcpy(&v, static_cast<const uint8_t*>(p) + offset, sizeof(T));
     return v;

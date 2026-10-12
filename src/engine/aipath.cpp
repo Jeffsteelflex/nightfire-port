@@ -169,7 +169,7 @@ void AIBounds_Link2Cel(BNODE_tag* node, char*) {
     node->next = cel->ai_bnodes;
     node->node->cel = cel;
     cel->ai_bnodes = node;
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     const _VECTOR& p = node->node->pos;
     const _VECTOR up{p.x, p.y + 256.0f, p.z, 0.0f};  // w: lixo da pilha no original
     Collide_RayIntersect(&p, &up, cel, nullptr, nullptr, &hits, 1, 0x90, 0);
@@ -246,14 +246,14 @@ void AIPath_BindNodes() {
     for (uint32_t i = 0; i < AINetwork.path_count; ++i) {
         AIPath_tag& path = AINetwork.paths[i];
         for (uint32_t k = 0; k < path.node_count; ++k) {
-            AIPath_Link2Cel(&path.nodes[k], reinterpret_cast<char*>(path.header));
+            AIPath_Link2Cel(&path.nodes[k], reinterpret_cast<char*>(nf::raw(path.header)));
         }
         AIPath_Prepare(&path);
     }
     for (uint32_t i = 0; i < AINetwork.bounds_count; ++i) {
         AIBounds_tag& b = AINetwork.bounds[i];
         for (uint32_t k = 0; k < b.node_count; ++k) {
-            AIBounds_Link2Cel(&b.nodes[k], reinterpret_cast<char*>(b.header));
+            AIBounds_Link2Cel(&b.nodes[k], reinterpret_cast<char*>(nf::raw(b.header)));
         }
         AIBounds_Prepare(&b);
     }
@@ -417,9 +417,9 @@ void Drone_AIVolume_Delete(obj_tag* obj) {
 // [decomp] 0x0013a290 Drone_PointInAnyAIBox
 // O ponto está num volume do tipo pedido? Em 0700001b, sem volume nenhum, vale qualquer lugar.
 uint32_t Drone_PointInAnyAIBox(_VECTOR* p, uint16_t kind) {
-    auto* node = reinterpret_cast<AIVolume_tag*>(AIBoxList.first);
+    auto* node = reinterpret_cast<AIVolume_tag*>(nf::raw(AIBoxList.first));
     if (node == nullptr) return GameState.level_file == 0x700001b ? 1 : 0;
-    for (; node != nullptr; node = reinterpret_cast<AIVolume_tag*>(node->node.next)) {
+    for (; node != nullptr; node = reinterpret_cast<AIVolume_tag*>(nf::raw(node->node.next))) {
         if (node->kind == kind && Intersect_PointOOBox(&node->obj->matrix, &node->half, p, 0.0f) != 0) return 1;
     }
     return 0;

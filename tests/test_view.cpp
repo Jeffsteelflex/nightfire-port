@@ -194,7 +194,7 @@ TEST(view_portals_decide_visible_rooms) {
     auto* door = reinterpret_cast<obj_tag*>(door_mem);
     door->data = door_mem + 0x110;
     door->state = 2;
-    w.ab->unknown_0c = uint32_t(reinterpret_cast<uintptr_t>(door));
+    w.ab->unknown_0c = nf::p32_u(door);
     View_CaptureScene(w.v);
     CHECK(w.v->counts[0] == 1);
     door->state = 0;

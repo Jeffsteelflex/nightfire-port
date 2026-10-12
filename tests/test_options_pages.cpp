@@ -105,7 +105,7 @@ uint32_t fourcc(const char* s) {
 constexpr uint32_t kBankSize = 0x1000;
 constexpr uint32_t kTable1 = 0x600;  // os rótulos 0x01xxxxxx começam aqui
 char g_texts[kBankSize][16];
-char* g_bank[kBankSize];
+P32<char> g_bank[kBankSize];
 uint32_t g_fixups[2] = {0, kTable1};
 uint32_t bank_index(uint32_t label) { return (label >> 24) == 0 ? label : kTable1 + (label & 0xffffff); }
 const char* text_of(uint32_t label) { return g_texts[bank_index(label)]; }

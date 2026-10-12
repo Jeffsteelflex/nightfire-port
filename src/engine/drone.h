@@ -28,6 +28,7 @@
 #include "engine/object.h"
 #include "engine/player_stats.h"
 #include "engine/ps2types.h"
+#include "platform/ptr32.h"
 
 struct ANIMSCRIPT_tag;
 struct DroneAlert_tag;
@@ -50,7 +51,8 @@ struct MsgObject {
 };
 static_assert(sizeof(MsgObject) == 0x1c);
 
-using DroneStateHandler = uint32_t (*)(DCVars_tag* dcv, uint32_t state, MsgObject* msg);
+using DroneStateHandlerSig = uint32_t(DCVars_tag* dcv, uint32_t state, MsgObject* msg);
+using DroneStateHandler = DroneStateHandlerSig*;
 
 // Máquina de estados de um personagem (Drone_tag + 0x108, 0x2c bytes).
 struct StateMachineInfo_tag {
@@ -67,22 +69,22 @@ struct StateMachineInfo_tag {
     // DroneMove_ObjectMissionPathDistance)
     float path_dist;
     uint32_t change_param;   // 0x24 (às vezes um ponteiro: o impacto da morte por explosão)
-    DroneStateHandler handler;  // 0x28 NDrone2_ProcessStateMachine
+    F32<DroneStateHandlerSig> handler;  // 0x28 NDrone2_ProcessStateMachine
 };
 static_assert(sizeof(StateMachineInfo_tag) == 0x2c);
 
 // Atalho para as quatro coisas que as funções da IA passam juntas (0x10 bytes, Drone_DCVfromOBJ).
 struct DCVars_tag {
-    obj_tag* obj;
-    Drone_tag* drone;
-    cel_tag* cel;
-    StateMachineInfo_tag* sm;
+    P32<obj_tag> obj;
+    P32<Drone_tag> drone;
+    P32<cel_tag> cel;
+    P32<StateMachineInfo_tag> sm;
 };
 static_assert(sizeof(DCVars_tag) == 0x10);
 
 // Mensagem guardada para entrega futura (0x20 bytes: nó + MsgObject).
 struct DroneSMItem {
-    DroneSMItem* next;
+    P32<DroneSMItem> next;
     MsgObject msg;
 };
 static_assert(sizeof(DroneSMItem) == 0x20);
@@ -91,11 +93,11 @@ static_assert(sizeof(DroneSMItem) == 0x20);
 
 // O que Drone_Create guarda do posicionamento (0xc0 bytes; Drone_tag + 0xc00).
 struct alignas(16) DIVars_tag {
-    obj_tag* obj;            // 0x00
+    P32<obj_tag> obj;        // 0x00
     uint32_t unknown_04[3];
     _VECTOR pos;             // 0x10
     _VECTOR rot;             // 0x20
-    obj_tag* owner;          // 0x30 (objeto 0x4d quando não nulo)
+    P32<obj_tag> owner;      // 0x30 (objeto 0x4d quando não nulo)
     // 0x34 cópia de level_tag::params: [0] pele (05xxxxxx), [1] script (06xxxxxx; 0x6000000 nenhum),
     // [2] dificuldade mínima, [3] canal a, [4] grupo, [5] modo, [6] canal b, [7] ?, [8] estado
     // de ataque pedido, [9] arma, [10] arma secundária, [11] olhar (alto: tipo, baixo: variante),
@@ -111,11 +113,11 @@ struct _BehaviourStruct {
     uint32_t attack;         // 0x04 < 6
     uint16_t words;          // 0x08 palavras de bits (1 a 3)
     uint16_t bits;           // 0x0a bits usados (1 a 0x5b)
-    uint32_t* props;         // 0x0c destino das palavras (Drone_tag::behaviour_a)
+    P32<uint32_t> props;     // 0x0c destino das palavras (Drone_tag::behaviour_a)
     uint32_t friend_type;    // 0x10
     uint16_t words2;         // 0x14
     uint16_t bits2;          // 0x16
-    uint32_t* props2;        // 0x18 (Drone_tag::behaviour_b)
+    P32<uint32_t> props2;    // 0x18 (Drone_tag::behaviour_b)
 };
 static_assert(sizeof(_BehaviourStruct) == 0x1c);
 
@@ -123,9 +125,9 @@ static_assert(sizeof(_BehaviourStruct) == 0x1c);
 
 struct alignas(16) Drone_tag {
     LLNODE_tag node;              // 0x000 NPCGlobals.drones
-    Drone_tag* group_next;        // 0x008 próximo do mesmo grupo (NDrone2_AddToGroup)
-    obj_tag* obj;                 // 0x00c
-    obj_tag* body_glow;           // 0x010 BodyGlow_Create
+    P32<Drone_tag> group_next;    // 0x008 próximo do mesmo grupo (NDrone2_AddToGroup)
+    P32<obj_tag> obj;             // 0x00c
+    P32<obj_tag> body_glow;       // 0x010 BodyGlow_Create
     uint8_t vulnerable;           // 0x014 a vida diminui com o dano (NDrone2_HitDamage); 0 em algumas peles
     uint8_t unknown_15;           // 0x015 algumas peles: DTYPE 0x12 em vez de 9
     uint8_t forced_attack;        // 0x016 conta como visto atacando (NDrone2_SeenAndAttacking)
@@ -241,7 +243,7 @@ struct alignas(16) Drone_tag {
     float last_damage;            // 0x150 dano do último acerto (NDrone2_HitDamage)
     float player_dist[4];         // 0x154 distância a cada jogador (100000 sem jogador)
     uint8_t unknown_164[0x0c];
-    obj_tag* opponent;            // 0x170 (0x170 a 0x2b0 zerados na inicialização)
+    P32<obj_tag> opponent;        // 0x170 (0x170 a 0x2b0 zerados na inicialização)
     uint8_t opponent_player;      // 0x174 alvo em NPCGlobals.opponents (DroneFunc_AllocateTargetID; 0xff nenhum)
     uint8_t unknown_175[0x0b];
     _VECTOR opp_pos;              // 0x180
@@ -293,19 +295,19 @@ struct alignas(16) Drone_tag {
     uint8_t unknown_284[0x0c];
     _VECTOR interrogate_pos;      // 0x290
     uint8_t unknown_2a0[0x10];
-    obj_tag* unknown_2b0;         // 0x2b0
-    obj_tag* attacker;            // 0x2b4 quem atirou ou bateu por último (DroneFunc_OnInitDeath)
-    obj_tag* near_armed;          // 0x2b8 inimigo armado à vista (NDrone2_NearArmedDrone)
-    obj_tag* unknown_2bc;
-    Drone_tag* unknown_2c0;       // 0x2c0 próximo personagem que NDrone2_FindOpponent testa (aliados)
+    P32<obj_tag> unknown_2b0;     // 0x2b0
+    P32<obj_tag> attacker;        // 0x2b4 quem atirou ou bateu por último (DroneFunc_OnInitDeath)
+    P32<obj_tag> near_armed;      // 0x2b8 inimigo armado à vista (NDrone2_NearArmedDrone)
+    P32<obj_tag> unknown_2bc;
+    P32<Drone_tag> unknown_2c0;   // 0x2c0 próximo personagem que NDrone2_FindOpponent testa (aliados)
     uint32_t unknown_2c4;         // 0x2c4 quadro
     uint32_t unknown_2c8;         // 0x2c8 contador
     uint32_t guard_zone;          // 0x2cc zona do oponente na porta guardada (NDrone2_DoorGuardHandler; 0xff: a do parceiro)
     uint8_t unknown_2d0[0x10];
     _VECTOR guard_planes[3];      // 0x2e0 planos da porta guardada (NDrone2_SetDronePartner)
     float nearest_dist;           // 0x310 distância ao personagem mais perto (até 3 m; NDrone2_Steer)
-    Drone_tag* nearest;           // 0x314 esse personagem
-    Drone_tag* unknown_318;
+    P32<Drone_tag> nearest;       // 0x314 esse personagem
+    P32<Drone_tag> unknown_318;
     // 0x31c para que lado está o mais perto (DroneMove_NoBunching): 2 à frente, 4 atrás, 8 à esquerda,
     // 0x10 à direita; LinkCreep_Handler põe 0x1e quando o caminho está bloqueado
     uint32_t bunch_flags;
@@ -313,7 +315,7 @@ struct alignas(16) Drone_tag {
     uint32_t explosive_time;      // 0x324 até quando foge do explosivo
     uint8_t unknown_328[8];
     _VECTOR explosive_pos;        // 0x330 de onde fugir (DroneMove_FindSafetyFromScaryObject)
-    cel_tag* explosive_cel;       // 0x340
+    P32<cel_tag> explosive_cel;   // 0x340
     uint8_t unknown_344[0x0c];
     float explosive_radius;       // 0x350 a que distância fugir
     uint16_t explosive_state;     // 0x354 estado depois de fugir (0: return_state)
@@ -322,7 +324,7 @@ struct alignas(16) Drone_tag {
     uint32_t head_track_until;
     uint16_t head_mode;           // 0x35c 2: a cabeça procura alvos até 50 m² (NDrone2_DoHeadTrackingBehaviour)
     uint8_t unknown_35e[2];
-    obj_tag* head_target;         // 0x360
+    P32<obj_tag> head_target;     // 0x360
     uint8_t unknown_364[0x1c];
     float head_yaw;               // 0x380 (NDrone2_GetHeadPos)
     uint8_t unknown_384[0x0c];
@@ -330,12 +332,12 @@ struct alignas(16) Drone_tag {
     uint32_t eye2_flags;          // 0x3a0 com 0x30000000, a visão testa também a partir de eye2
     uint8_t unknown_3a4[0x0c];
     _VECTOR eye2;                 // 0x3b0
-    cel_tag* eye2_cel;            // 0x3c0
+    P32<cel_tag> eye2_cel;        // 0x3c0
     uint8_t unknown_3c4[2];
     uint16_t move_quad;           // 0x3c6 quadrante do último passo de combate (DroneAnim_GetMoveQuad)
     uint8_t unknown_3c8[8];
     HITTEST_tag hit_test;         // 0x3d0 obj->hit_test (cápsula: type 0x800)
-    HITDATA_tag* last_hit;        // 0x470 o acerto deste tick (zerado a cada tick)
+    P32<HITDATA_tag> last_hit;    // 0x470 o acerto deste tick (zerado a cada tick)
     float moved;                  // 0x474 quanto andou no plano no último tick
     float speed;                  // 0x478 |vel|
     uint8_t unknown_47c[4];
@@ -351,7 +353,7 @@ struct alignas(16) Drone_tag {
     uint32_t sound;               // 0x4d0
     // 0x4d4 GameState.frame do último som ou fala (NDrone2_PlaySFX; NDrone2_HitTalkExtra espera 3 s)
     uint32_t sfx_time;
-    uint32_t* behaviour;          // 0x4d8 aponta para behaviour_a ou behaviour_b
+    P32<uint32_t> behaviour;      // 0x4d8 aponta para behaviour_a ou behaviour_b
     uint32_t behaviour_a[3];      // 0x4dc
     uint32_t behaviour_b[3];      // 0x4e8 (ao atacar com estado 100)
     uint32_t control_flags;       // 0x4f4 0x8000000: não gira para o alvo (NDrone2_Move, DroneMove_TurnToObj)
@@ -378,15 +380,15 @@ struct alignas(16) Drone_tag {
     uint8_t unknown_51f;
     uint32_t alert_status_time;   // 0x520
     uint32_t attack_time;         // 0x524
-    Drone_tag* alerted_by;        // 0x528 quem o alertou (DroneVision_ConsiderAlerted) ou o interrogador
+    P32<Drone_tag> alerted_by;    // 0x528 quem o alertou (DroneVision_ConsiderAlerted) ou o interrogador
     float visibility_here;        // 0x52c fator dos volumes de IA na própria posição
-    ANIMSCRIPT_tag* script;       // 0x530 o script da animação atual
+    P32<ANIMSCRIPT_tag> script;   // 0x530 o script da animação atual
     uint8_t unknown_534[4];
-    ANIMSCRIPT_tag* blend_script; // 0x538 o anterior, saindo
-    ANIMSCRIPT_tag* face_script;  // 0x53c
+    P32<ANIMSCRIPT_tag> blend_script;  // 0x538 o anterior, saindo
+    P32<ANIMSCRIPT_tag> face_script;  // 0x53c
     uint32_t impact_anim_frame;   // 0x540 GameState.frame da última animação de impacto
-    void (*anim_func)(Drone_tag*, uint16_t);     // 0x544 DroneData_AnimFunc
-    void (*state_func)(Drone_tag*, uint16_t);    // 0x548 DroneData_DAStateFunc
+    F32<void(Drone_tag*, uint16_t)> anim_func;   // 0x544 DroneData_AnimFunc
+    F32<void(Drone_tag*, uint16_t)> state_func;  // 0x548 DroneData_DAStateFunc
     float snap_rotate;            // 0x54c giro pendente (DroneAnim_SnapRotate)
     uint8_t unknown_550[4];
     uint32_t entry_script;        // 0x554
@@ -432,7 +434,7 @@ struct alignas(16) Drone_tag {
     uint16_t node_return_state;   // 0x5a6 estado de volta depois da ação de um nó (NDrone2_ReachedDestNode)
     uint8_t unknown_5a8[8];
     _VECTOR return_pos;           // 0x5b0 pés ao ser alertado
-    cel_tag* return_cel;          // 0x5c0
+    P32<cel_tag> return_cel;      // 0x5c0
     uint8_t unknown_5c4[0x0c];
     _VECTOR push_offset;          // 0x5d0 empurrão dos tiros, somado à posição e reduzido a 95% por tick
     _VECTOR prev_push_offset;     // 0x5e0 o do tick anterior (já somado)
@@ -450,12 +452,12 @@ struct alignas(16) Drone_tag {
     uint8_t unknown_790[0xa0];
     CelPos_tag cover_pos;         // 0x830 onde ficar na cobertura (NDrone2_FindCover)
     uint8_t unknown_850[4];
-    AIRoute_tag* active_route;    // 0x854 route ou route2, a que está sendo seguida
+    P32<AIRoute_tag> active_route;  // 0x854 route ou route2, a que está sendo seguida
     uint8_t unknown_858[8];
     AIRoute_tag route;            // 0x860 a rota do caminho (list: Mem_Malloc de AINetwork.max_nodes)
     uint8_t unknown_960[0x10];
     AIRoute_tag route2;           // 0x970
-    AIPoint_tag* mission_point;   // 0xa70 ponto de IA no fim da rota de missão
+    P32<AIPoint_tag> mission_point;  // 0xa70 ponto de IA no fim da rota de missão
     uint8_t unknown_a74[0x0c];
     AITarget_tag goal_target;     // 0xa80
     AITarget_tag sound_target;    // 0xae0 o último som ouvido (DroneFunc_HandleSoundAlerts)
@@ -463,11 +465,11 @@ struct alignas(16) Drone_tag {
     uint16_t unknown_ba0;         // 0xba0
     uint8_t unknown_ba2[2];
     uint32_t bounds_skip;         // 0xba4 limites ignorados ao empurrar (AINetwork_GetBoundsPushVectorForSphere)
-    obj_tag* door;                // 0xba8 porta que está abrindo
+    P32<obj_tag> door;            // 0xba8 porta que está abrindo
     uint16_t action_node;         // 0xbac posição na rota do nó com ação (porta, chute...)
     uint16_t wait_node;           // 0xbae nó de espera em que já esperou (0xffff nenhum)
     uint32_t door_time;           // 0xbb0
-    CoverNode_tag* cover;         // 0xbb4 a cobertura tomada (NDrone2_FindCover; CoverNode_tag::user)
+    P32<CoverNode_tag> cover;     // 0xbb4 a cobertura tomada (NDrone2_FindCover; CoverNode_tag::user)
     uint16_t cover_kind;          // 0xbb8 bits 0-1: como usá-la (NDrone2_CoverNodeOK: 1/2 quina, 3 baixa)
     uint8_t cover_step;           // 0xbba passo da animação de cobertura (DroneAnim_CoverAnim)
     uint8_t cover_mode;           // 0xbbb modo na quina: 0/1 agachado inclinando/saindo, 2/3 de pé, 4 como baixa
@@ -508,7 +510,7 @@ struct alignas(16) Drone_tag {
     float state_radius;           // 0xcf8 (civis: distância de quem está armado)
     float fade;                   // 0xcfc alfa ao sumir (NDrone2_FadeOut)
     uint8_t unknown_d00[0x1c];
-    void* bot;                    // 0xd1c dados do bot (multijogador)
+    P32<void> bot;                // 0xd1c dados do bot (multijogador)
 };
 static_assert(sizeof(Drone_tag) == 0xd20);
 static_assert(offsetof(Drone_tag, health) == 0xac && offsetof(Drone_tag, klass) == 0xd8);
@@ -572,8 +574,8 @@ static_assert(offsetof(Drone_tag, guard_zone) == 0x2cc && offsetof(Drone_tag, gu
 struct DroneTypeSetting {
     int16_t initial_state;   // < 0: escolhido no código
     int16_t attack_state;
-    void (*init)(Drone_tag*);       // +4
-    uint32_t (*control)(DCVars_tag*);  // +8 nulo: NDrone2_ControlSTANDARD
+    F32<void(Drone_tag*)> init;     // +4
+    F32<uint32_t(DCVars_tag*)> control;  // +8 nulo: NDrone2_ControlSTANDARD
 };
 static_assert(sizeof(DroneTypeSetting) == 0xc);
 constexpr int kDroneTypeCount = 85;
@@ -584,7 +586,7 @@ struct DroneModeSetting {
     uint8_t side;            // Drone_tag::side
     uint8_t pad[2];
     float alert;             // nível de alerta inicial
-    void (*init)(Drone_tag*);
+    F32<void(Drone_tag*)> init;
 };
 static_assert(sizeof(DroneModeSetting) == 0xc);
 constexpr int kDroneModeCount = 35;
@@ -622,7 +624,7 @@ struct DroneAnimState {
     uint8_t unknown_02;
     uint8_t kind;
     uint32_t unknown_04;
-    const uint8_t* calls;
+    P32<const uint8_t> calls;
 };
 static_assert(sizeof(DroneAnimState) == 0xc);
 constexpr int kDroneAnimStateCount = 119;
@@ -631,11 +633,12 @@ constexpr int kDroneAnimStateCount = 119;
 struct DroneDataFunc {
     uint16_t id;
     uint16_t pad;
-    void (*fn)(Drone_tag*, uint16_t);
+    F32<void(Drone_tag*, uint16_t)> fn;
 };
 static_assert(sizeof(DroneDataFunc) == 8);
 
-using DroneStateFunc = uint32_t (*)(DCVars_tag*, Drone_tag*, obj_tag*, MsgObject*);
+using DroneStateFuncSig = uint32_t(DCVars_tag*, Drone_tag*, obj_tag*, MsgObject*);
+using DroneStateFunc = DroneStateFuncSig*;
 constexpr int kDroneStateCount = 250;
 
 extern DroneTypeSetting DroneTypeSettings[kDroneTypeCount];
@@ -647,7 +650,7 @@ constexpr uint32_t kDroneAnimCallsSize = 0x2468;  // DASC_AAA_Undefined até Dro
 extern uint8_t DroneAnimStateCalls[kDroneAnimCallsSize];
 extern DroneDataFunc DroneData_AnimFunc[2];
 extern DroneDataFunc DroneData_DAStateFunc[2];
-extern DroneStateFunc NDrone2_StateFuncs[kDroneStateCount];
+extern F32<DroneStateFuncSig> NDrone2_StateFuncs[kDroneStateCount];  // palavras de 4 bytes (copiada do ELF)
 extern uint8_t bitDescs[182];     // por propriedade: {palavra | deslocamento << 3, índice da máscara}
 extern uint32_t bitMasks[35];
 extern float DroneCaptain_Mod_BulletDamage;
@@ -671,10 +674,11 @@ extern uint8_t Drone_DebugSpr;  // 0x0030ca9c a trapaça C_CHCHDEBUG (nada no ex
 // [1] a das livres; as outras 0x3fe começam livres.
 struct DroneSMLists {
     uint32_t count;          // 0x400
-    DroneSMItem* items;      // &Drone_SM_LLItems[0]
-    DroneSMItem* pending;    // &Drone_SM_LLItems[0]
-    DroneSMItem* free;       // &Drone_SM_LLItems[1]
+    P32<DroneSMItem> items;  // &Drone_SM_LLItems[0]
+    P32<DroneSMItem> pending;  // &Drone_SM_LLItems[0]
+    P32<DroneSMItem> free;   // &Drone_SM_LLItems[1]
 };
+static_assert(sizeof(DroneSMLists) == 0x10, "DroneSMLists: 0x10 bytes");
 extern DroneSMLists Drone_SM_LLDelayed;
 extern DroneSMItem Drone_SM_LLItems[0x400];
 extern uint32_t g_drone_guards;  // leituras e escritas fora do lugar que o port evita (drone_init.cpp)
@@ -948,14 +952,14 @@ uint16_t AnimScriptPeekSfx(uint32_t script);
 // obstáculo (outro personagem ou o jogador), cada um apontando para o outro.
 struct alignas(16) ObstacleEval_tag {
     uint32_t flags;               // 0x00 2: obstáculo parado (nunca volta a 0 entre obstáculos, como no original)
-    _VECTOR* pos;                 // 0x04
-    _VECTOR* rot;                 // 0x08
+    P32<_VECTOR> pos;             // 0x04
+    P32<_VECTOR> rot;             // 0x08
     float speed;                  // 0x0c quanto anda por tick (Drone_tag::moved; 0 para o jogador)
     float radius;                 // 0x10
     uint8_t unknown_14[0x0c];
     _VECTOR vel;                  // 0x20 passo deste tick no plano (x, z)
     _VECTOR contact;              // 0x30 posição no momento do contato
-    ObstacleEval_tag* other;      // 0x40
+    P32<ObstacleEval_tag> other;  // 0x40
     uint8_t unknown_44[0x44];
     float radius_sum;             // 0x88
     float share;                  // 0x8c parte do desvio que cabe a este: speed / (speed + other->speed)
@@ -1028,7 +1032,7 @@ struct alignas(16) DroneImpact_tag {
     float radius;                 // 0x04 raio da explosão
     uint32_t unknown_08[2];
     _VECTOR pos;                  // 0x10 centro da explosão
-    obj_tag* source;              // 0x20 quem causou a explosão (EXPLODE_tag::from)
+    P32<obj_tag> source;          // 0x20 quem causou a explosão (EXPLODE_tag::from)
     uint32_t unknown_24[3];
 };
 static_assert(sizeof(DroneImpact_tag) == 0x30 && offsetof(DroneImpact_tag, source) == 0x20);
@@ -1108,7 +1112,7 @@ uint32_t DroneFunc_CombatState(DCVars_tag* dcv);
 // vetores CCMode* de 6 entradas, contíguos em CCModeTables); numa cobertura baixa, LCModes[passo].
 constexpr uint32_t kCCModeTableSize = 0x90;
 extern uint16_t CCModeTables[kCCModeTableSize / 2];
-extern uint16_t* CCModes[10];
+extern P32<uint16_t> CCModes[10];  // palavras de 4 bytes (copiada do ELF)
 extern uint16_t LCModeCrouch[6];
 extern uint16_t* LCModes;
 uint16_t DroneAnim_ValidateCoverAnim(DCVars_tag* dcv, uint16_t anim);
@@ -1271,7 +1275,7 @@ struct alignas(16) DroneSpawnEntry_tag {
     // 0x04 a sala do personagem modelo na hora de DroneSpawner_Init. Ainda nula no original (o personagem
     // só é posto no mapa por NDrone2_DefaultInit, depois), o que desliga o teste de linha de visão de
     // Drone_PositionVisible: na prática, só a distância conta.
-    cel_tag* cel;
+    P32<cel_tag> cel;
     uint32_t unknown_08[2];
     DIVars_tag vars;         // 0x10 o Drone_tag::divars do modelo (o obj aponta para o último gerado)
 };
@@ -1306,8 +1310,8 @@ struct DroneSpawner_tag {
     uint16_t entry_count2;    // 0x2e = entry_count (o sorteio do modelo usa este)
     uint16_t unknown_30;
     uint16_t unknown_32;
-    obj_tag** spawned;        // 0x34 max_alive vagas: os personagens gerados vivos
-    DroneSpawnEntry_tag* entries;  // 0x38 entry_count modelos
+    P32<P32<obj_tag>> spawned;  // 0x34 max_alive vagas: os personagens gerados vivos
+    P32<DroneSpawnEntry_tag> entries;  // 0x38 entry_count modelos
 };
 static_assert(sizeof(DroneSpawner_tag) == 0x3c && offsetof(DroneSpawner_tag, distance) == 0x18);
 static_assert(offsetof(DroneSpawner_tag, init_frame) == 0x24 && offsetof(DroneSpawner_tag, spawned) == 0x34);

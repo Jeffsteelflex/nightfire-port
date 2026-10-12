@@ -26,6 +26,7 @@
 #include "engine/view.h"
 #include "platform/pending.h"
 #include "platform/psi.h"
+#include "platform/fmath.h"
 
 obj_tag DynamicObjList;
 int32_t DynamicObjCount = 0;
@@ -369,10 +370,10 @@ void Control_InheritVelocity(obj_tag* obj, obj_tag* from, float) {
         _VECTOR dir;
         Mat_GetDir(&dir, &from->matrix);
         const _VECTOR& o = from->old_rot;
-        InheritOldR.x = std::atan2(o.y, std::sqrt(o.x * o.x + o.z * o.z));
-        InheritOldR.y = std::atan2(o.x, o.z);
-        InheritNewR.x = std::atan2(dir.y, std::sqrt(dir.x * dir.x + dir.z * dir.z));
-        InheritNewR.y = std::atan2(dir.x, dir.z);
+        InheritOldR.x = nf::fm::atan2(o.y, std::sqrt(o.x * o.x + o.z * o.z));
+        InheritOldR.y = nf::fm::atan2(o.x, o.z);
+        InheritNewR.x = nf::fm::atan2(dir.y, std::sqrt(dir.x * dir.x + dir.z * dir.z));
+        InheritNewR.y = nf::fm::atan2(dir.x, dir.z);
     }
     InheritDeltaR = sub(InheritOldR, InheritNewR);
     if (Vec_IsEqual(&InheritDeltaR, &CONSTANT_ZERO_VECTOR, 0.0002f)) return;
@@ -403,7 +404,7 @@ int32_t Control_Plr2Ind(obj_tag* obj) {
         case 2:
         case 0x11: {
             const uint8_t* drone;
-            std::memcpy(&drone, data + 0xd1c, 4);
+            drone = nf::p32_load<const uint8_t>(data + 0xd1c);
             int16_t i;
             std::memcpy(&i, drone + 0x75c, 2);
             index = i;
@@ -422,7 +423,7 @@ int32_t Control_Plr2Ind(obj_tag* obj) {
     uint32_t mp;
     std::memcpy(&mp, MPSettings + 0x184, 4);
     obj_tag* owner;
-    std::memcpy(&owner, MPGame + index * 0x30 + 0x1c, 4);
+    owner = nf::p32_load<obj_tag>(MPGame + index * 0x30 + 0x1c);
     if (mp != 0 && owner != obj) index = -1;
     return index;
 }
@@ -439,14 +440,14 @@ cel_tag* build_FindCel(const _VECTOR* point, world_tag* world) {
             for (cel_tag* c = world->first; c != nullptr; c = c->next) {
                 if ((c->type & 0x40000) != 0) ++rooms;
             }
-            gbl_room_cels = static_cast<cel_tag**>(Mem_Malloc(uint32_t(rooms + 1) * 4, 0x904, 0));
-            cel_tag** out = gbl_room_cels;
+            gbl_room_cels = static_cast<P32<cel_tag>*>(Mem_Malloc(uint32_t(rooms + 1) * 4, 0x904, 0));
+            P32<cel_tag>* out = gbl_room_cels;
             for (cel_tag* c = world->first; c != nullptr; c = c->next) {
                 if ((c->type & 0x40000) != 0) *out++ = c;
             }
             *out = nullptr;
         }
-        for (cel_tag** c = gbl_room_cels; *c != nullptr && CelListCount_154 < 0x40; ++c) {
+        for (P32<cel_tag>* c = gbl_room_cels; *c != nullptr && CelListCount_154 < 0x40; ++c) {
             if (inside_box(*c, point)) CelList_153[CelListCount_154++] = *c;
         }
     } else {
@@ -460,8 +461,8 @@ cel_tag* build_FindCel(const _VECTOR* point, world_tag* world) {
     cel_tag* found = nullptr;
     float reach = 256.0f;
     for (uint16_t i = 0; i < CelListCount_154; ++i) {
-        HITDATA_tag* up = nullptr;
-        HITDATA_tag* down = nullptr;
+        P32<HITDATA_tag> up = nullptr;
+        P32<HITDATA_tag> down = nullptr;
         _VECTOR to{point->x, point->y + reach, point->z, 0.0f};
         Collide_RayIntersect(point, &to, CelList_153[i], nullptr, nullptr, &up, 1, 0x90, 0);
         if (up != nullptr && up->dist < reach) reach = up->dist;
@@ -510,7 +511,7 @@ bool build_PointOnFloor(cel_tag* cel, obj_tag* obj, _VECTOR* p, float len, _VECT
     _VECTOR down{0.0f, -1.0f, 0.0f, 0.0f};
     const _VECTOR* d = dir != nullptr ? dir : &down;
     const _VECTOR to{p->x + d->x * len, p->y + d->y * len, p->z + d->z * len, 0.0f};
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     const bool hit = Collide_RayIntersect(p, &to, cel, obj, nullptr, &hits, 0, 0x70c, 0);
     if (hit) {
         *p = hits->pos;
@@ -537,7 +538,7 @@ void build_link_objects_to_rooms(cel_tag* first) {
                                 p.z <= r->box_max.z && r->box_min.y <= p.y && !(r->box_max.y < p.y);
             if (!inside) continue;
             _VECTOR center = c->sphere;
-            HITDATA_tag* hits = nullptr;
+            P32<HITDATA_tag> hits = nullptr;
             if (Collide_SphereIntersect(&center, best + 1.0f, r, nullptr, nullptr, &hits, 1, 0, 0x90, 4)) {
                 if (hits->dist < best) {
                     room = hits->cel;
@@ -579,7 +580,7 @@ void build_LinkDoors2Portals(cel_tag*, obj_tag* objects) {
                     vecutil_point_on_poly(&c, &p->verts[2], &p->verts[3], &p->verts[0], &n) == 0) {
                     continue;
                 }
-                const uint32_t door = uint32_t(reinterpret_cast<uintptr_t>(o));
+                const uint32_t door = nf::p32_u(o);
                 o->flags |= 0x8000;
                 if (p->unknown_0c == 0) p->unknown_0c = door;
                 if (p->opposite->unknown_0c == 0) p->opposite->unknown_0c = door;
@@ -765,7 +766,7 @@ void control_movement_object_handler(int8_t) {
                         auto* data = static_cast<uint8_t*>(p->data);
                         const auto clear = [&](uint32_t offset) {
                             obj_tag* ref;
-                            std::memcpy(&ref, data + offset, 4);
+                            ref = nf::p32_load<obj_tag>(data + offset);
                             if (ref == o) std::memset(data + offset, 0, 4);
                         };
                         if (p->type == 5) {

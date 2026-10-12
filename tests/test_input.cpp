@@ -36,6 +36,7 @@
 #include "platform/psi_pad.h"
 #include "platform/settings.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -918,7 +919,7 @@ TEST(menu_pc_controls_tabs_and_rebinding) {
     // mostra o valor e os centímetros por volta a 800 DPI.
     w.menu_tick({VK_RIGHT});
     w.menu_tick();
-    CHECK_NEAR(psiMouseSensitivity, 0.0022 * std::pow(2.0, 1.0 / 8.0), 1e-7);
+    CHECK_NEAR(psiMouseSensitivity, 0.0022 * nf::fm::pow(2.0, 1.0 / 8.0), 1e-7);
     CHECK(MenuPc_Slider(0, kPcRowMouseSens) == nf::kMouseSensDefaultPos + 1);
     // Para baixo até a inversão do Y do controle e Espaço troca (o PlayerSetting do jogo).
     for (int i = 0; i < 5; ++i) {

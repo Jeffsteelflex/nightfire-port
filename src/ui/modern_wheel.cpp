@@ -9,6 +9,7 @@
 #include "engine/pc_text.h"
 #include "engine/txt.h"
 #include "engine/weapon_wheel.h"
+#include "platform/fmath.h"
 
 namespace nf::ui {
 
@@ -87,9 +88,9 @@ WheelSlotGeom wheel_slot_geometry(const WheelGeometry& g, int ring, int index, i
     s.mid = 2.0f * kPi * float(index) / float(slots);
     s.a0 = s.mid - half + gap;
     s.a1 = s.mid + half - gap;
-    s.px = g.cx + s.rm * std::sin(s.mid);
-    s.py = g.cy - s.rm * std::cos(s.mid);
-    const float chord = 2.0f * s.rm * std::sin(std::max(0.02f, half - gap));
+    s.px = g.cx + s.rm * nf::fm::sin(s.mid);
+    s.py = g.cy - s.rm * nf::fm::cos(s.mid);
+    const float chord = 2.0f * s.rm * nf::fm::sin(std::max(0.02f, half - gap));
     s.box = std::min(s.r1 - s.r0, chord);
     // O nome cabe nos espaços de pelo menos 92 de lado (os anéis de 8, 12 e 16 espaços de fora, 6 e 8 de dentro).
     s.names = s.box >= 92.0f * k;
@@ -171,8 +172,8 @@ void build_weapon_wheel(DrawList& back, ImageList& icons, DrawList& front, const
     const float k = 0.94f + 0.06f * a;  // a roda cresce um pouco ao abrir
     const float cx = g.cx, cy = g.cy;
     const auto at = [&](float r, float ang, float* x, float* y) {
-        *x = cx + r * std::sin(ang);
-        *y = cy - r * std::cos(ang);
+        *x = cx + r * nf::fm::sin(ang);
+        *y = cy - r * nf::fm::cos(ang);
     };
     // O fundo: a cena escurece em volta (a vinheta), mais no meio, atrás da roda.
     back.radial(Rect{cv.left, cv.top, cv.right, cv.bottom}, rgb(0x0b0806, 0.30f * a), tk.color.vignette.with_alpha(0.85f * a));
@@ -234,8 +235,8 @@ void build_weapon_wheel(DrawList& back, ImageList& icons, DrawList& front, const
                 front.diamond(Rect{dx - dr, dy - dr, dx + dr, dy + dr}, tk.color.accent.with_alpha(a));
             }
             // A largura de uma linha de texto de pé no espaço: a corda em cima e embaixo, a espessura do anel dos lados.
-            const float sn = std::fabs(std::sin(s.mid)), cs = std::fabs(std::cos(s.mid));
-            const float chord = 2.0f * s.rm * std::sin(std::max(0.02f, (s.a1 - s.a0) * 0.5f));
+            const float sn = std::fabs(nf::fm::sin(s.mid)), cs = std::fabs(nf::fm::cos(s.mid));
+            const float chord = 2.0f * s.rm * nf::fm::sin(std::max(0.02f, (s.a1 - s.a0) * 0.5f));
             const float width = std::min({chord / std::max(cs, 0.05f), (s.r1 - s.r0) / std::max(sn, 0.05f), 210.0f * k}) * 0.86f;
             const Color nc = hover && sl.usable ? tk.color.accent_hi : sl.usable ? tk.color.text : tk.color.disabled;
             const Color ac = sl.usable ? (hover ? tk.color.accent : tk.color.text_2) : tk.color.disabled;

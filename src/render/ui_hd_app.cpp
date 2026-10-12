@@ -43,9 +43,11 @@ std::string narrow(const std::wstring& w) {
 
 std::wstring widen(const std::string& s) { return std::wstring(s.begin(), s.end()); }
 
+}  // namespace
+
 // hd_ui: a pasta pedida, ou a primeira que tiver map.json entre a do executável e as de cima (o repositório,
 // a partir de build/Release), a dos dados e a atual.
-std::wstring find_dir(const std::wstring& option, const std::wstring& data_dir) {
+std::wstring UiHdApp::find_dir(const std::wstring& option, const std::wstring& data_dir) {
     if (!option.empty()) return option;
     std::vector<std::wstring> candidates;
     wchar_t buf[MAX_PATH];
@@ -65,8 +67,6 @@ std::wstring find_dir(const std::wstring& option, const std::wstring& data_dir) 
     }
     return std::wstring();
 }
-
-}  // namespace
 
 UiHdApp::UiHdApp() = default;
 UiHdApp::~UiHdApp() = default;

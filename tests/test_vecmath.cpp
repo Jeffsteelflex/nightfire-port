@@ -7,6 +7,7 @@
 
 #include "engine/vecmath.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -37,7 +38,7 @@ TEST(sin_poly_close_to_std_sin) {
     float worst = 0;
     for (int i = -2000; i <= 2000; ++i) {
         const float a = i * 0.01f;
-        worst = std::max(worst, std::fabs(PS2Sinf(a) - std::sin(a)));
+        worst = std::max(worst, std::fabs(PS2Sinf(a) - nf::fm::sin(a)));
     }
     CHECK(worst < 3e-5f);
     CHECK_NEAR(PS2Sinf(0.0f), 0.0, 1e-7);
@@ -60,8 +61,8 @@ TEST(rotmatrix_matches_independent_formula) {
         const _VECTOR e{uniform(-3.2f, 3.2f), uniform(-3.2f, 3.2f), uniform(-3.2f, 3.2f), 0};
         MATRIX m = zero_matrix();
         RotMatrix(&e, &m);
-        const double cx = std::cos(e.x), sx = std::sin(e.x), cy = std::cos(e.y), sy = std::sin(e.y);
-        const double cz = std::cos(e.z), sz = std::sin(e.z);
+        const double cx = nf::fm::cos(e.x), sx = nf::fm::sin(e.x), cy = nf::fm::cos(e.y), sy = nf::fm::sin(e.y);
+        const double cz = nf::fm::cos(e.z), sz = nf::fm::sin(e.z);
         const double ref[3][3] = {{cy * cz, sx * sy * cz + cx * sz, -cx * sy * cz + sx * sz},
                                   {-cy * sz, cx * cz - sx * sy * sz, sx * cz + cx * sy * sz},
                                   {sy, -sx * cy, cx * cy}};
@@ -194,8 +195,8 @@ TEST(slerp_variants) {
     Quat_Slerp(0.6f, &a, &b, &out);
     CHECK(out.y == b.y && out.w == b.w);
     Quat_Slerp_Acc(0.5f, &a, &b, &out);
-    CHECK_NEAR(out.y, std::sin(3.14159265 / 8), 1e-4);
-    CHECK_NEAR(out.w, std::cos(3.14159265 / 8), 1e-4);
+    CHECK_NEAR(out.y, nf::fm::sin(3.14159265 / 8), 1e-4);
+    CHECK_NEAR(out.w, nf::fm::cos(3.14159265 / 8), 1e-4);
 }
 
 TEST(vector_helpers) {

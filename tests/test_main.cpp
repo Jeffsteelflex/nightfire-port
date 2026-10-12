@@ -2,14 +2,15 @@
 #include <cstring>
 #include <exception>
 
+#include "platform/arena.h"
 #include "platform/crash_report.h"
 #include "platform/gamepad.h"
 #include "test_framework.h"
 
-int main(int argc, char** argv) {
-    std::setvbuf(stdout, nullptr, _IONBF, 0);  // sem buffer: a saída sobrevive a uma queda
-    nf::install_crash_report();                // uma queda escreve a pilha (o teste que caiu é o último sem "ok")
-    const char* filter = argc > 1 ? argv[1] : nullptr;
+namespace {
+
+int run_all(void* arg) {
+    const char* filter = static_cast<const char*>(arg);
     int run = 0;
     // Nenhum teste lê um controle de verdade: cada um começa com uma fonte sem controles (os que simulam um põem a
     // deles). Sem isto, um controle ligado ao PC entrava nas ações dos testes (e vibrava).
@@ -30,4 +31,18 @@ int main(int argc, char** argv) {
     nf::set_pad_source(nullptr);
     std::printf("\n%d testes, %d falhas\n", run, nftest::failures());
     return nftest::failures() == 0 ? 0 : 1;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);  // sem buffer: a saída sobrevive a uma queda
+    nf::install_crash_report();                // uma queda escreve a pilha (o teste que caiu é o último sem "ok")
+    char* filter = argc > 1 ? argv[1] : nullptr;
+#if NF_PTR64
+    // 64 bits: os testes rodam na pilha da arena, como o jogo (os campos do jogo guardam endereços de locais).
+    return nf::arena::run_on_game_stack(run_all, filter);
+#else
+    return run_all(filter);
+#endif
 }

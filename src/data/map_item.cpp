@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <tuple>
 #include <cmath>
+#include "platform/fmath.h"
 
 namespace nf {
 
@@ -758,9 +759,9 @@ std::vector<Placement> read_placements(ByteView item, const std::vector<Block>& 
 }
 
 std::array<float, 16> placement_matrix(const Placement& p) {
-    const float cx = std::cos(p.euler[0]), sx = std::sin(p.euler[0]);
-    const float cy = std::cos(p.euler[1]), sy = std::sin(p.euler[1]);
-    const float cz = std::cos(p.euler[2]), sz = std::sin(p.euler[2]);
+    const float cx = nf::fm::cos(p.euler[0]), sx = nf::fm::sin(p.euler[0]);
+    const float cy = nf::fm::cos(p.euler[1]), sy = nf::fm::sin(p.euler[1]);
+    const float cz = nf::fm::cos(p.euler[2]), sz = nf::fm::sin(p.euler[2]);
     const float r[3][3] = {
         {cy * cz, sx * sy * cz + cx * sz, -cx * sy * cz + sx * sz},
         {-cy * sz, cx * cz - sx * sy * sz, sx * cz + cx * sy * sz},

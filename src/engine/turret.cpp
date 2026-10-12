@@ -7,6 +7,8 @@
 //   parâmetro 5, o canal que a desliga, era lixo da pilha).
 // - Os acumuladores vetoriais com lixo da pilha na coordenada w (o cano em GT_Update, o alvo em GT_RandMove) ficam com o
 //   w dos vetores de verdade.
+// - O giro do cano (spin_barrel) monta a rotação numa matriz zerada; o original usa a pilha que sobrou, e a translação
+//   dela entrava na posição do cano.
 
 #include "engine/turret.h"
 
@@ -48,7 +50,7 @@ constexpr float kTwoPi = 6.2831855f;
 
 // TargetList.144 (0x00317008): 64 candidatos {objeto, distância ao quadrado}, ordenados por QuickSort (COMP_TARGETOBJ).
 struct TargetEntry {
-    obj_tag* obj;
+    P32<obj_tag> obj;
     float dist;
 };
 static_assert(sizeof(TargetEntry) == 8);
@@ -104,6 +106,9 @@ void pose(GUNTURRET* gt, const MATRIX& m) {
 }
 
 // O cano gira em z ("spin" acumula "step"), normalizado em ±180 graus.
+// Divergência: RotMatrixZ só escreve a rotação, e o original monta a matriz numa área da pilha que sobrou de antes
+// (Concat soma a linha 3 dela, girada, à posição do cano). Aqui ela começa zerada: o cano gira no lugar. Com lixo, o
+// cano e o clarão pulavam de lugar conforme o que estava na pilha (visto na versão de 64 bits: 10 m, 100 m).
 void spin_barrel(GUNTURRET* gt, float step) {
     if (gt->barrel == nullptr) return;
     float a = gt->spin;
@@ -113,7 +118,7 @@ void spin_barrel(GUNTURRET* gt, float step) {
         if (kPi <= std::fabs(r)) a = 0.0f <= gt->spin ? r - kTwoPi : r + kTwoPi;
     }
     gt->spin = a;
-    MATRIX z;
+    MATRIX z{};
     RotMatrixZ(a, &z);
     gt->spin = gt->spin + step;
     Concat(&gt->barrel->matrix, &z);
@@ -149,7 +154,7 @@ void take_damage(GUNTURRET* gt, SCRIPTINFO* si, bool* stunned) {
         gt->health -= Collide_GetDamageNObjects(o->hits, nullptr, nullptr, 0);
         if (o->type == 5) {
             const weapon_definition_tag* w;
-            std::memcpy(&w, static_cast<const uint8_t*>(o->data) + 0x44, 4);
+            w = nf::p32_load<const weapon_definition_tag>(static_cast<const uint8_t*>(o->data) + 0x44);
             if (w->id == 0x4a || w->id == 0x4c) *stunned = true;
         }
     }
@@ -180,7 +185,7 @@ uint32_t GT_DeployMiniGun(_VECTOR* pos, MATRIX* m, obj_tag* player) {
     alignas(16) quaternion_tag q;
     Quat_MatToQuat(&q, m);
     celglist_tag* glist = hashtable_hashcode_to_celglist(0x2000359);
-    return uint32_t(reinterpret_cast<uintptr_t>(GT_Create(pos, &rot, &q, &level, glist, player)));
+    return nf::p32_u(GT_Create(pos, &rot, &q, &level, glist, player));
 }
 
 // [decomp] 0x0017ffa0 GT_Create
@@ -246,7 +251,7 @@ obj_tag* GT_Create(_VECTOR* pos, _VECTOR* rot, quaternion_tag*, level_tag* level
 // Evento 15 dos scripts da torreta: o objeto do stream 0, 1 ou 2 vira o clarão, o cano ou a terceira peça.
 void GT_Register(obj_tag* obj, uint16_t stream, void* user) {
     if (user == nullptr || stream >= 3) return;
-    obj_tag** slots = &static_cast<GUNTURRET*>(user)->flash;
+    P32<obj_tag>* slots = &static_cast<GUNTURRET*>(user)->flash;
     slots[stream] = obj;
 }
 
@@ -308,7 +313,7 @@ obj_tag* GT_Track(GUNTURRET* gt, obj_tag* obj) {
         const float range = 500.0f;
         for (uint32_t i = 0; i < 8; ++i) {
             obj_tag* o;
-            std::memcpy(&o, MPGame + 0x1c + i * 0x30, 4);
+            o = nf::p32_load<obj_tag>(MPGame + 0x1c + i * 0x30);
             if (o == nullptr || gt->owner == o) continue;
             if (o->type == 2 && !(0.0f < static_cast<const Drone_tag*>(o->data)->health)) continue;
             if (o->type == 3 && bloke_of(o)->health <= 0.0f) continue;
@@ -460,7 +465,7 @@ void GT_Update(obj_tag* obj) {
                 if (0.1f < gt->fire_timer) {
                     gt->fire_timer = 0.0f;
                     if (0 < gt->ammo) --gt->ammo;
-                    fire(obj, gt, gt->kind == 1 ? 0x4e7u : 0x10au, gt->owner != nullptr ? gt->owner : obj, -1);
+                    fire(obj, gt, gt->kind == 1 ? 0x4e7u : 0x10au, gt->owner != nullptr ? nf::raw(gt->owner) : obj, -1);
                 }
                 if (barrel == nullptr) return;
                 spin_barrel(gt, REC_FRAME_RATE * kTwoPi + REC_FRAME_RATE * kTwoPi);

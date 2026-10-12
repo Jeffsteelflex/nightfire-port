@@ -33,6 +33,7 @@
 #include "platform/psi.h"
 #include "platform/psi_input.h"
 #include "test_framework.h"
+#include "platform/fmath.h"
 
 namespace {
 
@@ -438,7 +439,7 @@ TEST(weapon_wheel_switches_or_zooms_while_aiming) {
     g_psi_keyboard_mouse.wheel = 1.0f;
     w.tick();
     CHECK(w.anim()->next_weapon == 2 && w.anim()->weapon == 2);
-    CHECK_NEAR(b->zoom_target / before, std::pow(1.025, 9.0), 1e-4);
+    CHECK_NEAR(b->zoom_target / before, nf::fm::pow(1.025, 9.0), 1e-4);
     CHECK(b->weapons[2].zoom == b->zoom_target);
     // O zoom anda até o alvo pelo caminho do jogo (15% por tick).
     w.tick(10);
@@ -642,7 +643,7 @@ TEST(weapon_wheel_release_selects_through_the_game_path) {
     CHECK(wheel.slots(false)[other].usable && wheel.slots(false)[other].clip == 7);
     // O mouse aponta a 0x14 (contagens até a borda na direção do espaço; y da tela para baixo).
     const float a = weapon_wheel_item_angle(other, wheel.count(false), false);
-    wheel.frame(dt, true, std::sin(a) * WeaponWheel::kMouseCounts, -std::cos(a) * WeaponWheel::kMouseCounts, 0.0f, 0.0f,
+    wheel.frame(dt, true, nf::fm::sin(a) * WeaponWheel::kMouseCounts, -nf::fm::cos(a) * WeaponWheel::kMouseCounts, 0.0f, 0.0f,
                 w.player);
     CHECK(wheel.hovered().ring == 2 && wheel.hovered().index == other);
     // Soltar escolhe pelo caminho da troca do jogo: next_weapon, a anterior e a memória da última arma.
@@ -659,7 +660,7 @@ TEST(weapon_wheel_release_selects_through_the_game_path) {
     CHECK(wheel.count(false) < 6);
     wheel.frame(dt, true, 0.0f, 0.0f, 0.0f, 0.0f, w.player);
     const float ea = weapon_wheel_slot_angle(5, weapon_wheel_ring_slots(wheel.count(false), false));
-    wheel.frame(dt, true, std::sin(ea) * WeaponWheel::kMouseCounts, -std::cos(ea) * WeaponWheel::kMouseCounts, 0.0f, 0.0f,
+    wheel.frame(dt, true, nf::fm::sin(ea) * WeaponWheel::kMouseCounts, -nf::fm::cos(ea) * WeaponWheel::kMouseCounts, 0.0f, 0.0f,
                 w.player);
     CHECK(wheel.hovered().ring == 2 && wheel.hovered().index == 5);
     wheel.frame(dt, false, 0.0f, 0.0f, 0.0f, 0.0f, w.player);
@@ -668,7 +669,7 @@ TEST(weapon_wheel_release_selects_through_the_game_path) {
     // de soltar o analógico o espaço apontado fica.
     wheel.frame(dt, true, 0.0f, 0.0f, 0.0f, 0.0f, w.player);
     const float ga = weapon_wheel_item_angle(1, 2, true);
-    wheel.frame(dt, true, 0.0f, 0.0f, std::sin(ga) * 0.6f, std::cos(ga) * 0.6f, w.player);
+    wheel.frame(dt, true, 0.0f, 0.0f, nf::fm::sin(ga) * 0.6f, nf::fm::cos(ga) * 0.6f, w.player);
     wheel.frame(dt, true, 0.0f, 0.0f, 0.0f, 0.0f, w.player);
     CHECK(wheel.hovered().ring == 1 && wheel.hovered().index == 1);
     // A arma ocupada ao soltar (recarregando): a escolha espera até ela ficar livre.

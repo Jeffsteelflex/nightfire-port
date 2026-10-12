@@ -22,6 +22,8 @@ Hdr* hdr_at(uintptr_t a) { return reinterpret_cast<Hdr*>(a); }
 Hdr* hdr_of(void* p) { return hdr_at(A(p) - 12); }
 uintptr_t heap_base() { return A(PtrHeap); }
 uintptr_t heap_limit() { return heap_base() + HeapByteSize - 12; }
+// O endereço como o cabeçalho o guarda (+0, 32 bits; em x64 o deslocamento na janela, platform/ptr32.h).
+uint32_t W(uintptr_t a) { return nf::p32_u(reinterpret_cast<void*>(a)); }
 
 void fresh_heap() {
     psiMemHeapSize = 1u << 20;
@@ -42,7 +44,7 @@ Walk walk() {
     uintptr_t b = heap_base();
     while (b < heap_limit()) {
         const Hdr* h = hdr_at(b);
-        if (h->prev != prev || h->size < 12) {
+        if (h->prev != W(prev) || h->size < 12) {
             w.ok = false;
             return w;
         }
@@ -64,7 +66,7 @@ TEST(mem_init_single_free_block) {
 
     CHECK(heap_base() % 16 == 0);
     const Hdr* h = hdr_at(heap_base());
-    CHECK(h->free == 1 && h->tag == 4 && h->size == HeapByteSize - 12 && h->prev == heap_base());
+    CHECK(h->free == 1 && h->tag == 4 && h->size == HeapByteSize - 12 && h->prev == W(heap_base()));
     CHECK(h->slack == 0x98);  // não é escrita por Mem_Init
     CHECK(P(PtrHeap)[12] == 0x98 && P(PtrHeap)[HeapByteSize - 1] == 0x98);
     const Walk w = walk();
@@ -78,7 +80,7 @@ TEST(mem_best_fit_allocates_from_top_aligned) {
     CHECK(A(p) % 16 == 0);
     CHECK(A(p) + 100 <= heap_limit() && A(p) + 100 + 16 > heap_limit());  // encostado no topo
     const Hdr* h = hdr_of(p);
-    CHECK(h->free == 0 && h->tag == 0x0110 && h->prev == heap_base());
+    CHECK(h->free == 0 && h->tag == 0x0110 && h->prev == W(heap_base()));
     CHECK(h->size == heap_limit() - (A(p) - 12));
     CHECK(h->slack == uint8_t(h->size - 100 - 12));
     void* q = Mem_Malloc(64, 0x0280, 0);  // alinhamento 128 vindo da etiqueta
@@ -115,7 +117,7 @@ TEST(mem_bottom_method_allocates_at_start) {
     // O início dos dados (base + 12) não está alinhado: um bloco livre de 0x14 bytes vai na frente.
     CHECK(A(p) == heap_base() + 0x20);
     CHECK(hdr_at(heap_base())->free == 1 && hdr_at(heap_base())->size == 0x14);
-    CHECK(hdr_of(p)->free == 0 && hdr_of(p)->tag == 0x0110 && hdr_of(p)->prev == heap_base());
+    CHECK(hdr_of(p)->free == 0 && hdr_of(p)->tag == 0x0110 && hdr_of(p)->prev == W(heap_base()));
     // O resto livre começa em base + 0x84, e os dados do próximo (base + 0x90) já saem alinhados.
     void* q = Mem_Malloc(100, 0x0110, 0);
     CHECK(A(q) == heap_base() + 0x90);

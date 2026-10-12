@@ -110,10 +110,12 @@ LLNODE_tag* LList_InsertAt(LLISTINFO_tag* list, LLNODE_tag* node, int8_t from_fi
                            int32_t (*compare)(const void*, const void*)) {
     if (list == nullptr || node == nullptr || compare == nullptr) return nullptr;
     LLNODE_tag* after = nullptr;
+    // Os comparadores (sort.cpp) leem os nós como palavras de ponteiro de 4 bytes (P32).
+    const P32<LLNODE_tag> node_word = node;
     if (from_first != 0) {
         LLNODE_tag* mark = nullptr;
-        for (LLNODE_tag* cur = list->first; cur != nullptr; cur = cur->next) {
-            const int32_t r = compare(&node, &cur);
+        for (P32<LLNODE_tag> cur = list->first; cur != nullptr; cur = cur->next) {
+            const int32_t r = compare(&node_word, &cur);
             if (r == 0) {
                 mark = cur;
                 break;
@@ -122,8 +124,8 @@ LLNODE_tag* LList_InsertAt(LLISTINFO_tag* list, LLNODE_tag* node, int8_t from_fi
         }
         after = mark != nullptr ? mark->prev : nullptr;
     } else {
-        for (LLNODE_tag* cur = list->last; cur != nullptr; cur = cur->prev) {
-            const int32_t r = compare(&node, &cur);
+        for (P32<LLNODE_tag> cur = list->last; cur != nullptr; cur = cur->prev) {
+            const int32_t r = compare(&node_word, &cur);
             if (r == 0 || r == 1) {
                 after = cur;
                 break;

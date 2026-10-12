@@ -84,7 +84,7 @@ struct FxWorld {
 // O "atirador" de Effect_Bullet: um objeto com 0x34 bytes de dados (o jogador em +0x30).
 obj_tag* bullet_from_player(obj_tag* player) {
     obj_tag* b = control_create_object(0x40, nullptr, nullptr, nullptr);
-    std::memcpy(static_cast<uint8_t*>(b->data) + 0x30, &player, 4);
+    nf::p32_store(static_cast<uint8_t*>(b->data) + 0x30, player);
     return b;
 }
 
@@ -120,7 +120,7 @@ TEST(effect_bullet_marks_and_recycles_the_oldest) {
         Effect_Create(&h, bullet, 1, 1.0f);
     }
     CHECK(EffectList.used.count == 200 && EffectList.free.count == 0 && w.count_attach() == 200);
-    const ATTACH_tag* oldest = reinterpret_cast<const ATTACH_tag*>(EffectList.used.first);
+    const ATTACH_tag* oldest = reinterpret_cast<const ATTACH_tag*>(nf::raw(EffectList.used.first));
     CHECK(oldest->glist == &g_models[0] && oldest->cel == &w.room);
     // 1 cm acima do piso, com o eixo da frente na normal.
     CHECK_NEAR(oldest->matrix.m[3][1], 0.01, 1e-6);

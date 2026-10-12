@@ -24,6 +24,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "platform/ptr32.h"
 
 // Um objetivo (0x18 bytes).
 struct OBJECTIVE_tag {
@@ -46,7 +47,7 @@ struct MISSIONDATA_tag {
     uint32_t level;               // 0x00 pacote da fase
     uint32_t base_map;            // 0x04 pacote da primeira fase da missão
     uint32_t order;               // 0x08 ordem da fase na missão
-    OBJECTIVE_tag* objectives;    // 0x0c
+    P32<OBJECTIVE_tag> objectives;  // 0x0c
     uint32_t count;               // 0x10
     uint32_t unknown_14[5];
 };

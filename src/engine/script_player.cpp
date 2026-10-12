@@ -537,7 +537,7 @@ void FuseBox_Update(obj_tag* obj) {
     for (uint16_t list = 0; list < 2; ++list) {
         uint16_t alive = 0;
         for (uint16_t i = 0; i < 10; ++i) {
-            obj_tag*& fuse = fb->fuses[list][i];
+            P32<obj_tag>& fuse = fb->fuses[list][i];
             obj_tag* f = fuse;
             if (f == nullptr) continue;
             Collide_FilterBullets(&f->hits, 0xfffd);
@@ -635,7 +635,7 @@ void FuseBox_Register(obj_tag* fuse, uint16_t list, void* box) {
     if (box == nullptr || 1 < list) return;
     auto* fb = static_cast<FUSEBOX_tag*>(box);
     for (uint16_t i = 0; i < 10; ++i) {
-        obj_tag*& slot = fb->fuses[list][i];
+        P32<obj_tag>& slot = fb->fuses[list][i];
         if (slot == fuse) return;
         if (slot == nullptr) {
             slot = fuse;

@@ -53,6 +53,7 @@
 #include "engine/vecmath.h"
 #include "engine/view.h"
 #include "platform/psi.h"
+#include "platform/fmath.h"
 
 _VECTOR DroneReachCheckPos;
 
@@ -194,7 +195,7 @@ uint32_t NDrone2_EvaluateObstacle(Drone_tag* drone, Drone_tag* other, ObstacleEv
         e->radius_sum = e->radius + o->radius;
         e->delta = sub4(o->contact, e->contact);
         e->delta.y = 0.0f;
-        angle = Vec_AngleDifference(std::atan2(e->delta.x, e->delta.z), e->rot->y);
+        angle = Vec_AngleDifference(nf::fm::atan2(e->delta.x, e->delta.z), e->rot->y);
         e->dist = 0.0f;
         e->angle = angle;
         const float share = e->speed / (e->speed + o->speed);
@@ -222,7 +223,7 @@ uint32_t NDrone2_EvaluateObstacle(Drone_tag* drone, Drone_tag* other, ObstacleEv
         e->weight = weight;
         steer = weight * (share * kHalfPi);
         e->steer = steer;
-        angle = Vec_AngleDifference(std::atan2(e->delta.x, e->delta.z), e->rot->y);
+        angle = Vec_AngleDifference(nf::fm::atan2(e->delta.x, e->delta.z), e->rot->y);
         e->angle = angle;
     }
     if (angle < 0.0f) e->steer = -steer;
@@ -303,7 +304,7 @@ void NDrone2_Steer(DCVars_tag* dcv, float angle) {
         NDrone2_Player();  // (o resultado não é usado)
         for (uint32_t i = 0; i < mp_word(0x1ac); ++i) {
             obj_tag* pl;
-            std::memcpy(&pl, MPGame + 0x1c + i * 0x30, 4);
+            pl = nf::p32_load<obj_tag>(MPGame + 0x1c + i * 0x30);
             if (pl != nullptr) avoid_player(pl);
         }
     }
@@ -498,7 +499,7 @@ float DroneMove_NextRouteAngle(DCVars_tag* dcv) {
     Vec_Normalise(&b, &b);
     const float dot = a.x * b.x + a.y * b.y + a.z * b.z;
     if (0.9998f < dot) return 0.0f;
-    return std::acos(dot);
+    return nf::fm::acos(dot);
 }
 
 // [decomp] 0x00154cb0 DroneMove_TurnToObj
@@ -753,7 +754,7 @@ void NDrone2_Collision(obj_tag* obj) {
 obj_tag* Drone_FeetOnPoint(obj_tag* obj, HITTEST_tag* test, float* normal_y, int8_t, float* height) {
     if (obj == nullptr) return nullptr;
     Drone_tag* d = static_cast<Drone_tag*>(obj->data);
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     _VECTOR up;
     Mat_GetUp(&up, &obj->matrix);
     HITDATA_tag* stand = nullptr;

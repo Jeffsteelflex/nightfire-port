@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include "platform/fmath.h"
 
 namespace {
 
@@ -224,16 +225,16 @@ float Vec_ScalarTripleProduct(const _VECTOR* a, const _VECTOR* b, const _VECTOR*
 // [decomp] 0x001e31b0 Vec_NormToRot
 void Vec_NormToRot(const _VECTOR* normal, _VECTOR* rot) {
     const float n = normal->x * normal->x + normal->z * normal->z;
-    rot->x = -std::atan2(normal->y, std::sqrt(n));
-    rot->y = std::atan2(normal->x, normal->z);
+    rot->x = -nf::fm::atan2(normal->y, std::sqrt(n));
+    rot->y = nf::fm::atan2(normal->x, normal->z);
     rot->z = 0.0f;
 }
 
 // [decomp] 0x001e3218 Vec_DirToRot
 void Vec_DirToRot(const _VECTOR* dir, _VECTOR* rot) {
-    rot->y = std::atan2(dir->x, dir->z);
+    rot->y = nf::fm::atan2(dir->x, dir->z);
     rot->z = 0.0f;
-    rot->x = -std::atan2(dir->y, std::sqrt(dir->x * dir->x + dir->z * dir->z));
+    rot->x = -nf::fm::atan2(dir->y, std::sqrt(dir->x * dir->x + dir->z * dir->z));
 }
 
 // [decomp] 0x001e4b40 Vec_Mul
@@ -712,7 +713,7 @@ void Quat_Slerp_Acc(float t, const quaternion_tag* a, const quaternion_tag* b, q
     if (flip) cosom = -cosom;
     float sa, sb;
     if (0.01f < 1.0f - cosom) {
-        const float omega = std::acos(cosom);
+        const float omega = nf::fm::acos(cosom);
         const float wt = omega * t;
         const float inv = 1.0f / PS2Sinf(omega);
         sb = PS2Sinf(wt) * inv;
@@ -888,12 +889,12 @@ void Vec_MatToEuler(_VECTOR* out, const MATRIX* m, int order) {
     const float cy = std::sqrt(m->m[i][i] * m->m[i][i] + m->m[j][i] * m->m[j][i]);
     float ax, ay, az;
     if (1.9073486e-06f < cy) {
-        ax = std::atan2(m->m[k][j], m->m[k][k]);
-        ay = std::atan2(-m->m[k][i], cy);
-        az = std::atan2(m->m[j][i], m->m[i][i]);
+        ax = nf::fm::atan2(m->m[k][j], m->m[k][k]);
+        ay = nf::fm::atan2(-m->m[k][i], cy);
+        az = nf::fm::atan2(m->m[j][i], m->m[i][i]);
     } else {
-        ax = std::atan2(-m->m[j][k], m->m[j][j]);
-        ay = std::atan2(-m->m[k][i], cy);
+        ax = nf::fm::atan2(-m->m[j][k], m->m[j][j]);
+        ay = nf::fm::atan2(-m->m[k][i], cy);
         az = 0.0f;
     }
     switch (order) {
@@ -1032,8 +1033,8 @@ void Vec_Cartesian_2_Spherical(_VECTOR* out, float x, float y, float z) {
 // [decomp] 0x001e3a70 vecutil_cartesian_to_spherical_acc
 // Como Vec_Cartesian_2_Spherical, mas com atan2f exato e z = 0 no lugar do raio (w não é escrito).
 void vecutil_cartesian_to_spherical_acc(_VECTOR* out, float x, float y, float z) {
-    out->x = std::atan2(y, std::sqrt(x * x + z * z));
-    out->y = std::atan2(x, z);
+    out->x = nf::fm::atan2(y, std::sqrt(x * x + z * z));
+    out->y = nf::fm::atan2(x, z);
     out->z = 0.0f;
 }
 

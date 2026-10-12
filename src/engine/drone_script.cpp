@@ -113,7 +113,7 @@ uint32_t NDrone2_DSTATE_PlayScript(DCVars_tag* dcv, Drone_tag* drone, obj_tag*, 
             DroneFunc_DoForcedAttack(dcv);
             return 1;
         case 0x21:
-            DroneFunc_ConsiderExplosive(dcv, reinterpret_cast<obj_tag*>(uintptr_t(msg->data)),
+            DroneFunc_ConsiderExplosive(dcv, nf::p32_ptr<obj_tag>(msg->data),
                                         int16_t(drone->state_a));
             return 1;
         default:

@@ -209,6 +209,10 @@ struct HudWorld {
         psiMemHeapSize = 2u << 20;
         PtrHeap = nullptr;
         Mem_Init();
+        // A tabela de hashes antes de Text_Init (as fontes procuram as texturas nela); vazia, a busca binária leria
+        // fora da tabela.
+        hashtable_debug_power_on();
+        hashtable_initialise();
         object_debug_power_on();
         collide_debug_power_on();
         Coll_ResetHitHeap();
@@ -501,7 +505,7 @@ TEST(hud_ammo_after_fire_and_reload) {
         sprite* text = w.spr(kHudAmmo, 0);
         CHECK(text->length == 4);
         uint32_t first = 0, back = 0, count = 0;
-        sprite** list = Sprite_BuildList(5, &first, &back, &count);
+        P32<sprite>* list = Sprite_BuildList(5, &first, &back, &count);
         bool listed = false;
         for (uint32_t i = 0; i < count; ++i) listed = listed || list[i] == text;
         CHECK(listed);
@@ -584,7 +588,7 @@ TEST(hud_pickup_message_from_text_queue) {
     CHECK(s->text != nullptr && std::strcmp(s->text, line) == 0 && s->priority == 0x1e);
     CHECK((s->colour & 0xff) == 0xff && w.spr(kHudPickupStatus, 2)->w == 200);
     uint32_t first = 0, back = 0, count = 0;
-    sprite** list = Sprite_BuildList(5, &first, &back, &count);
+    P32<sprite>* list = Sprite_BuildList(5, &first, &back, &count);
     bool listed = false;
     for (uint32_t i = 0; i < count; ++i) listed = listed || list[i] == s;
     CHECK(listed);

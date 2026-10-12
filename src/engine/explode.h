@@ -26,6 +26,7 @@
 
 #include "engine/collide.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct SCRIPTINFO;
 struct DroneImpact_tag;
@@ -34,12 +35,12 @@ struct DroneImpact_tag;
 struct alignas(16) EXPLODE_tag {
     _VECTOR up;            // 0x00 eixo y da matriz do script (detritos)
     _VECTOR side;          // 0x10 soma dos dois eixos perpendiculares à direção do jogador (espalha os detritos)
-    cel_tag* cel;          // 0x20 sala do objeto que explodiu
-    obj_tag* from;         // 0x24 quem causou (crédito do dano; Control_ObjectReferenced)
+    P32<cel_tag> cel;      // 0x20 sala do objeto que explodiu
+    P32<obj_tag> from;     // 0x24 quem causou (crédito do dano; Control_ObjectReferenced)
     float damage;          // 0x28 dano no centro (0 com raio < 0,5)
     float radius;          // 0x2c raio do dano (param_5 de Explode_Create)
     uint32_t duration;     // 0x30 quadros do script (SCRIPTINFO + 0xab0), 15 sem script
-    SCRIPTINFO* script;    // 0x34
+    P32<SCRIPTINFO> script;  // 0x34
     uint16_t surface;      // 0x38 material atingido (5/6 metal, 8/10/11 pedra em 07000008)
     uint8_t propagated;    // 0x3a o dano já se espalhou
     uint8_t pad[5];

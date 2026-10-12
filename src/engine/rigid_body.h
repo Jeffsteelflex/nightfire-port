@@ -26,6 +26,7 @@
 #include "engine/map_types.h"
 #include "engine/object.h"
 #include "engine/ps2types.h"
+#include "platform/ptr32.h"
 
 struct light_tag;
 
@@ -37,9 +38,9 @@ struct alignas(16) RIGIDBODY {
     _VECTOR ang_accel;        // 0x30 aceleração angular (nada a escreve)
     _VECTOR impulse;          // 0x40 impulso linear do tick (RB_AddImpulsiveForce)
     _VECTOR ang_impulse;      // 0x50 impulso angular do tick (torques)
-    const _VECTOR* gravity;   // 0x60 WldGravity (tipo 0) ou zero
+    P32<const _VECTOR> gravity;  // 0x60 WldGravity (tipo 0) ou zero
     float quat[4];            // 0x64 orientação (w, x, y, z): escalar primeiro
-    MATRIX* matrix;           // 0x74 obj->matrix
+    P32<MATRIX> matrix;       // 0x74 obj->matrix
     float mass;               // 0x78
     float inv_mass;           // 0x7c
     float inertia[3];         // 0x80 momentos de inércia (RB_CuboidMomentsOfInertia)
@@ -52,7 +53,7 @@ struct alignas(16) RIGIDBODY {
     uint16_t test_type;       // 0xaa tipo do teste de colisão: 0x101 (tipo 0) ou 0 (os pêndulos)
     uint32_t unknown_ac;
     HITTEST_tag test;         // 0xb0 o teste de colisão (obj_tag::hit_test); radius = o raio do corpo
-    light_tag* light;         // 0x150 a luz da fase presa ao corpo (Light_FindMapLight)
+    P32<light_tag> light;     // 0x150 a luz da fase presa ao corpo (Light_FindMapLight)
     uint8_t carries_light;    // 0x154 parâmetro 3
     uint8_t pad_155[3];
     uint32_t sound;           // 0x158 som da batida (parâmetro 4; 0xffff nenhum)

@@ -102,6 +102,7 @@ viewer_tag* viewer_of(const BLData* b) { return glb_viewer[b->player]; }
 
 template <class T>
 T rd(const uint8_t* base, uint32_t offset) {
+    static_assert(!nf::is_native_ptr_v<T>, "ponteiro de 4 bytes: use P32<...>");
     T v;
     std::memcpy(&v, base + offset, sizeof(T));
     return v;
@@ -201,7 +202,7 @@ bool blink_on() {
 void HUD_CreateDefault(BLData* b, HUDPANE_tag* pane, HUDPANECREATE_tag* create, obj_tag*) {
     pane->count = create->count;
     auto* block = static_cast<uint8_t*>(Mem_Malloc((uint32_t(pane->count) + create->extra) * 4, kHudTag, 0));
-    pane->sprites = reinterpret_cast<sprite**>(block);
+    pane->sprites = reinterpret_cast<P32<sprite>*>(block);
     pane->extra = reinterpret_cast<uint32_t*>(block + uint32_t(pane->count) * 4);
     for (uint32_t i = 0; i < create->extra; i = uint16_t(i + 1)) pane->extra[i] = 0;
     pane->update = create->update;
@@ -417,7 +418,7 @@ void HUD_UpdateAmmoPane(BLData* b, HUDPANE_tag* pane, obj_tag* obj) {
     if (d->id == 0x4d) d = weapon_def(0x4c);
     uint32_t ammo_type = d->ammo_type;
     const int16_t slot = Player_AmmoIndex(int16_t(anim->weapon));
-    sprite** sprites = pane->sprites;
+    P32<sprite>* sprites = pane->sprites;
     sprite* count_spr = sprites[0];
     sprite* mode_spr = sprites[1];
     sprite* name_spr = sprites[2];
@@ -646,7 +647,7 @@ void HUD_CreateMPHealthPane(BLData* b, HUDPANE_tag* pane, HUDPANECREATE_tag* cre
 // (sprite 3), coordenadas de depuração (1) e os indicadores de direção do tiro (4 a 7).
 void HUD_UpdateMPHealthPane(BLData* b, HUDPANE_tag* pane, obj_tag* obj) {
     if (pane->enabled == 0) return;
-    sprite** sprites = pane->sprites;
+    P32<sprite>* sprites = pane->sprites;
     sprite* frame = sprites[0];
     sprite* armour = sprites[3];
     sprite* bar = sprites[2];
@@ -716,7 +717,7 @@ void HUD_UpdateMPHealthPane(BLData* b, HUDPANE_tag* pane, obj_tag* obj) {
 // As barras somem com a câmera, o OICW, o Ronin, a câmera de segurança, o Redeemer ou o carrinho.
 // Só no port: um ícone de toque fora da tabela de 8 (o original leria a pilha) fica escondido.
 void HUD_UpdateHealthPane(BLData* b, HUDPANE_tag* pane, obj_tag* obj) {
-    sprite** sprites = pane->sprites;
+    P32<sprite>* sprites = pane->sprites;
     sprite* crouch = sprites[0x13];
     sprite* icon = sprites[0xf];
     sprite* hit = sprites[0x10];
@@ -871,7 +872,7 @@ void HUD_UpdateStatusPane(BLData* b, HUDPANE_tag* pane, obj_tag*) {
     if (pane->enabled == 0) return;
     const uint16_t count = pane->count;
     uint32_t* extra = pane->extra;
-    sprite** sprites = pane->sprites;
+    P32<sprite>* sprites = pane->sprites;
     const int32_t speed = int32_t(extra[3]);
     sprite* band = sprites[2];
     sprite* left = 3 < count ? sprites[3] : nullptr;
@@ -881,7 +882,7 @@ void HUD_UpdateStatusPane(BLData* b, HUDPANE_tag* pane, obj_tag*) {
     sprite* text = sprites[0];
     sprite* fail = create == HudMsgMissionStatusPane ? sprites[1] : nullptr;
     sprite* title = create == HudMsgObjectiveStatusPane ? sprites[5] : nullptr;
-    auto* msg = reinterpret_cast<TXT_MSG*>(uintptr_t(extra[0]));
+    auto* msg = nf::p32_ptr<TXT_MSG>(extra[0]);
     const SpriteInfo* band_info = &create->sprites[2];
     const int32_t centre = band_info->x + (band_info->w >> 1);
     bool place_ends = false;
@@ -890,7 +891,7 @@ void HUD_UpdateStatusPane(BLData* b, HUDPANE_tag* pane, obj_tag*) {
             for (uint32_t i = 0; i < pane->count; i = uint16_t(i + 1)) pane->sprites[i]->priority = -1;
             if (text != nullptr) text->colour &= 0xffffff00u;
             if (glow != nullptr) glow->colour &= 0xffffff00u;
-            if (Text_UpdateMsg(int8_t(b->player), int32_t(extra[2]), reinterpret_cast<TXT_MSG**>(&extra[0])) != 0 &&
+            if (Text_UpdateMsg(int8_t(b->player), int32_t(extra[2]), reinterpret_cast<P32<TXT_MSG>*>(&extra[0])) != 0 &&
                 extra[0] != 0) {
                 if (band != nullptr) {
                     band->w = 0;
@@ -992,7 +993,7 @@ void HUD_UpdateStatusPane(BLData* b, HUDPANE_tag* pane, obj_tag*) {
                 }
                 if (msg->type == 2 && IsComplete_225 != 0 && text != nullptr) text->colour = 0;
             }
-            if (Text_UpdateMsg(int8_t(b->player), int32_t(extra[2]), reinterpret_cast<TXT_MSG**>(&extra[0])) != 0) {
+            if (Text_UpdateMsg(int8_t(b->player), int32_t(extra[2]), reinterpret_cast<P32<TXT_MSG>*>(&extra[0])) != 0) {
                 extra[1] = extra[0] == 0 ? 4 : 2;
             }
             return;
@@ -1024,7 +1025,7 @@ void HUD_UpdateStatusPane(BLData* b, HUDPANE_tag* pane, obj_tag*) {
 // Multijogador: a pane de informação só com o texto (ou o ícone) da mensagem, esmaecendo no fim.
 void HUD_MPUpdateStatusPane(BLData* b, HUDPANE_tag* pane, obj_tag*) {
     uint32_t* extra = pane->extra;
-    auto* msg = reinterpret_cast<TXT_MSG*>(uintptr_t(extra[0]));
+    auto* msg = nf::p32_ptr<TXT_MSG>(extra[0]);
     sprite* text = pane->sprites[0];
     if (pane->enabled == 0) return;
     switch (int32_t(extra[1])) {
@@ -1040,7 +1041,7 @@ void HUD_MPUpdateStatusPane(BLData* b, HUDPANE_tag* pane, obj_tag*) {
             return;
         case 0:
             for (uint32_t i = 0; i < pane->count; i = uint16_t(i + 1)) pane->sprites[i]->priority = -1;
-            if (Text_UpdateMsg(int8_t(b->player), int32_t(extra[2]), reinterpret_cast<TXT_MSG**>(&extra[0])) == 0) return;
+            if (Text_UpdateMsg(int8_t(b->player), int32_t(extra[2]), reinterpret_cast<P32<TXT_MSG>*>(&extra[0])) == 0) return;
             if (extra[0] == 0) return;
             extra[1] = 2;
             return;
@@ -1053,7 +1054,7 @@ void HUD_MPUpdateStatusPane(BLData* b, HUDPANE_tag* pane, obj_tag*) {
                     text->colour |= 0xffu;
                 }
             }
-            if (Text_UpdateMsg(int8_t(b->player), int32_t(extra[2]), reinterpret_cast<TXT_MSG**>(&extra[0])) != 0) {
+            if (Text_UpdateMsg(int8_t(b->player), int32_t(extra[2]), reinterpret_cast<P32<TXT_MSG>*>(&extra[0])) != 0) {
                 extra[1] = extra[0] == 0 ? 4 : 2;
             }
             return;
@@ -1273,7 +1274,7 @@ void HUD_CreateRedeemer(BLData* b, HUDPANE_tag* pane, HUDPANECREATE_tag* create,
     HUD_CalcWidthHeight(create, reinterpret_cast<int16_t*>(&create->w), reinterpret_cast<int16_t*>(&create->h));
     HUD_CreateDefault(b, pane, create, obj);
     shrink_sprites(b, pane, create);
-    auto** models = reinterpret_cast<obj_tag**>(pane->extra);
+    auto* models = reinterpret_cast<P32<obj_tag>*>(nf::raw(pane->extra));
     for (uint32_t i = 0; i < create->extra; i = uint16_t(i + 1)) {
         if (mp_on() != 0) {
             models[i] = nullptr;
@@ -1302,7 +1303,7 @@ void HUD_CreateRedeemer(BLData* b, HUDPANE_tag* pane, HUDPANECREATE_tag* create,
 // cresce acima de 85% do consumo.
 void HUD_UpdateRedeemerPane(BLData* b, HUDPANE_tag* pane, obj_tag* obj) {
     if (obj != nullptr && (obj->type == 2 || obj->type == 0x11)) return;
-    auto** models = reinterpret_cast<obj_tag**>(pane->extra);
+    auto* models = reinterpret_cast<P32<obj_tag>*>(nf::raw(pane->extra));
     if (pane->enabled == 0) {
         for (int32_t i = 0; i < 3; ++i) {
             if (models[i] != nullptr) models[i]->flags |= 0x10;
@@ -1345,7 +1346,7 @@ void HUD_UpdateRedeemerPane(BLData* b, HUDPANE_tag* pane, obj_tag* obj) {
         pane->sprites[2]->priority = 0x27;
     } else {
         const uint8_t* data = static_cast<const uint8_t*>(ride->data);
-        const float full = rd<float>(rd<const uint8_t*>(data, 0x44), 0x1c);
+        const float full = rd<float>(rd<P32<const uint8_t>>(data, 0x44), 0x1c);
         used = rd<float>(data, 0xf4);
         pane->sprites[2]->priority = -1;
         used = used / full;
@@ -1507,7 +1508,7 @@ void HUD_CreateMPScorePane(BLData* b, HUDPANE_tag* pane, HUDPANECREATE_tag* crea
     HUD_CalcWidthHeight(create, reinterpret_cast<int16_t*>(&create->w), reinterpret_cast<int16_t*>(&create->h));
     HUD_CreateDefault(b, pane, create, obj);
     shift_sprites(b, pane, create);
-    sprite** s = pane->sprites;
+    P32<sprite>* s = pane->sprites;
     for (int32_t i = 0; i < 7; ++i) HUD_FixMP(s[i], int16_t(b->player));
     const uint32_t game = mp_u32(0x1a4);
     if (game == 0x400) {
@@ -1546,9 +1547,9 @@ void HUD_CreateMPScorePane(BLData* b, HUDPANE_tag* pane, HUDPANECREATE_tag* crea
 void HUD_MPUpdatePane(BLData* b, HUDPANE_tag* pane, obj_tag* obj) {
     if (pane->enabled == 0) return;
     if (obj != nullptr && (obj->type == 2 || obj->type == 0x11)) return;
-    sprite** sprites = pane->sprites;
+    P32<sprite>* sprites = pane->sprites;
     sprite* score = sprites[0];
-    obj_tag* me = rd<obj_tag*>(MPGame, uint32_t(b->player) * 0x30 + 0x1c);
+    obj_tag* me = rd<P32<obj_tag>>(MPGame, uint32_t(b->player) * 0x30 + 0x1c);
     sprite* icon_a = sprites[1];
     sprite* icon_b = sprites[2];
     sprite* icon_c = sprites[6];
@@ -1642,7 +1643,7 @@ void HUD_CreateRadar(BLData* b, HUDPANE_tag* pane, HUDPANECREATE_tag* create, ob
     HUD_CreateDefault(b, pane, create, obj);
     shift_sprites(b, pane, create);
     HUD_FixMP(pane->sprites[0], int16_t(b->player));
-    auto** dots = reinterpret_cast<sprite**>(pane->extra);
+    auto* dots = reinterpret_cast<P32<sprite>*>(nf::raw(pane->extra));
     for (uint32_t i = 0; i < create->extra; i = uint16_t(i + 1)) {
         sprite* s = Sprite_CreateLink(5);
         dots[i] = s;
@@ -1664,7 +1665,7 @@ void HUD_RadarUpdate(BLData* b, HUDPANE_tag* pane, obj_tag* obj) {
     sprite* radar = pane->sprites[0];
     const int16_t radar_h = radar->h;
     viewer_tag* v = viewer_of(b);
-    auto** dots = reinterpret_cast<sprite**>(pane->extra);
+    auto* dots = reinterpret_cast<P32<sprite>*>(nf::raw(pane->extra));
     const float half_w = float(radar->w) * 0.45f;
     Mat_Inverse(&v->camera, &InvM_292);
     RADAROBJ* list = nullptr;
@@ -1710,16 +1711,16 @@ void HUD_RadarUpdate(BLData* b, HUDPANE_tag* pane, obj_tag* obj) {
     sprite* target_mark = nullptr;
     const uint32_t game = mp_u32(0x1a4);
     if (game == 0x400) {
-        assassin = rd<sprite*>(MPGame, uint32_t(b->player) * 8 + 0x1b4);
-        target_mark = rd<sprite*>(MPGame, uint32_t(b->player) * 8 + 0x1b0);
+        assassin = rd<P32<sprite>>(MPGame, uint32_t(b->player) * 8 + 0x1b4);
+        target_mark = rd<P32<sprite>>(MPGame, uint32_t(b->player) * 8 + 0x1b0);
         if (assassin != nullptr) assassin->priority = -1;
         if (target_mark != nullptr) target_mark->priority = -1;
     }
-    obj_tag* me = rd<obj_tag*>(MPGame, uint32_t(b->player) * 0x30 + 0x1c);
+    obj_tag* me = rd<P32<obj_tag>>(MPGame, uint32_t(b->player) * 0x30 + 0x1c);
     static const char kNameFmt[] = "\xff\x02";
     for (int32_t i = 0; i < 8; ++i) {
         if (mp_u32(0x1c4) == 0 && game != 0x400) break;
-        obj_tag* other = rd<obj_tag*>(MPGame, uint32_t(i) * 0x30 + 0x1c);
+        obj_tag* other = rd<P32<obj_tag>>(MPGame, uint32_t(i) * 0x30 + 0x1c);
         if (i == b->player || other == nullptr) continue;
         const uint8_t type = other->type;
         if (type == 3) {
@@ -1974,7 +1975,7 @@ void HUD_UpdateSecCamPane(BLData* b, HUDPANE_tag* pane, obj_tag*) {
 void HUD_UpdateCarPane(BLData* b, HUDPANE_tag* pane, obj_tag*) {
     obj_tag* car = b->ride;
     if (pane->enabled == 0 || car == nullptr) return;
-    sprite** s = pane->sprites;
+    P32<sprite>* s = pane->sprites;
     if (car->glist == hashtable_hashcode_to_celglist(0x2000194)) {
         s[0]->colour = 0x20ffu;
         s[1]->priority = -1;
@@ -1996,7 +1997,7 @@ namespace {
 
 template <class F>
 uint32_t code(F* fn) {
-    return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(fn));
+    return nf::p32_fn_u(fn);
 }
 
 struct HudCodeName {

@@ -88,7 +88,7 @@ void Drone_ExplosiveHit(obj_tag* obj, DroneImpact_tag* impact) {
         return;
     }
     DCVars_tag dcv{obj, d, obj->cel, &d->sm};
-    Drone_SM_SendMsgSelf(9, uint32_t(reinterpret_cast<uintptr_t>(impact)), 0, 0, &dcv);
+    Drone_SM_SendMsgSelf(9, nf::p32_u(impact), 0, 0, &dcv);
 }
 
 // [decomp] 0x001816d8 GT_ApplyDamage
@@ -128,7 +128,7 @@ void Sub_ApplyDammage(obj_tag* obj, float damage) {
     std::memcpy(data + 0xc, &obj->matrix.m[3][1], 4);
     _VECTOR end = obj->sphere;
     end.y -= 25.0f;
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     Collide_RayIntersect(&obj->sphere, &end, obj->cel, obj, nullptr, &hits, 0, 0, 0);
     for (HITDATA_tag* h = hits; h != nullptr; h = h->next) {
         if (h->obj != nullptr && (h->obj->type == 0x4a || h->obj->type == 0x3d)) continue;
@@ -185,7 +185,7 @@ obj_tag* Explode_Create(obj_tag* obj, _VECTOR* pos, const _VECTOR*, float radius
         uint16_t frames;
         std::memcpy(&frames, script_bytes(x->script) + 0xab0, 2);
         x->duration = frames;
-        MATRIX* m = reinterpret_cast<MATRIX*>(x->script);
+        MATRIX* m = reinterpret_cast<MATRIX*>(nf::raw(x->script));
         Mat_Align2Dir(m, &dir, &CONSTANT_UP1, &CONSTANT_UP2);
         Mat_GetUp(&x->up, m);
     }
@@ -256,7 +256,7 @@ void Explode_Propagate(_VECTOR* pos, float radius, cel_tag* cel, float damage, o
     if (cel == nullptr || radius < 0.0002f) return;
     ++g_explode_stats.propagated;
     _VECTOR center = *pos;
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     if (!Collide_SphereIntersect(&center, radius, cel, nullptr, nullptr, &hits, 0, 1, 0xc0, 4)) return;
     for (HITDATA_tag* h = hits; h != nullptr; h = h->next) {
         obj_tag* o = h->obj;
@@ -267,17 +267,17 @@ void Explode_Propagate(_VECTOR* pos, float radius, cel_tag* cel, float damage, o
         ++g_explode_stats.hit_objects;
         switch (o->type) {
             case 0:
-                for (uint8_t* c = reinterpret_cast<uint8_t*>(CopterList.first); c != nullptr;) {
+                for (uint8_t* c = reinterpret_cast<uint8_t*>(nf::raw(CopterList.first)); c != nullptr;) {
                     for (int i = 0; i < 9; ++i) {
                         obj_tag* part;
-                        std::memcpy(&part, c + 0x30 + i * 4, 4);
+                        part = nf::p32_load<obj_tag>(c + 0x30 + i * 4);
                         if (part != o) continue;
                         float* a = reinterpret_cast<float*>(c + 0x6c);
                         float* b = reinterpret_cast<float*>(c + 0x64);
                         *a += k;
                         *b += k;
                     }
-                    std::memcpy(&c, c + 4, 4);
+                    c = nf::p32_load<uint8_t>(c + 4);
                 }
                 break;
             case 2: {

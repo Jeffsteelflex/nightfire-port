@@ -110,8 +110,10 @@ junta ao anterior (peculiaridade mantida). `Mem_Shrink(&p, n)` libera os `n` byt
 dentro de um bloco em uso (começo, meio ou fim); `CheckSizeAndShrink` o usa para devolver a sobra
 de um buffer. `Mem_ShrinkToEndOfBlock` corta o bloco em `p`.
 
-No PC o heap é uma reserva de `VirtualAlloc`. O port compila em 32 bits, então os endereços de 32
-bits dos cabeçalhos e os ponteiros dentro dos dados carregados funcionam como no PS2.
+No PC o heap é uma reserva de `VirtualAlloc`. Na versão de 32 bits os endereços de 32 bits dos
+cabeçalhos e os ponteiros dentro dos dados carregados funcionam como no PS2; na de 64 bits o heap sai
+da arena, dentro da janela de 4 GB a partir da imagem, e esses campos guardam o deslocamento a partir
+dela (`P32`; ver docs/port.md, "64 bits").
 
 ## Carregador de fases
 

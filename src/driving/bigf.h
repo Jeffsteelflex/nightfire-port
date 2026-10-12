@@ -15,6 +15,8 @@
 #include <string>
 #include <vector>
 
+#include "platform/disc_source.h"
+
 namespace drv {
 
 // RefPack: true se o bloco começa com o cabeçalho do RefPack.
@@ -35,8 +37,10 @@ public:
     Bigf(const Bigf&) = delete;
     Bigf& operator=(const Bigf&) = delete;
 
-    // Abre e lê o diretório. false se o arquivo não existe ou não é BIGF.
+    // Abre e lê o diretório. false se o arquivo não existe ou não é BIGF. Um arquivo do PC, ou um do disco do jogador
+    // (platform/disc_source.h: a pasta, a imagem ISO, o leitor; "DRIVING/MISC.VIV").
     bool open(const std::string& path);
+    bool open(const nf::DiscSource& disc, const std::string& path);
     // O diretório já lido de um bloco na memória (testes).
     static bool parse_directory(const uint8_t* head, size_t size, std::vector<BigfEntry>& out);
 
@@ -50,7 +54,8 @@ public:
     bool read_raw(int index, std::vector<uint8_t>& out) const;
 
 private:
-    std::FILE* f_ = nullptr;
+    bool open_file(nf::DiscFile file, const std::string& path);
+    nf::DiscFile f_;
     std::string path_;
     std::vector<BigfEntry> entries_;
 };

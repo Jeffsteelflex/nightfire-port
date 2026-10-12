@@ -364,11 +364,11 @@ char* Door_DoMsg(obj_tag* door) {
 // As portas de um grupo copiam o movimento da primeira do grupo que se mexeu neste quadro.
 void Doors_Calc() {
     std::memset(DoorGroupsStates, 0, 0xca);
-    for (auto* n = TheDoors.first; n != nullptr; n = n->next) {
+    for (auto* n = nf::raw(TheDoors.first); n != nullptr; n = n->next) {
         auto* d = reinterpret_cast<DOORINFO*>(n);
         if (d->group == 0) continue;
         obj_tag* lead = d->obj;
-        for (auto* m = TheDoors.first; m != nullptr; m = m->next) {
+        for (auto* m = nf::raw(TheDoors.first); m != nullptr; m = m->next) {
             auto* e = reinterpret_cast<DOORINFO*>(m);
             if (e == d || e->group != d->group || (e->flags & 0x10) != 0) continue;
             e->dir = d->dir;
@@ -379,7 +379,7 @@ void Doors_Calc() {
             Door_Interp(e->obj, e, 0);
         }
     }
-    for (auto* n = TheDoors.first; n != nullptr; n = n->next) {
+    for (auto* n = nf::raw(TheDoors.first); n != nullptr; n = n->next) {
         reinterpret_cast<DOORINFO*>(n)->flags &= 0xffef;
     }
 }

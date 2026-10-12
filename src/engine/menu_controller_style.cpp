@@ -45,7 +45,7 @@ const uint32_t kStyleLabels[8][13] = {
 char cont_string[13][0x20];   // 0x002e1c50 (texto de cada célula)
 uint8_t cont_str_count = 0;   // 0x0030d1b8
 
-int32_t val(const void* p) { return int32_t(reinterpret_cast<uintptr_t>(p)); }
+int32_t val(const void* p) { return int32_t(nf::p32_u(p)); }
 
 // Um texto "símbolo rótulo" em cont_string; devolve o ponteiro.
 char* cell(uint32_t symbol, uint32_t label) {

@@ -47,8 +47,8 @@ celglist_tag* pCurrCelList = nullptr;
 uint32_t MapEntityCount = 0;
 uint32_t* pBMH = nullptr;
 map_tag* m_pmap = nullptr;
-uint8_t** m_paths = nullptr;
-uint8_t** m_ppaths = nullptr;
+P32<uint8_t>* m_paths = nullptr;  // vetores de palavras de 4 bytes no heap do jogo
+P32<uint8_t>* m_ppaths = nullptr;
 world_tag* glb_world = nullptr;
 
 ParsemapGuards g_parsemap_guards;
@@ -100,7 +100,7 @@ void register_texture(uint32_t hash, uint32_t& data_field) {
     if (hash != 0xffffffff) hashtable_additem(hash, pTexData);
     pTexData->width = static_cast<int16_t>(pBmpHeader->width1 + 1);
     pTexData->height = static_cast<int16_t>(pBmpHeader->height1 + 1);
-    data_field = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(payload()));
+    data_field = nf::p32_u(payload());
     ++pBmpHeader;
     ++pPallHeader;
     ++pTexData;
@@ -280,7 +280,7 @@ void parsemap_block_map_header() {
     std::memset(pCelList, 0, pBMH[1] * 0x50);
     pCurrCelList = pCelList;
     pCelList->coll = nullptr;
-    m_paths = pBMH[2] == 0 ? nullptr : static_cast<uint8_t**>(Mem_Malloc(pBMH[2] << 2, 0x1804, 0));
+    m_paths = pBMH[2] == 0 ? nullptr : static_cast<P32<uint8_t>*>(Mem_Malloc(pBMH[2] << 2, 0x1804, 0));
     if (m_paths != nullptr) m_ppaths = m_paths;
     m_pmap = static_cast<map_tag*>(Mem_Malloc(0x14, 0xa04, 0));
     std::memset(m_pmap, 0, 0x14);
@@ -379,7 +379,7 @@ void parsemap_block_Coll_Data_New() {
     c->list = data;
     c->head_bytes = static_cast<uint16_t>(head_bytes);
     c->rest = data + uint32_t(list_count) * 8;
-    float* box = reinterpret_cast<float*>(c->boxes);
+    float* box = reinterpret_cast<float*>(nf::raw(c->boxes));
     for (uint32_t n = box_count; n != 0; --n) {
         box[4] += 0.01f;
         box[5] += 0.01f;
@@ -460,7 +460,7 @@ void parsemap_block_map_data_dynamic(block_header_tag& header, uint8_t* block, u
             g = static_cast<celglist_tag*>(hashtable_getitem(pl->hash));
         }
         if (pl->path_count != 0) {
-            level.path = reinterpret_cast<framelist_tag*>(m_paths[pl->path_index]);
+            level.path = reinterpret_cast<framelist_tag*>(nf::raw(m_paths[pl->path_index]));
             level.path_unknown = pl->path_unknown;
             level.path_count = pl->path_count;
         }

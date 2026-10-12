@@ -25,6 +25,8 @@
 
 #include <cstdint>
 
+#include "platform/ptr32.h"
+
 // tLANGUAGE: índice de FNames (0x002c7498).
 enum : int32_t {
     TXTLANG_UK = 0,
@@ -44,7 +46,7 @@ constexpr int kStringHeapSize = 0x168;
 
 extern int32_t SelLang;          // 0x0030cee0 idioma carregado
 extern int32_t LanguageToLoad;   // 0x0030d2ac idioma pedido (6 no primeiro boot, main do PS2)
-extern char** Bank;              // 0x0030ced4 Bank[i]: string i (Bank[0] = "")
+extern P32<char>* Bank;             // 0x0030ced4 Bank[i]: string i (Bank[0] = "")
 extern char* BankData;           // 0x0030ced8 as strings do arquivo
 extern uint32_t NumEntries;      // 0x0030cedc
 extern uint32_t NumFixups;       // 0x0030d7dc

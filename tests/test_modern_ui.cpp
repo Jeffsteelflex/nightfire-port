@@ -23,6 +23,7 @@
 #include "test_framework.h"
 #include "ui/modern_kit.h"
 #include "ui/modern_options.h"
+#include "platform/fmath.h"
 
 using namespace nf::ui;
 
@@ -487,7 +488,7 @@ TEST(modern_options_controls_has_the_mouse_and_no_duplicates) {
     s.build(dl, sc.cv, kMeasure);
     CHECK(dl.find_text(L"9.1 cm at 800 DPI  ·  4.5 cm at 1600 DPI") != nullptr);
     s.command(OptionsScreen::Cmd::Right);
-    CHECK_NEAR(psiMouseSensitivity, nf::kDefaultMouseSensitivity * std::pow(2.0, 1.0 / 8.0), 1e-7);
+    CHECK_NEAR(psiMouseSensitivity, nf::kDefaultMouseSensitivity * nf::fm::pow(2.0, 1.0 / 8.0), 1e-7);
     CHECK(s.slider_pos(Opt::MouseSens) == nf::kMouseSensDefaultPos + 1 && s.value_text(Opt::MouseSens) == L"2.40");
     // Restaurar padrões em CONTROLS volta o mouse.
     s.command(OptionsScreen::Cmd::Defaults);

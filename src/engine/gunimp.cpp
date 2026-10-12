@@ -315,7 +315,7 @@ void GunImp_Update(obj_tag* obj) {
     flash(&at, 0x200026e, 1, true, obj->cel, &ten);
     Light_Create(&at, 0, 0xff, 0xff, 9.0f, 0, 0, 1, Rand_FRand(1.0f) + 1.5f, 0, 0, 0, 0xffff);
     _VECTOR end{at.x + dir.x * 1000.0f, at.y + dir.y * 1000.0f, at.z + dir.z * 1000.0f, at.w};
-    HITDATA_tag* hits = nullptr;
+    P32<HITDATA_tag> hits = nullptr;
     if (Collide_RayIntersect(&at, &end, obj->cel, obj, nullptr, &hits, 0, 8, 0)) end = hits->pos;
     if (obj_tag* beam = flash(&at, 0x20005cd, 0, false, obj->cel, &ten); beam != nullptr) {
         beam->owner = obj;

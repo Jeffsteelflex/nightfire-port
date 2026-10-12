@@ -26,6 +26,7 @@
 
 #include "engine/map_types.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct light_tag;
 
@@ -37,7 +38,7 @@ struct alignas(16) SEARCHLIGHT_tag {
                            //      jogador a mais de 2 m (estado 1)
     uint32_t unknown_08[2];
     _VECTOR rot;           // 0x10 a rotação do posicionamento (y: o centro do giro)
-    obj_tag* parts[5];     // 0x20 lâmpada: as peças pelo tipo; na mancha, parts[2] é a luz (light_tag*)
+    P32<obj_tag> parts[5];  // 0x20 lâmpada: as peças pelo tipo; na mancha, parts[2] é a luz (light_tag*)
     uint8_t start;         // 0x34 parâmetro 1: canal que acende (0: já começa varrendo)
     uint8_t off;           // 0x35 parâmetro 2: canal que apaga de vez
     uint8_t alarm;         // 0x36 parâmetro 3: ligado enquanto a lâmpada segue o jogador

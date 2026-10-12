@@ -29,12 +29,13 @@
 
 #include "engine/object.h"
 #include "engine/sprite.h"
+#include "platform/ptr32.h"
 
 // Uma linha de mensagem na fila (0x20 bytes).
 struct TXT_MSG {
     LLNODE_tag node;     // 0x00
-    char* text;          // 0x08 travado no StringHeap
-    TXT_MSG* next;       // 0x0c a próxima linha da mesma mensagem
+    P32<char> text;      // 0x08 travado no StringHeap
+    P32<TXT_MSG> next;   // 0x0c a próxima linha da mesma mensagem
     uint32_t data;       // 0x10 o valor passado (o HUD o desenha como ícone, hashcode 03, no lugar do texto)
     uint16_t length;     // 0x14
     uint16_t pad;
@@ -48,7 +49,7 @@ static_assert(sizeof(TXT_MSG) == 0x20);
 
 // Formato e largura de quebra de cada tipo de mensagem (8 bytes).
 struct TXTMSGFORMAT_tag {
-    char* format;
+    P32<char> format;
     uint16_t width;
     uint16_t unknown_06;
 };
@@ -56,7 +57,7 @@ static_assert(sizeof(TXTMSGFORMAT_tag) == 8);
 
 // Buffer circular de palavras (16 bytes).
 struct CIRBUF_INFO {
-    int32_t* buffer;      // 0x00
+    P32<int32_t> buffer;  // 0x00
     uint16_t tail;        // 0x04 o mais antigo
     uint16_t head;        // 0x06 onde entra o próximo
     uint16_t count;       // 0x08
@@ -72,7 +73,7 @@ extern SpriteInfo SubtitlesInfo;                        // 0x00319940 (construto
 extern DLISTINFO_tag MsgQueue;                          // 0x00319970
 extern CIRBUF_INFO ReceivedMsgs;                        // 0x002bf140 mensagens recebidas (tipos 0, 2, 3)
 extern int32_t ReceivedBuf[0x80];                       // 0x00319988
-extern TXT_MSG* SubTitleMsg;                            // 0x0030cd98 legenda atual
+extern P32<TXT_MSG> SubTitleMsg;                           // 0x0030cd98 legenda atual
 extern sprite* SubTitleSpr;                             // 0x0030cd9c legenda de uma linha
 extern sprite* SubTitleSpr1;                            // 0x0030cda0 primeira das duas linhas
 extern sprite* SubTitleSpr2;                            // 0x0030cda4
@@ -109,7 +110,7 @@ int32_t CirBuf_Add(CIRBUF_INFO* info, int32_t value);
 
 void Text_Init(int8_t warm);
 void Text_AddMsg(int8_t player, uint8_t priority, int32_t type, char* text, uint32_t data, int16_t time);
-uint32_t Text_UpdateMsg(int8_t player, int32_t type, TXT_MSG** msg);
+uint32_t Text_UpdateMsg(int8_t player, int32_t type, P32<TXT_MSG>* msg);
 void Text_Update();
 void Text_Update2Line();
 void Text_DelMsg(TXT_MSG* msg);
@@ -126,7 +127,7 @@ struct M_LABEL;
 // Descrição de um controle novo (0x24 bytes; só os campos usados aqui).
 struct NEW_CONTROL {
     uint32_t id;           // 0x00
-    char* format;          // 0x04
+    P32<char> format;      // 0x04
     uint32_t unknown_08;
     uint32_t unknown_0c;   // 0x0c vai para o controle +0x20
     uint32_t unknown_10;

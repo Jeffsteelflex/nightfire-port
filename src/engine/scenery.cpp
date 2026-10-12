@@ -294,7 +294,7 @@ obj_tag* Particles_Create(int32_t kind, _VECTOR* pos, plane_equ_tag* plane) {
     obj->sphere = *pos;
     build_LinkToRoom(obj, 0, glb_world);
     View_SetDrawInAllViews(obj);
-    obj->data = reinterpret_cast<void*>(uintptr_t(system));
+    obj->data = nf::p32_ptr<void>(system);
     return obj;
 }
 
@@ -302,7 +302,7 @@ obj_tag* Particles_Create(int32_t kind, _VECTOR* pos, plane_equ_tag* plane) {
 // Some quando o sistema acaba (psiParticleUpdate devolve 0).
 void Particles_Update(obj_tag* obj) {
     if (obj == nullptr) return;
-    if (psiParticleUpdate(uint32_t(reinterpret_cast<uintptr_t>(obj->data))) == 0) obj->life |= 1;
+    if (psiParticleUpdate(nf::p32_u(obj->data)) == 0) obj->life |= 1;
 }
 
 void Scenery_Describe(char* out, size_t size) {

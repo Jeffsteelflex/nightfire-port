@@ -11,6 +11,7 @@
 
 #include "engine/collide.h"
 #include "engine/object.h"
+#include "platform/ptr32.h"
 
 struct viewer_tag;
 
@@ -29,14 +30,14 @@ extern ANIMSKEL_tag* pSkeletons[kSkeletonSlots];
 // na tabela de hashes).
 struct alignas(16) ANIMSKIN_tag {
     uint32_t hash;                // 0x00 (AnimObjectNew)
-    celglist_tag** meshes;        // 0x04 n_meshes modelos com skinning
-    celglist_tag** discrete;      // 0x08 n_discrete modelos rígidos presos a ossos
-    uint8_t* discrete_bones;      // 0x0c osso de cada um
+    P32<P32<celglist_tag>> meshes;  // 0x04 n_meshes modelos com skinning
+    P32<P32<celglist_tag>> discrete;  // 0x08 n_discrete modelos rígidos presos a ossos
+    P32<uint8_t> discrete_bones;  // 0x0c osso de cada um
     float scale[3];               // 0x10 (1, 1, 1 nos casos vistos)
     uint32_t unknown_1c;
-    uint8_t* extras;              // 0x20 n_extra x 0x24 bytes: +4 osso, +8 translação, +0x14 quatérnio
-    uint8_t* parents;             // 0x24 por osso: 0x80 | pai; 0xff na raiz
-    MATRIX* inv_pose;             // 0x28 por osso (Quat_QuatTransToMat)
+    P32<uint8_t> extras;          // 0x20 n_extra x 0x24 bytes: +4 osso, +8 translação, +0x14 quatérnio
+    P32<uint8_t> parents;         // 0x24 por osso: 0x80 | pai; 0xff na raiz
+    P32<MATRIX> inv_pose;         // 0x28 por osso (Quat_QuatTransToMat)
     uint8_t n_meshes;             // 0x2c
     uint8_t n_discrete;           // 0x2d
     uint8_t n_morphs;             // 0x2e alvos de morph (rosto)
@@ -51,9 +52,9 @@ inline uint8_t skin_bone_count(const ANIMSKIN_tag* skin) { return pSkeletons[ski
 // Sequência carregada (arquivo 04xxxxxx.bin depois de AnimProcessSeqData: as três primeiras
 // palavras viram ponteiro e tamanho dos canais).
 struct ANIMRAWSEQ_tag {
-    uint32_t* channels;      // 0x00 registros de canal (era o hash)
+    P32<uint32_t> channels;  // 0x00 registros de canal (era o hash)
     uint32_t size;           // 0x04 bytes dos registros
-    uint32_t* cursor;        // 0x08 (AnimFrameCopy)
+    P32<uint32_t> cursor;    // 0x08 (AnimFrameCopy)
     uint32_t flags;          // 0x0c bits 0-3: 7 = distância (passos)
     float sphere[4];         // 0x10
     float unknown_20[3];     // 0x20
@@ -79,11 +80,11 @@ struct alignas(16) ANIMSEQ_tag {
     float info_2c[3];        // 0x60 da sequência (+0x2c)
     float pad_6c;
     float sphere[4];         // 0x70 da sequência (+0x10)
-    void* distance;          // 0x80 tabela de distâncias (AnimDistanceTableGet)
-    uint8_t* frame;          // 0x84 quadro decodificado: ossos x translação, ossos x quatérnio
-    uint32_t* cursors;       // 0x88 cache de posição nos canais (bit 0x200000)
-    void (*callback)(obj_tag*, ANIMSKIN_tag*, ANIMSEQ_tag*, void*);  // 0x8c
-    ANIMRAWSEQ_tag* raw;     // 0x90
+    P32<void> distance;      // 0x80 tabela de distâncias (AnimDistanceTableGet)
+    P32<uint8_t> frame;      // 0x84 quadro decodificado: ossos x translação, ossos x quatérnio
+    P32<uint32_t> cursors;   // 0x88 cache de posição nos canais (bit 0x200000)
+    F32<void(obj_tag*, ANIMSKIN_tag*, ANIMSEQ_tag*, void*)> callback;  // 0x8c
+    P32<ANIMRAWSEQ_tag> raw;  // 0x90
     uint32_t hash;           // 0x94
     uint32_t flags;          // 0x98
     float frame_pos;         // 0x9c quadro (1 = o primeiro)
@@ -100,22 +101,23 @@ static_assert(sizeof(ANIMSEQ_tag) == 0xb0);
 
 // Script de animação tocando (0xc0 bytes, AnimScriptNew): uma lista ligada por objeto.
 struct ANIMSCRIPT_tag;
-using AnimScriptFn = void (*)(obj_tag*, void* anim_state, ANIMSCRIPT_tag*);
+using AnimScriptFnSig = void(obj_tag*, void* anim_state, ANIMSCRIPT_tag*);
+using AnimScriptFn = AnimScriptFnSig*;
 struct alignas(16) ANIMSCRIPT_tag {
     MATRIX rot;                // 0x00 rotação do objeto guardada (bit 0x20000: a raiz anda nela)
     uint32_t magic;            // 0x40 0x159f5ab2 vivo, 0x983c4837 apagado
-    ANIMSCRIPT_tag* prev;      // 0x44
-    ANIMSCRIPT_tag* next;      // 0x48
-    ANIMSCRIPT_tag* sync;      // 0x4c script de referência (sincronia, AnimListBuild)
-    ANIMSEQ_tag* seq[2];       // 0x50 corpo e rosto (morphs)
-    void* blend;               // 0x58
-    uint8_t* data;             // 0x5c o script (06xxxxxx)
-    uint8_t* done_flag;        // 0x60 recebe 1 no fim
-    ANIMSCRIPT_tag** owner;    // 0x64 zerado quando o script é apagado
-    AnimScriptFn on_delete;    // 0x68
-    AnimScriptFn on_end;       // 0x6c
+    P32<ANIMSCRIPT_tag> prev;  // 0x44
+    P32<ANIMSCRIPT_tag> next;  // 0x48
+    P32<ANIMSCRIPT_tag> sync;  // 0x4c script de referência (sincronia, AnimListBuild)
+    P32<ANIMSEQ_tag> seq[2];   // 0x50 corpo e rosto (morphs)
+    P32<void> blend;           // 0x58
+    P32<uint8_t> data;         // 0x5c o script (06xxxxxx)
+    P32<uint8_t> done_flag;    // 0x60 recebe 1 no fim
+    P32<P32<ANIMSCRIPT_tag>> owner;  // 0x64 zerado quando o script é apagado
+    F32<AnimScriptFnSig> on_delete;  // 0x68
+    F32<AnimScriptFnSig> on_end;     // 0x6c
     // 0x70 eventos do script (comando 4, tipo 2): fn(obj, estado, script, parâmetro)
-    void (*event_fn)(obj_tag*, void*, ANIMSCRIPT_tag*, uint16_t);
+    F32<void(obj_tag*, void*, ANIMSCRIPT_tag*, uint16_t)> event_fn;
     uint32_t hash;             // 0x74
     uint32_t flags;            // 0x78 0x10000000 terminou, 0x20000000 começou, bit 31 ao contrário
     uint32_t active_cmds;      // 0x7c bit por comando: o quadro estava dentro dele no tick anterior
@@ -143,14 +145,14 @@ static_assert(sizeof(ANIMSCRIPT_tag) == 0xc0);
 // Conjunto de animações por velocidade (0x34 bytes, AnimSetAppend): parado ou andando, escolhido e
 // misturado por AnimSetUpdate.
 struct ANIMSET_tag {
-    ANIMSET_tag* prev;            // 0x00
-    ANIMSET_tag* next;            // 0x04
+    P32<ANIMSET_tag> prev;        // 0x00
+    P32<ANIMSET_tag> next;        // 0x04
     uint32_t stamp_a;             // 0x08 carimbos dos dois scripts de andar em uso
     uint32_t stamp_b;             // 0x0c
-    ANIMSCRIPT_tag* walk_script;  // 0x10 o segundo deles (o peso da mistura vai nele)
-    ANIMSCRIPT_tag* blend;        // 0x14 passo lateral (multijogador)
-    const uint32_t* table;        // 0x18 scripts por velocidade, 0
-    const uint32_t* side;         // 0x1c depois: scripts de lado, 0
+    P32<ANIMSCRIPT_tag> walk_script;  // 0x10 o segundo deles (o peso da mistura vai nele)
+    P32<ANIMSCRIPT_tag> blend;    // 0x14 passo lateral (multijogador)
+    P32<const uint32_t> table;    // 0x18 scripts por velocidade, 0
+    P32<const uint32_t> side;     // 0x1c depois: scripts de lado, 0
     uint32_t tag;                 // 0x20 marca dos scripts do conjunto (AnimTagGetUnique)
     float min_speed;              // 0x24
     float stride;                 // 0x28 metros por unidade de velocidade (walk_dir)
@@ -178,24 +180,24 @@ struct alignas(16) ANIMOBJ_tag {
     int8_t prev_weapon;          // 0x64 arma anterior (a que está sendo guardada)
     uint8_t unknown_65[0x0b];
     // 0x70 começo do sAnimObject_tag
-    void* head_target;           // 0x70 objeto que a cabeça acompanha (AnimObjectSetHeadTracking)
-    const void* aim_target;      // 0x74 ponto para onde a mira aponta (AnimObjectSetAiming)
+    P32<void> head_target;       // 0x70 objeto que a cabeça acompanha (AnimObjectSetHeadTracking)
+    P32<const void> aim_target;  // 0x74 ponto para onde a mira aponta (AnimObjectSetAiming)
     uint8_t unknown_78[0x08];
     _VECTOR sphere;              // 0x80 esfera local (obj_tag::mode bit 8), da sequência
-    void (*root_motion)(obj_tag*, void*, _VECTOR*);  // 0x90 ajusta o quanto a raiz anda no mundo
-    ANIMSKIN_tag* skin;          // 0x94
-    ANIMSET_tag* sets;           // 0x98
-    ANIMSCRIPT_tag* scripts;     // 0x9c
+    F32<void(obj_tag*, void*, _VECTOR*)> root_motion;  // 0x90 ajusta o quanto a raiz anda no mundo
+    P32<ANIMSKIN_tag> skin;      // 0x94
+    P32<ANIMSET_tag> sets;       // 0x98
+    P32<ANIMSCRIPT_tag> scripts;  // 0x9c
     // 0xa0 depois de resolver a pose: fn(obj, estado, ossos, translações, quatérnios)
-    void (*pose_fn)(obj_tag*, void*, uint32_t, uint8_t*, uint8_t*);
-    celglist_tag** extra_glists; // 0xa4 n_extra
-    celglist_tag* mesh_override; // 0xa8 troca o primeiro modelo da pele
-    uint8_t* frame;              // 0xac quadro resolvido: ossos x translação (16), ossos x quatérnio
-    float* morph_weights;        // 0xb0 n_morphs
-    int8_t* extra_timers;        // 0xb4 n_extra
-    MATRIX* bones;               // 0xb8 matriz de cada osso no mundo
-    MATRIX* palette;             // 0xbc bones x pose inversa, para o skinning
-    obj_tag** attached;          // 0xc0 objetos rígidos presos aos ossos (n_discrete)
+    F32<void(obj_tag*, void*, uint32_t, uint8_t*, uint8_t*)> pose_fn;
+    P32<P32<celglist_tag>> extra_glists;  // 0xa4 n_extra
+    P32<celglist_tag> mesh_override;  // 0xa8 troca o primeiro modelo da pele
+    P32<uint8_t> frame;          // 0xac quadro resolvido: ossos x translação (16), ossos x quatérnio
+    P32<float> morph_weights;    // 0xb0 n_morphs
+    P32<int8_t> extra_timers;    // 0xb4 n_extra
+    P32<MATRIX> bones;           // 0xb8 matriz de cada osso no mundo
+    P32<MATRIX> palette;         // 0xbc bones x pose inversa, para o skinning
+    P32<P32<obj_tag>> attached;  // 0xc0 objetos rígidos presos aos ossos (n_discrete)
     uint32_t tick;               // 0xc4 GameState.ticks da última atualização
     uint32_t anim_flags;         // 0xc8 2 personagem (>= 71 ossos), 4 matrizes prontas, 8 paleta pronta...
     float root_height;           // 0xcc altura da raiz (quadril) sobre os pés, da animação
@@ -235,7 +237,7 @@ static_assert(offsetof(ANIMOBJ_tag, frame_size) == 0x100 && offsetof(ANIMOBJ_tag
 static_assert(offsetof(ANIMOBJ_tag, face_timer) == 0x102 && offsetof(ANIMOBJ_tag, eye_x) == 0x107 &&
               offsetof(ANIMOBJ_tag, face_state) == 0x109);
 
-inline ANIMOBJ_tag* anim_of(obj_tag* obj) { return reinterpret_cast<ANIMOBJ_tag*>(obj->sphere_src); }
+inline ANIMOBJ_tag* anim_of(obj_tag* obj) { return reinterpret_cast<ANIMOBJ_tag*>(nf::raw(obj->sphere_src)); }
 // O sAnimObject_tag (o que vem depois do chão e das flags do jogador).
 inline void* anim_state(ANIMOBJ_tag* anim) { return reinterpret_cast<uint8_t*>(anim) + 0x70; }
 inline ANIMOBJ_tag* anim_from_state(void* state) {
@@ -289,7 +291,11 @@ void AnimScriptSetPlayDirection(obj_tag* obj, int32_t dir);
 void AnimObjectSetSleeveType(obj_tag* obj, uint32_t type);
 ANIMSCRIPT_tag* AnimScriptNew(obj_tag* obj, ANIMSCRIPT_tag* after);
 void AnimScriptInit(obj_tag* obj, ANIMSCRIPT_tag* s, uint32_t script);
+void AnimScriptDelete(obj_tag* obj, P32<ANIMSCRIPT_tag>* s);
+#if NF_PTR64
+// x64: o script num ponteiro nativo do port (uma variável local, GlbAnimListItems).
 void AnimScriptDelete(obj_tag* obj, ANIMSCRIPT_tag** s);
+#endif
 bool AnimScriptIsStopped(obj_tag* obj);
 void AnimScriptTick(obj_tag* obj, void* state, ANIMSCRIPT_tag* s);
 float AnimScriptEnd(obj_tag* obj, void* state, ANIMSCRIPT_tag* s, float frame);
@@ -299,7 +305,7 @@ ANIMSCRIPT_tag* AnimListBuild(obj_tag* obj, uint32_t criteria, uint32_t value,
 void AnimListDelete(obj_tag* obj);
 int32_t AnimTagGetUnique();
 ANIMSEQ_tag* AnimSeqNew(uint32_t frame_size, uint32_t tag);
-void AnimSeqDelete(ANIMSEQ_tag** seq);
+void AnimSeqDelete(P32<ANIMSEQ_tag>* seq);
 ANIMRAWSEQ_tag* AnimSeqGetInfo(uint32_t hash, ANIMSEQ_tag* seq, ANIMRAWSEQ_tag* raw);
 ANIMSEQ_tag* AnimSeqSet(obj_tag* obj, void* state, ANIMSCRIPT_tag* s, ANIMRAWSEQ_tag* raw, uint32_t hash,
                         int32_t start, int32_t slot);
