@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Nightfire Level Viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 13px system-ui, sans-serif; overflow: hidden; }
+  #hud { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,.6); padding: 8px 10px; border-radius: 6px; line-height: 1.6; }
+  #hud select, #hud label { margin-right: 8px; }
+  #hud select { max-width: 60vw; }
+  #stats { opacity: .8; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="hud">
+  <div>
+    <select id="model"></select>
+    <label><input type="checkbox" id="vcolor"> cores de vértice</label>
+    <label><input type="checkbox" id="wire"> wireframe</label>
+    <label><input type="checkbox" id="flipz"> espelhar Z</label>
+    <label><input type="checkbox" id="sky" checked> céu</label>
+    <label><input type="checkbox" id="bones"> ossos</label>
+    <label><input type="checkbox" id="volumes"> gatilhos</label>
+    <select id="anim" hidden></select>
+    <label id="frameLabel" hidden>quadro <span id="frame">0</span></label>
+  </div>
+  <div id="stats">carregando…</div>
+  <div style="opacity:.6">arrastar: girar · botão direito: mover · roda: zoom · WASD/QE: voar</div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x202530);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 2.2));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+sun.position.set(1, 2, 1.5);
+scene.add(sun);
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.05, 5000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+const root = new THREE.Group();
+scene.add(root);
+const loader = new GLTFLoader();
+let skyMeshes = [];
+let boneHelpers = [];
+// Animações: ?anim=nome (ou índice), ?fps=30, ?t=segundos congela num instante (para capturas).
+let mixer = null, clips = [], action = null;
+const animSel = document.getElementById('anim');
+function setupAnimations(gltf) {
+  mixer = null; clips = gltf.animations || []; action = null;
+  animSel.innerHTML = '';
+  animSel.hidden = clips.length === 0;
+  document.getElementById('frameLabel').hidden = clips.length === 0;
+  if (!clips.length) return;
+  mixer = new THREE.AnimationMixer(gltf.scene);
+  animSel.add(new Option('(pose de repouso)', ''));
+  clips.forEach((c, i) => animSel.add(new Option(`${c.name} · ${c.duration.toFixed(1)} s`, String(i))));
+  const want = params.get('anim');
+  const idx = want == null ? '' : String(isNaN(want) ? clips.findIndex(c => c.name === want) : parseInt(want));
+  animSel.value = idx;
+  playSelected();
+}
+function playSelected() {
+  if (!mixer) return;
+  mixer.stopAllAction();
+  action = null;
+  if (animSel.value === '') return;
+  action = mixer.clipAction(clips[parseInt(animSel.value)]);
+  action.play();
+  const t = params.get('t');
+  if (t != null) { action.paused = true; action.time = parseFloat(t); mixer.update(0); }
+}
+animSel.onchange = playSelected;
+const ui = {
+  model: document.getElementById('model'), vcolor: document.getElementById('vcolor'),
+  wire: document.getElementById('wire'), flipz: document.getElementById('flipz'),
+  stats: document.getElementById('stats'), sky: document.getElementById('sky'),
+  bones: document.getElementById('bones'), volumes: document.getElementById('volumes'),
+};
+
+const params = new URLSearchParams(location.search);
+const models = (params.get('models') || params.get('model') || '').split(',').filter(Boolean);
+for (const m of models) ui.model.add(new Option(m.split('/').pop(), m));
+
+// Sem ?models=, monta a lista a partir do catálogo gerado por tools/levels.py.
+async function loadCatalog() {
+  const base = params.get('dir') || '/extracted/models/';
+  const levels = await fetch(base + 'levels.json').then(r => r.json());
+  for (const lv of levels) {
+    if (!lv.on_disc) continue;
+    const head = await fetch(base + lv.hash + '.glb', { method: 'HEAD' }).catch(() => null);
+    if (!head || !head.ok) continue;
+    const cuts = lv.sections.map(s => s.cutscene).filter(Boolean);
+    const label = `${lv.hash} · ${lv.name || '?'}` + (cuts.length ? ` · cenas: ${cuts.join(', ')}` : '');
+    ui.model.add(new Option(label, base + lv.hash + '.glb'));
+  }
+  const want = params.get('level');
+  const opt = [...ui.model.options].find(o => want && o.value.includes(want)) || ui.model.options[0];
+  if (opt) { ui.model.value = opt.value; load(opt.value); }
+}
+
+function applyMaterials() {
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    for (const m of [].concat(o.material)) {
+      m.vertexColors = ui.vcolor.checked;
+      m.wireframe = ui.wire.checked;
+      m.needsUpdate = true;
+    }
+  });
+  root.scale.z = ui.flipz.checked ? -1 : 1;
+  for (const m of skyMeshes) m.visible = ui.sky.checked;
+  // Tipos que o jogo não desenha (gatilhos, volumes, marcadores); ver classify_object em src/game/level_scene.cpp.
+  const VOLUMES = new Set([0x24, 0x25, 0x2d, 0x32, 0x33, 0x41, 0xdc, 0xe4, 0xe5, 0xe6, 0xe9, 0xe8, 0xea, 0xeb,
+                           0xec, 0xed, 0xee, 0xef, 0xf4, 0xf9, 0xfb, 0xfd]);
+  root.traverse(o => { const t = o.userData && o.userData.type; if (t !== undefined && VOLUMES.has(t)) o.visible = ui.volumes.checked; });
+  for (const h of boneHelpers) h.removeFromParent();
+  boneHelpers = [];
+  if (ui.bones.checked) root.traverse(o => {
+    if (o.isSkinnedMesh) {
+      const h = new THREE.SkeletonHelper(o.skeleton.bones[0].parent || o);
+      h.material.depthTest = false; h.material.linewidth = 2;
+      scene.add(h); boneHelpers.push(h);
+    }
+  });
+}
+
+// Teste de skinning: ?bend=21:60,40:-45 gira os ossos boneNN em torno de Z (graus).
+function applyBend() {
+  const spec = params.get('bend');
+  if (!spec) return;
+  for (const part of spec.split(',')) {
+    const [idx, deg] = part.split(':');
+    const name = 'bone' + String(idx).padStart(2, '0');
+    root.traverse(o => { if (o.isBone && o.name === name) o.rotation.z += THREE.MathUtils.degToRad(parseFloat(deg)); });
+  }
+}
+
+function load(url) {
+  ui.stats.textContent = 'carregando ' + url + '…';
+  root.clear();
+  loader.load(url, gltf => {
+    root.add(gltf.scene);
+    applyBend();
+    setupAnimations(gltf);
+    let tris = 0, prims = 0, nodes = gltf.scene.children.length;
+    gltf.scene.traverse(o => { if (o.isMesh) { prims++; tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; } });
+    // Um nó por objeto do cenário. O céu é um objeto muito grande que envolve o centro da fase.
+    const objs = gltf.scene.children.map(o => {
+      const b = new THREE.Box3().setFromObject(o);
+      return { o, b, c: b.getCenter(new THREE.Vector3()), d: b.getSize(new THREE.Vector3()).length() };
+    });
+    const med = k => objs.map(r => r.c[k]).sort((a, b) => a - b)[Math.floor(objs.length / 2)] || 0;
+    const mc = new THREE.Vector3(med('x'), med('y'), med('z'));
+    const diags = objs.map(r => r.d).sort((a, b) => a - b);
+    const p75 = diags[Math.floor(diags.length * 0.75)] || 1;
+    skyMeshes = objs.filter(r => r.d > p75 * 8 && r.b.containsPoint(mc)).map(r => r.o);
+    applyMaterials();
+    // Enquadra pelos objetos próximos do centro mediano, ignorando céu, lua e cenário distante.
+    const rest = objs.filter(r => !skyMeshes.includes(r.o));
+    const dists = rest.map(r => r.c.distanceTo(mc)).sort((a, b) => a - b);
+    const dCut = (dists[Math.floor(dists.length * 0.8)] || 1) * 1.5;
+    const box = new THREE.Box3();
+    for (const r of rest) if (r.c.distanceTo(mc) <= dCut) box.expandByObject(r.o);
+    const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
+    // ?focus=x,y,z: o centro da câmera num ponto (por exemplo o rosto de um personagem, com zoom pequeno).
+    if (params.get('focus')) center.set(...params.get('focus').split(',').map(parseFloat));
+    const r = size.length() * 0.6 * parseFloat(params.get('zoom') || '1');
+    controls.target.copy(center);
+    const view = (params.get('view') || 'iso');
+    const dirs = { top: [0, 1, 0.001], iso: [0.8, 0.7, 1.0], front: [0, 0.35, 1], back: [0, 0.35, -1], left: [-1, 0.35, 0], right: [1, 0.35, 0] };
+    const dir = new THREE.Vector3(...(dirs[view] || dirs.iso));
+    camera.position.copy(center).add(dir.normalize().multiplyScalar(r));
+    camera.near = r / 2000; camera.far = r * 20; camera.updateProjectionMatrix();
+    controls.update();
+    ui.stats.textContent = `${url.split('/').pop()} · ${nodes} objetos · ${prims} malhas · ${Math.round(tris).toLocaleString('pt-BR')} triângulos · ` +
+      `tamanho ${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)}`;
+    window.__viewerReady = true;
+  }, undefined, err => { ui.stats.textContent = 'erro: ' + err.message; });
+}
+
+// Galeria: ?gallery=/extracted/models/characters/ carrega todos os .glb da pasta em grade.
+// Opcionais: offset, limit (padrão 40), cols (padrão 10), spacing (padrão 2.5).
+async function loadGallery(dir) {
+  const html = await fetch(dir).then(r => r.text());
+  const files = [...html.matchAll(/href="([^"]+\.glb)"/g)].map(m => m[1]).sort();
+  const offset = parseInt(params.get('offset') || '0'), limit = parseInt(params.get('limit') || '40');
+  const cols = parseInt(params.get('cols') || '10'), spacing = parseFloat(params.get('spacing') || '2.5');
+  const pick = files.slice(offset, offset + limit);
+  root.clear();
+  let tris = 0;
+  await Promise.all(pick.map((f, i) => new Promise(res => loader.load(dir + f, gltf => {
+    const g = gltf.scene;
+    g.position.set((i % cols) * spacing, 0, -Math.floor(i / cols) * spacing * 1.2);
+    g.name = f;
+    g.traverse(o => { if (o.isMesh) tris += o.geometry.index.count / 3; });
+    root.add(g);
+    applyBend();
+    res();
+  }, undefined, () => res()))));
+  applyMaterials();
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
+  const r = size.length() * 0.55 * parseFloat(params.get('zoom') || '1');
+  controls.target.copy(center);
+  camera.position.copy(center).add(new THREE.Vector3(0, 0.35, 1).normalize().multiplyScalar(r));
+  camera.near = r / 2000; camera.far = r * 20; camera.updateProjectionMatrix();
+  controls.update();
+  ui.stats.textContent = `galeria ${dir} · modelos ${offset + 1}-${offset + pick.length} de ${files.length} · ` +
+    `${Math.round(tris).toLocaleString('pt-BR')} triângulos · ordem alfabética, linhas de ${cols}`;
+}
+
+ui.model.onchange = () => load(ui.model.value);
+for (const k of ['vcolor', 'wire', 'flipz', 'sky', 'bones', 'volumes']) ui[k].onchange = applyMaterials;
+if (params.get('bones')) ui.bones.checked = true;
+if (params.get('gallery')) loadGallery(params.get('gallery')).catch(err => { ui.stats.textContent = 'erro na galeria: ' + err.message; });
+else if (models.length) load(models[0]);
+else loadCatalog().catch(err => { ui.stats.textContent = 'sem catálogo (rode tools/levels.py --json extracted/models/levels.json) ou use ?models=a.glb,b.glb: ' + err.message; });
+
+const keys = {};
+addEventListener('keydown', e => keys[e.code] = true);
+addEventListener('keyup', e => keys[e.code] = false);
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta();
+  if (mixer) {
+    mixer.update(dt * parseFloat(params.get('speed') || '1'));
+    if (action) document.getElementById('frame').textContent = Math.round(action.time * parseFloat(params.get('fps') || '30'));
+  }
+  const speed = (keys.ShiftLeft ? 40 : 10) * dt;
+  const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd);
+  const right = new THREE.Vector3().crossVectors(fwd, camera.up).normalize();
+  const move = new THREE.Vector3();
+  if (keys.KeyW) move.add(fwd); if (keys.KeyS) move.sub(fwd);
+  if (keys.KeyD) move.add(right); if (keys.KeyA) move.sub(right);
+  if (keys.KeyE) move.y += 1; if (keys.KeyQ) move.y -= 1;
+  if (move.lengthSq()) { move.normalize().multiplyScalar(speed); camera.position.add(move); controls.target.add(move); }
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

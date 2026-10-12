@@ -1,0 +1,292 @@
+{
+ "source": "ACTION.ELF, menu de depuração C_NIS_Handler (0x00205f10)",
+ "groups": [
+  {
+   "menu_group": "Castle Exterior",
+   "scripts": [
+    {
+     "hash": "06000074",
+     "name": "Halo Jump"
+    },
+    {
+     "hash": "060008c8",
+     "name": "Van Jump"
+    },
+    {
+     "hash": "06000952",
+     "name": "Cliff Fall"
+    }
+   ]
+  },
+  {
+   "menu_group": "Castle Courtyards",
+   "scripts": [
+    {
+     "hash": "06000071",
+     "name": "Castle_tux_change"
+    }
+   ]
+  },
+  {
+   "menu_group": "Castle Indoors 1",
+   "scripts": [
+    {
+     "hash": "06000073",
+     "name": "M1_library"
+    },
+    {
+     "hash": "06000072",
+     "name": "Engagement"
+    }
+   ]
+  },
+  {
+   "menu_group": "Castle Indoors 2",
+   "scripts": [
+    {
+     "hash": "06000077",
+     "name": "Castle Meeting"
+    },
+    {
+     "hash": "06000078",
+     "name": "Castle Rook"
+    },
+    {
+     "hash": "06000076",
+     "name": "Gondola"
+    },
+    {
+     "hash": "06000991",
+     "name": "Cliff Fall 2"
+    }
+   ]
+  },
+  {
+   "menu_group": "Estate A",
+   "scripts": [
+    {
+     "hash": "06000087",
+     "name": "Meet Mayhew"
+    },
+    {
+     "hash": "06000086",
+     "name": "Yakuza Ambush"
+    },
+    {
+     "hash": "0600065d",
+     "name": "Meet Mayhew Intro"
+    }
+   ]
+  },
+  {
+   "menu_group": "Estate B",
+   "scripts": [
+    {
+     "hash": "0600007f",
+     "name": "Bath House"
+    },
+    {
+     "hash": "06000084",
+     "name": "Bunker Objectives"
+    }
+   ]
+  },
+  {
+   "menu_group": "Estate C",
+   "scripts": [
+    {
+     "hash": "06000080",
+     "name": "Yakuza Sniper"
+    }
+   ]
+  },
+  {
+   "menu_group": "Estate D",
+   "scripts": [
+    {
+     "hash": "06000081",
+     "name": "Mayhew Death"
+    },
+    {
+     "hash": "06000082",
+     "name": "Ninja Attack"
+    },
+    {
+     "hash": "06000083",
+     "name": "Second Bunker"
+    },
+    {
+     "hash": "0600065d",
+     "name": "Meet Mayhew Intro"
+    }
+   ]
+  },
+  {
+   "menu_group": "Tower A",
+   "scripts": [
+    {
+     "hash": "060004f8",
+     "name": "Infiltrate Intro"
+    }
+   ]
+  },
+  {
+   "menu_group": "Tower B",
+   "scripts": []
+  },
+  {
+   "menu_group": "Tower C",
+   "scripts": [
+    {
+     "hash": "0600098a",
+     "name": "Infiltrate Fall"
+    },
+    {
+     "hash": "060004f8",
+     "name": "Infiltrate Intro"
+    },
+    {
+     "hash": "060004fa",
+     "name": "Infiltrate Stair"
+    },
+    {
+     "hash": "060004f9",
+     "name": "Infiltrate Buzz"
+    },
+    {
+     "hash": "060004fb",
+     "name": "Infiltrate Outro"
+    }
+   ]
+  },
+  {
+   "menu_group": "Powerstation A1",
+   "scripts": [
+    {
+     "hash": "06000726",
+     "name": "Drake Interview"
+    }
+   ]
+  },
+  {
+   "menu_group": "Powerstation A2",
+   "scripts": [
+    {
+     "hash": "0600068f",
+     "name": "Rook Retreat"
+    },
+    {
+     "hash": "0600073a",
+     "name": "Enter Vent"
+    }
+   ]
+  },
+  {
+   "menu_group": "Tower2 A",
+   "scripts": [
+    {
+     "hash": "0600098a",
+     "name": "Infiltrate Fall"
+    },
+    {
+     "hash": "06000655",
+     "name": "Dominique Death"
+    }
+   ]
+  },
+  {
+   "menu_group": "Tower2 B",
+   "scripts": [
+    {
+     "hash": "0600098a",
+     "name": "Infiltrate Fall"
+    }
+   ]
+  },
+  {
+   "menu_group": "Tower2 C",
+   "scripts": [
+    {
+     "hash": "06000646",
+     "name": "Lobby Rescue"
+    },
+    {
+     "hash": "060006d7",
+     "name": "Elevator Exit"
+    }
+   ]
+  },
+  {
+   "menu_group": "Tower2 Elevator",
+   "scripts": [
+    {
+     "hash": "060006cf",
+     "name": "Shaft Attack"
+    },
+    {
+     "hash": "060006d3",
+     "name": "Elevator Plummet"
+    }
+   ]
+  },
+  {
+   "menu_group": "Evil Base",
+   "scripts": [
+    {
+     "hash": "0600062f",
+     "name": "Kiko Command Centre"
+    },
+    {
+     "hash": "06000833",
+     "name": "Kiko Arrival"
+    },
+    {
+     "hash": "06000848",
+     "name": "Rook Reveal"
+    }
+   ]
+  },
+  {
+   "menu_group": "Evil Silo",
+   "scripts": []
+  },
+  {
+   "menu_group": "Evil Base C",
+   "scripts": [
+    {
+     "hash": "06000631",
+     "name": "Bond Dropped"
+    },
+    {
+     "hash": "06000632",
+     "name": "Kiko Flees"
+    },
+    {
+     "hash": "06000633",
+     "name": "Kiko Death"
+    }
+   ]
+  },
+  {
+   "menu_group": "Space Station D",
+   "scripts": [
+    {
+     "hash": "0600085c",
+     "name": "Laser Taunt"
+    },
+    {
+     "hash": "0600085f",
+     "name": "Drake Explosion"
+    },
+    {
+     "hash": "0600098f",
+     "name": "Drake Killed"
+    }
+   ]
+  },
+  {
+   "menu_group": "Unknown",
+   "scripts": []
+  }
+ ]
+}

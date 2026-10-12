@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="1 1 255 255" width="100%" height="100%" preserveAspectRatio="none">
+<defs>
+<linearGradient id="fade" gradientUnits="userSpaceOnUse" x1="1" y1="0" x2="70" y2="0">
+<stop offset="0" stop-color="#040404" stop-opacity="0"/>
+<stop offset="0.35" stop-color="#040404" stop-opacity="0.7"/>
+<stop offset="1" stop-color="#040404" stop-opacity="1"/>
+</linearGradient>
+<linearGradient id="deep" gradientUnits="userSpaceOnUse" x1="0" y1="40" x2="0" y2="256">
+<stop offset="0" stop-color="#141414" stop-opacity="1"/>
+<stop offset="1" stop-color="#000000" stop-opacity="1"/>
+</linearGradient>
+<linearGradient id="rim" gradientUnits="userSpaceOnUse" x1="1" y1="0" x2="256" y2="0">
+<stop offset="0" stop-color="#c47a48" stop-opacity="0"/>
+<stop offset="0.25" stop-color="#c47a48" stop-opacity="0.8"/>
+<stop offset="0.8" stop-color="#e0a070" stop-opacity="1"/>
+<stop offset="1" stop-color="#f0b888" stop-opacity="1"/>
+</linearGradient>
+<clipPath id="r"><path d="M256,45 A255,141 0 0 1 1,186 L1,256 L256,256 Z"/></clipPath>
+</defs>
+<g clip-path="url(#r)">
+<rect x="70" y="0" width="200" height="260" fill="url(#deep)"/>
+<rect x="0" y="0" width="70" height="260" fill="url(#fade)"/>
+</g>
+<path d="M256,45 A255,141 0 0 1 1,186" fill="none" stroke="url(#rim)" stroke-width="1.6"/>
+</svg>

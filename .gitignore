@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------
+# Conteúdo proprietário do jogo: NUNCA versionar.
+# O usuário fornece a própria cópia (ISO ou arquivos extraídos).
+# ---------------------------------------------------------------
+*.iso
+*.ISO
+*.ELF
+*.elf
+SLUS_*
+SYSTEM.CNF
+FILES.BIN
+/DRIVING/
+/MODULES/
+/MOVIES/
+/PS2/
+
+# A versão de Xbox (a cópia americana), só para ler o código das missões de carro (docs/driving.md): a cópia do disco fica em xbox/
+/xbox/
+*.xbe
+*.XBE
+*.xiso
+
+# Saídas geradas a partir dos dados do jogo
+extracted/
+out/
+
+# Projetos de RE (contêm o binário embutido)
+ghidra/
+*.gpr
+*.rep/
+
+# Build
+build/
+*.obj
+*.pdb
+*.exe
+*.ilk
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Editores / SO
+.vs/
+.vscode/
+Thumbs.db
+desktop.ini
+
+# Pacotes de texturas de alta definição (ex.: substituições do PCSX2)
+textures/
+
+# Fontes do usuário para a camada 2D em alta definição (podem ter licença própria)
+hd_ui/fonts/
+
+# Configuração local do port (opções do jogador)
+nightfire.ini
+
+# O cartão de memória do port (os perfis do jogador)
+saves/

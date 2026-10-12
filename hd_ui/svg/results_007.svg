@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 255 127" width="100%" height="100%" preserveAspectRatio="none">
+<defs>
+<linearGradient id="chrome" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="104">
+<stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
+<stop offset="0.22" stop-color="#e2e2e2" stop-opacity="1"/>
+<stop offset="0.46" stop-color="#a4a4a6" stop-opacity="1"/>
+<stop offset="0.52" stop-color="#cfcfd1" stop-opacity="1"/>
+<stop offset="0.78" stop-color="#f2f2f2" stop-opacity="1"/>
+<stop offset="1" stop-color="#8e8e90" stop-opacity="1"/>
+</linearGradient>
+<linearGradient id="barrel" gradientUnits="userSpaceOnUse" x1="0" y1="6" x2="0" y2="20">
+<stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
+<stop offset="0.4" stop-color="#d8d8da" stop-opacity="1"/>
+<stop offset="0.7" stop-color="#9c9c9e" stop-opacity="1"/>
+<stop offset="1" stop-color="#e8e8ea" stop-opacity="1"/>
+</linearGradient>
+</defs>
+<g transform="translate(25,0) skewX(-14)">
+<path d="M3.00,52.00 A27.00,47.00 0 1 0 57.00,52.00 A27.00,47.00 0 1 0 3.00,52.00 Z M19.00,52.00 A11.00,35.00 0 1 0 41.00,52.00 A11.00,35.00 0 1 0 19.00,52.00 Z" fill="url(#chrome)" fill-rule="evenodd" stroke="#3e3e40" stroke-width="1.3"/>
+<path d="M61.00,52.00 A27.00,47.00 0 1 0 115.00,52.00 A27.00,47.00 0 1 0 61.00,52.00 Z M77.00,52.00 A11.00,35.00 0 1 0 99.00,52.00 A11.00,35.00 0 1 0 77.00,52.00 Z" fill="url(#chrome)" fill-rule="evenodd" stroke="#3e3e40" stroke-width="1.3"/>
+<path d="M120,6 L178,6 L178,21 L150,99 L126,99 L157,22 L120,22 Z" fill="url(#chrome)" stroke="#3e3e40" stroke-width="1.3"/>
+<path d="M176,7 L226,7 C229,7 230,9 230,12 L230,16 C230,19 229,20 226,20 L176,20 Z" fill="url(#barrel)" stroke="#3e3e40" stroke-width="1.2"/>
+<rect x="221" y="3.5" width="4" height="4" fill="#d0d0d2" stroke="#3e3e40" stroke-width="0.8"/>
+<path d="M182,20 C182,31 196,33 199,22" fill="none" stroke="#3e3e40" stroke-width="4.2" stroke-linecap="round"/>
+<path d="M182,20 C182,31 196,33 199,22" fill="none" stroke="#d4d4d6" stroke-width="2.4" stroke-linecap="round"/>
+<path d="M189,20 C190,24 189,27 187,29" fill="none" stroke="#bcbcbe" stroke-width="1.6" stroke-linecap="round"/>
+</g>
+</svg>

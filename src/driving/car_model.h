@@ -1,0 +1,149 @@
+#pragma once
+// Um modelo de carro do EAGL pronto para desenhar no PC (docs/driving.md seção 10): carrega os render methods
+// (eaglrm.o, bondrm.o), as texturas (o .ssh do carro, common.ssh, ext.ssh), o CARP do carro com o EAGL::DynamicLoader
+// e os construtores do jogo, percorre os modelos (as 43 peças do Vanquish) e as primitivas com o desenho do jogo
+// (GeoPrim_Draw), executa a cadeia de DMA no VIF e decodifica cada lote que a VU1 receberia.
+//
+// Só do port (o que o jogo faz em código que não foi portado): os valores que o RReflection, o RLightManager e o
+// RVehicle dão aos símbolos do jogo e às constantes globais da VU1. As propriedades de luz por material vêm do
+// data\tuning\Render\CarRender\default.tun como o jogo as lê (RReflection, 0x001c0930: os padrões 0,5/0,5/1,0/0,8 e as
+// chaves "[Paint]Ambient{vanquish}"...), mapeadas como o RCARPFile::RegisterSymbols (0x001a8930) as entrega:
+// CarLightingGlassProps = tipo 0, Specular 1, Glossy 2 ([Paint]), Dull 3, Chrome 4, Dash 5, em (Ambient, Diffuse,
+// Specular, Reflect); ReflectionInfo2 = (Fresnel, ReflectionWarp, SpecularSpot, 1). As texturas GAME::SpecularMap e
+// GAME::ReflectionMap: 'carS' do common.ssh (a que o RReflection carrega) e, no lugar do reflexo que o jogo renderiza
+// numa textura de 256x256 a cada quadro, o 'bref' do ext.ssh (o reflexo estático da cidade).
+
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "driving/bigf.h"
+#include "driving/eagl_loader.h"
+#include "driving/eagl_state.h"
+#include "driving/mat_car.h"
+#include "driving/mat_car_verify.h"
+#include "driving/shps.h"
+
+namespace drv {
+
+// Uma textura como o renderizador do PC a recebe (o TBP0 do TEX0 aponta para ela pelo índice).
+struct CarTexture {
+    std::string name;    // "$$00", "carS"
+    std::string source;  // "vanquish.ssh"
+    int width = 0, height = 0;
+    std::vector<uint8_t> rgba;  // alfa na escala do arquivo (0x80 = 1,0 nos arquivos do carro)
+};
+
+// Um vértice como o vertex shader o recebe: o lote depois do passo 1 do microprograma (car_convert); o shader refaz os
+// passos 2-7.
+using CarGpuVertex = CarVertexWork;
+
+// Um desenho: lotes seguidos com o mesmo método, estado e texturas.
+struct CarDraw {
+    std::string method;
+    int passes = kPassBase;  // máscara de CarPass (as passadas que o microprograma chuta)
+    bool fallback = false;   // um método fora da família (ver CarModel::load): só a passada base, com luz da família
+    int part = 0;            // o índice do modelo (a peça)
+    uint32_t first_index = 0, index_count = 0;
+    float props[4] = {};
+    eagl::GsRegs pass[3];
+    int texture[3] = {-1, -1, -1};  // pelo TBP0 de cada passada
+};
+
+struct CarPart {
+    std::string name;  // "vanquish::{as  0000}::Model[0].00"
+    int groups = 0, geoprims = 0;
+    uint32_t first_vertex = 0, vertex_count = 0;
+    float bbox_min[3] = {0, 0, 0}, bbox_max[3] = {0, 0, 0};  // no espaço do modelo (sem a matriz da peça)
+};
+
+// Uma instância do objeto articulado: um registro de 64 bytes da entrada 'in#0000' do grupo 'Arti' do CARP (o
+// CARP::Instance que o RSkeletalObj desenha). As linhas 0-2 são a rotação e a linha 3 a translação (p' = p x M, a
+// convenção do EAGL); os w guardam a peça e as bandeiras. A peça é o registro 'as' (40 bytes; a palavra 9 é a
+// etiqueta 'sr' com o nome do __Model, "EAGL::vanquish::{as  0000}::Model[0].00"); 'as' de 32 bytes não têm modelo
+// (as luzes 'as#002b'/'as#002c'). O Vanquish tem 57: a carroceria em y = 0,696 (a origem do carro fica no chão), as
+// rodas em (+-0,748; 0,353; 1,409) e (+-0,748; 0,353; -1,269), as peças de um lado repetidas espelhadas em x.
+struct CarInstance {
+    int part = -1;             // o índice em CarModel::parts() (-1: um 'as' sem modelo)
+    float matrix[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    uint32_t flags = 0;        // o w da linha 0 (o bit 0x80 acompanha as cópias espelhadas)
+    uint32_t piece = 0;        // o w da linha 1: a etiqueta 'as'
+    uint32_t extra[2] = {0, 0};  // os w das linhas 2 e 3
+};
+
+struct CarModelStats {
+    int models = 0, groups = 0, geoprims = 0, batches = 0, vertices = 0, triangles = 0;
+    int fallback_batches = 0, fallback_triangles = 0;
+    std::map<std::string, int> method_batches;  // lotes por render method
+    std::map<std::string, int> method_triangles;
+    int loader_messages = 0, vif_errors = 0, unported_ops = 0, runtime_alloc_unported = 0;
+    int dma_null_sources = 0, dma_overflows = 0;  // cópias de referências não resolvidas (zeros) e cadeias grandes demais
+    int microcode_switches = 0;
+    float bbox_min[3] = {1e30f, 1e30f, 1e30f}, bbox_max[3] = {-1e30f, -1e30f, -1e30f};  // das peças nas instâncias
+    int instances = 0, instances_without_model = 0, parts_without_instance = 0;
+};
+
+class CarModel {
+public:
+    CarModel();
+    ~CarModel();
+    // `root` = a pasta com DRIVING/; `viv` = o arquivo da missão ("MIS01.VIV"); `name` = o carro ("vanquish").
+    bool load(const std::string& root, const std::string& viv, const std::string& name, std::string& error);
+    // Antes do load: cada lote da família também roda no interpretador da VU1 e é comparado (mat_car_verify.h).
+    void set_verify(bool on) { verify_ = on; }
+    const CarVerifyStats& verify_stats() const { return verify_stats_; }
+
+    const std::vector<CarGpuVertex>& vertices() const { return vertices_; }
+    const std::vector<uint32_t>& indices() const { return indices_; }
+    const std::vector<CarDraw>& draws() const { return draws_; }
+    const std::vector<CarTexture>& textures() const { return textures_; }
+    const std::vector<CarPart>& parts() const { return parts_; }
+    // As instâncias do 'Arti' (vazio se o CARP não tem: então cada peça é desenhada uma vez, sem matriz).
+    const std::vector<CarInstance>& instances() const { return instances_; }
+    // A lista de desenho de uma vista (RSceneObj::GetViewDrawList: a entrada 'vd' + vista do 'Arti', u16 índices de
+    // instância): no Vanquish vd#0001 tem 47 (sem o painel, os ponteiros e o retrovisor interno: a vista de fora),
+    // vd#0002 30 (sem a carroceria nem as rodas: a de dentro), vd#0003-0005 55. Vazia se a vista não existe.
+    std::vector<uint16_t> view_draw_list(unsigned view) const;
+    int view_count() const { return int(view_lists_.size()); }
+    // A caixa do carro montado numa vista (as caixas das peças pelas matrizes das instâncias da lista; vista 0 ou sem
+    // lista: todas as instâncias; sem instâncias: as peças como estão).
+    void bounds(unsigned view, float lo[3], float hi[3]) const;
+    const CarModelStats& stats() const { return stats_; }
+    const CarConstants& constants() const { return constants_; }
+    CarConstants& constants() { return constants_; }
+    // Os lotes decodificados (para a referência na CPU e os testes), na ordem do desenho.
+    const std::vector<CarBatch>& batches() const { return batches_; }
+    const std::vector<std::string>& messages() const { return messages_; }
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+    std::vector<CarGpuVertex> vertices_;
+    std::vector<uint32_t> indices_;
+    std::vector<CarDraw> draws_;
+    std::vector<CarTexture> textures_;
+    std::vector<CarPart> parts_;
+    std::vector<CarInstance> instances_;
+    std::vector<std::vector<uint16_t>> view_lists_;  // [vista]: as 'vd#vista' (a 0 fica vazia)
+    std::vector<CarBatch> batches_;
+    std::vector<std::string> messages_;
+    CarModelStats stats_;
+    CarConstants constants_;
+    bool verify_ = false;
+    CarVerifyStats verify_stats_;
+};
+
+// As propriedades de luz de um carro pela tabela de ajuste (as linhas "chave{carro}=valor"); `out` tem 7 COORD4: os
+// tipos 0-5 e o ReflectionInfo2.
+void car_lighting_from_tuning(const std::string& tun_text, const std::string& car, float out[7][4]);
+
+// As luzes da pista (data\tuning\Render\Lighting\<pista>.tun, o conjunto "{World}") nas constantes da VU1 que o
+// microprograma lê (0x49-0x4f): Light1 e Light2 com os ângulos (graus: Y em volta do eixo vertical, X de inclinação),
+// AmbientSky como o ambiente, a terceira luz apagada. Só do port: o RLightManager do jogo (que monta o LightSources do
+// MatCarPerCar a cada quadro) não foi lido; a direção usada é a que aponta para a luz, (cos X sen Y, sen X, cos X cos Y)
+// com o sinal trocado.
+void car_lights_from_tuning(const std::string& tun_text, CarConstants& k);
+
+}  // namespace drv

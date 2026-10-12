@@ -1,0 +1,136 @@
+#pragma once
+// A família de render methods texturizados dos carros, lida no microprograma da VU1
+// (`python tools/vudis.py --eagl bondrm.o MatCarTexturePacked`; docs/driving.md seção 10):
+//  - MatCarTexturePacked e MatCarChrome: o mesmo microprograma, byte a byte; entradas "Packed" (u16/u8) e três
+//    passadas (base, especular, reflexo);
+//  - MatCarTextureDullPacked: o mesmo código com outro leiaute e só a passada base;
+//  - MatCarDash: o mesmo código sem o passo 1 (as entradas já vêm em float, UNPACK V4-32), base e especular.
+// No Vanquish são 360 dos 389 lotes (o resto vai ao substituto: MatCarTextureSwitchPacked, que é esta família com um
+// passo a mais que acende a cor pelos SwitchData; MatCarGlassPacked; MatCarGouraudDullPacked; BondCarShadow).
+//
+// O que o microprograma faz com cada lote (até 44 vértices) que o VIF põe no buffer TOP:
+//  0. preenche a cor de trabalho (TOP+cor) com (127, 127, 127, 128) inteiros: sem cor por vértice;
+//  1. (só "Packed") converte os fluxos: STQ s,t = u16 x I1 - 32 (I1 = 0x3a7ffff7, um pouco menos que 1/1024), z = 1;
+//     normal = u8 x I2 - 1 (I2 = 0x3c008080, pouco menos que 2/255); vetor de dano = u16 x I1 - 32 (4 componentes);
+//     normal de dano = u16 x I1 - 32 (xyz; o w fica o inteiro do UNPACK: o índice da zona de dano);
+//  2. dano: z = DamageZones[zona] (VU 0x56 + zona); posição += vetor.xyz x z.x; normal += normal_de_dano x z.x;
+//     cor.rgb = int(max(0, 127 x (1 - vetor.w x z.y))); alfa_f = max(0, 128 x (1 - vetor.w x z.z)) guardado em
+//     float no w do vetor de dano (o carro inteiro tem z = 0: nada muda);
+//  3. três luzes direcionais: as linhas 0-2 da WorldMatrix normalizadas (ERLENG), A_k = L0 r_k.x + L1 r_k.y + L2 r_k.z
+//     com L = VU 0x49-0x4b (as direções transpostas), d = max(0, A0 n.x + A1 n.y + A2 n.z); cor.rgb =
+//     min(255, cor x (C0 x props.y x d.x + C1 d.y + C2 d.z + Amb x props.x)), C = VU 0x4c-0x4e, Amb = 0x4f;
+//  4. quatro luzes pontuais (sem a normal): p = posição no mundo, att = max(0, 255 - K x |P - p|^2) com P e K em
+//     VU 0x40-0x43 (SoA: x, y, z, K), cor.rgb = min(255, cor + C0 att.x + ... + C3 att.w), C = 0x44-0x47;
+//  5. transformação: clip = p x MVP (as linhas TOP+1..4), Q = 1/clip.w, tela = VU 0 + clip.xyz x VU 1 x Q, névoa
+//     F = 255 - VU48.w x (clamp(clip.w, VU48.x, VU48.z) - VU48.x); STQ = (s Q, t Q, Q); XYZF = FTOI4(tela, F); o ADC
+//     (bit 15 do w) liga em triângulos com os três vértices fora do mesmo plano ou além de +z (o recorte) e nos dois
+//     primeiros vértices de cada faixa (as 12 entradas "SplitReg": o vértice x 3 de cada recomeço);
+//     passada 1: XGKICK do State, do TAR da textura e dos vértices;
+//  6. (TexturePacked/Chrome/Dash) passada 2, o especular: E = WorldMatrix x SpecularMat (VU 0x50-0x53), linhas x
+//     ReflectionInfo2.z (VU 0x55); ST = 0.5 + (E0 n.x + E1 n.y + E2 n.z).xy, Q = 1; cor = int(props.z x alfa_f);
+//     XGKICK do EnvMapState (no Dash, SpecMapState), do TAR SpecularMap e dos vértices (o mesmo XYZF);
+//  7. (TexturePacked/Chrome) passada 3, o reflexo: v = (posição x VU55.x + normal), a = (W0 v.x + W1 v.y + W2 v.z) x
+//     VU55.y (W = WorldMatrix sem a translação); ST = (0.5 + a.x, 0.5 + a.z), Q = 1;
+//     cor = int(min(props.w x alfa_f, 100000 x max(a.y, 0))); XGKICK do EnvMapState, do TAR ReflectionMap2 e dos
+//     vértices.
+// As constantes I são as do microcódigo (o I de uma instrução com o bit I é o carregado na anterior: a instrução de cima
+// executa antes do LOI do mesmo par). A referência abaixo faz as contas em float do IEEE na mesma ordem; a VU não tem
+// denormais nem infinitos e arredonda para zero (diferenças no último bit, que os testes evitam com valores exatos).
+
+#include <cstdint>
+#include <vector>
+
+#include "driving/eagl_state.h"
+#include "driving/vif.h"
+
+namespace drv {
+
+enum CarPass { kPassBase = 1, kPassSpec = 2, kPassRefl = 4 };
+
+struct CarMethodLayout {
+    const char* name;
+    int passes;        // máscara de CarPass
+    bool packed;       // entradas u16/u8 (o passo 1); senão float (V4-32)
+    int max_verts;
+    // Endereços relativos ao TOP (qwords).
+    int count, mvp, world, props, tar, tar_spec, tar_refl, split, pos, stq, normal, dmgvec, dmgnrm, colour, gif_tag,
+        out, state, env_state;
+};
+// A família pelo nome do render method (nullptr se não é dela).
+const CarMethodLayout* car_method_layout(const char* method_name);
+
+// As constantes globais da VU1 que o microprograma lê (endereços absolutos), postas pelos métodos MatBondPerViewPort
+// (PositionalLightSources 0x40-0x47, FogData 0x48) e MatCarPerCar (LightSources 0x49-0x4f, SpecularMat 0x50-0x53,
+// ReflectionInfo1/2 0x54/0x55, DamageZones 0x56-0x65) e pelo EAGL (a janela de vista em 0 e 1).
+struct CarConstants {
+    float vp_offset[4] = {2048, 2048, 0, 0};       // VU 0
+    float vp_scale[4] = {320, -224, -16777215, 0};  // VU 1
+    float point_pos[4][4] = {};                      // VU 0x40-0x43: x, y, z (4 luzes) e K
+    float point_col[4][4] = {};                      // VU 0x44-0x47
+    float fog[4] = {0, 0, 1e9f, 0};                  // VU 0x48: x = w perto, z = w longe, w = escala
+    float light_dir_t[3][4] = {};                    // VU 0x49-0x4b: as direções das 3 luzes, transpostas
+    float light_col[3][4] = {};                      // VU 0x4c-0x4e
+    float ambient[4] = {};                           // VU 0x4f
+    float spec_mat[4][4] = {};                       // VU 0x50-0x53
+    float refl_info1[4] = {};                        // VU 0x54
+    float refl_info2[4] = {};                        // VU 0x55: x, y, z (ver acima)
+    float damage[16][4] = {};                        // VU 0x56-0x65
+    void write(VuMemory& mem) const;
+};
+
+// Um vértice como o VIF o deixou (antes do passo 1): as palavras de cada fluxo como estão na memória da VU (inteiros
+// das UNPACK u16/u8 com USN, ou os bits dos floats das V4-32).
+struct CarVertexIn {
+    uint32_t pos[3];
+    uint32_t stq[3];
+    uint32_t normal[3];
+    uint32_t dmgvec[4];
+    uint32_t dmgnrm[4];  // w = índice da zona de dano (inteiro nos dois formatos)
+};
+
+// Um vértice depois do passo 1 (o que o vertex shader do PC recebe).
+struct CarVertexWork {
+    float pos[3];
+    float stq[3];   // s, t e a base do Q (1)
+    float normal[3];
+    float dmgvec[4];
+    float dmgnrm[3];
+    uint32_t zone;
+};
+static_assert(sizeof(CarVertexWork) == 68);
+
+// Um lote decodificado da memória da VU1 num MSCNT.
+struct CarBatch {
+    const CarMethodLayout* layout = nullptr;
+    int count = 0;
+    float mvp[4][4];      // linhas, como a VU as lê (p' = p x M)
+    float world[4][4];
+    float props[4];       // LightingProperties: (ambiente, difusa, especular, reflexo)
+    eagl::GsRegs pass[3];  // o estado de cada passada (o GeoPrimState e o TAR que o microprograma chuta)
+    bool strip = true;     // PRIM do State: 4 faixa, 3 lista
+    int split[12];        // as entradas SplitReg (vértice x 3)
+    std::vector<CarVertexIn> v;
+};
+bool car_decode_batch(const VuMemory& mem, uint32_t top, const CarMethodLayout& layout, CarBatch& out);
+
+// O passo 1 de um vértice (ou só a leitura dos floats, nos métodos sem "Packed").
+CarVertexWork car_convert(const CarMethodLayout& layout, const CarVertexIn& v);
+
+// A saída de um vértice numa passada, como o microprograma a grava no buffer de saída.
+struct CarVertexOut {
+    float stq[3];      // s, t, q
+    int32_t rgba[4];   // inteiros (0x80 = 1,0 no GS)
+    int32_t xyzf[4];   // FTOI4: x, y, z e a névoa F << 4; o bit 15 do w é o ADC (só o das faixas, ver acima)
+    bool adc;          // o recomeço de faixa (SplitReg); o descarte por recorte não é reproduzido (ver car_reference)
+};
+
+// A referência na CPU do microprograma (passos 0-7) para um lote: out[passada][vértice] (vazio nas passadas que o
+// método não tem). Divergência documentada: o descarte de triângulos por recorte (CLIPw e os testes de FCAND/FCOR) não é
+// feito; no PC o hardware recorta. Os demais valores saem como o microprograma os grava.
+void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVertexOut> out[3]);
+
+// Os triângulos de um lote (índices dentro do lote) pela regra do GS: numa faixa, cada vértice a partir do terceiro
+// fecha um triângulo, menos os que têm ADC; numa lista, de três em três.
+void car_triangles(const CarBatch& b, std::vector<uint16_t>& tris);
+
+}  // namespace drv

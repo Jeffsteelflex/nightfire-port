@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "anchor": "centre",
+  "anchor_skip": [8, [0, 7]],
+  "text": true,
+  "fonts": {
+    "1": {"name": "NFont2", "family": "Bahnschrift", "weight": 600, "stretch": 5, "italic": false, "size": 1.0, "spacing": 0.04, "fit_min": 0.7},
+    "2": {"name": "SerpLight", "family": "Bahnschrift", "weight": 600, "stretch": 5, "italic": false, "size": 1.0, "spacing": 0.04, "fit_min": 0.7},
+    "3": {"name": "Medium", "family": "Bahnschrift", "weight": 700, "stretch": 5, "italic": true, "size": 1.0, "spacing": 0.02, "fit_min": 0.7}
+  },
+  "images": [
+    {"name": "mira (HUDCrossCoords recorta o quadro em uso)", "texture": "03000026", "rect": [0, 0, 31, 32], "file": "svg/crosshair.svg"},
+
+    {"name": "faixa das mensagens: meio, esticado (panes 2, 3, 4 e 21, sprite 2)", "texture": "0300007a", "rect": [190, 0, 2, 57], "file": "svg/band_mid.svg"},
+    {"name": "faixa das mensagens: ponta esquerda (sprite 3)", "texture": "0300007a", "rect": [185, 0, 6, 57], "file": "svg/band_left.svg"},
+    {"name": "faixa das mensagens: ponta direita (sprite 4)", "texture": "0300007a", "rect": [191, 0, 6, 57], "file": "svg/band_right.svg"},
+
+    {"name": "pilha de balas da munição 9 mm (pane 0, sprites 5 e 6; BulletImg.189)", "texture": "03000128", "rect": [26, 0, 15, 256], "extent": ["inclusive", "exclusive"], "file": "svg/bullets_column.svg"},
+
+    {"name": "vida: lâmina 1 de 7 (a última a apagar)", "pane": 1, "sprite": 8, "texture": "0300007a", "file": "svg/health_blade_8.svg"},
+    {"name": "vida: lâmina 2", "pane": 1, "sprite": 9, "texture": "0300007a", "file": "svg/health_blade_9.svg"},
+    {"name": "vida: lâmina 3", "pane": 1, "sprite": 10, "texture": "0300007a", "file": "svg/health_blade_10.svg"},
+    {"name": "vida: lâmina 4", "pane": 1, "sprite": 11, "texture": "0300007a", "file": "svg/health_blade_11.svg"},
+    {"name": "vida: lâmina 5", "pane": 1, "sprite": 12, "texture": "0300007a", "file": "svg/health_blade_12.svg"},
+    {"name": "vida: lâmina 6", "pane": 1, "sprite": 13, "texture": "0300007a", "file": "svg/health_blade_13.svg"},
+    {"name": "vida: lâmina 7", "pane": 1, "sprite": 14, "texture": "0300007a", "file": "svg/health_blade_14.svg"},
+    {"name": "vida: anel (o ícone, sprite 15)", "pane": 1, "sprite": 15, "texture": "0300007a", "file": "svg/health_ring.svg"},
+
+    {"name": "menus: o painel (pausa, fim de missão, caixa SIM/NÃO, páginas do PC; nove pedaços quando esticado)", "texture": "03000070", "rect": [0, 0, 512, 256], "file": "svg/menu_panel.svg"},
+    {"name": "menus: a silhueta da pausa (aditiva, alfa 0x50)", "texture": "030000db", "rect": [0, 0, 128, 128], "file": "svg/menu_silhouette.svg"},
+    {"name": "menus: botão cinza com borda laranja (o cursor das barras usa as linhas de cima, de baixo e o meio)", "texture": "03000042", "rect": [0, 0, 17, 17], "file": "svg/menu_button.svg"},
+    {"name": "menus: rádio", "texture": "03000042", "rect": [0, 16, 17, 17], "file": "svg/menu_radio.svg"},
+    {"name": "menus: seta para cima", "texture": "03000042", "rect": [16, 0, 17, 17], "file": "svg/menu_arrow_up.svg"},
+    {"name": "menus: seta para baixo", "texture": "03000042", "rect": [32, 0, 17, 17], "file": "svg/menu_arrow_down.svg"},
+    {"name": "menus: seta para a esquerda (barras)", "texture": "03000042", "rect": [48, 0, 17, 17], "file": "svg/menu_arrow_left.svg"},
+    {"name": "menus: seta para a direita (o cursor das listas e as barras)", "texture": "03000042", "rect": [48, 16, 17, 17], "file": "svg/menu_arrow_right.svg"},
+    {"name": "menus: caixa de marcar ligada (o quadradinho laranja)", "texture": "03000042", "rect": [25, 19, 3, 3], "file": "svg/menu_check_on.svg"},
+    {"name": "menus: caixa de marcar desligada (o quadradinho cinza)", "texture": "03000042", "rect": [31, 19, 3, 3], "file": "svg/menu_check_off.svg"},
+    {"name": "menus: destaque de linha (o texel branco esticado; a cor vem do sprite)", "texture": "03000042", "rect": [38, 19, 2, 2], "file": "svg/menu_highlight.svg"},
+    {"name": "menus: barra de volume (não vista: opções do menu principal)", "texture": "03000042", "rect": [0, 32, 64, 8], "file": "svg/menu_volume.svg"},
+    {"name": "menus: seta grande para a direita (não vista)", "texture": "03000042", "rect": [0, 40, 24, 24], "file": "svg/menu_bigarrow_right.svg"},
+    {"name": "menus: seta grande para a esquerda (não vista)", "texture": "03000042", "rect": [40, 40, 24, 24], "file": "svg/menu_bigarrow_left.svg"},
+    {"name": "resultado: o 007 com a arma", "texture": "03000140", "rect": [0, 0, 256, 128], "file": "svg/results_007.svg"},
+    {"name": "resultado: o canto escuro com o arco cor de cobre", "texture": "0300014c", "rect": [1, 1, 256, 256], "file": "svg/results_corner.svg"}
+  ],
+  "prompts": {
+    "ps2": {
+      "A": "svg/ps2_cross.svg", "B": "svg/ps2_triangle.svg", "X": "svg/ps2_circle.svg", "Y": "svg/ps2_square.svg",
+      "C": "svg/ps2_l2.svg", "D": "svg/ps2_r2.svg", "L": "svg/ps2_l1.svg", "R": "svg/ps2_r1.svg",
+      "E": "svg/ps2_rstick.svg", "F": "svg/ps2_lstick.svg",
+      "H": "svg/ps2_dpad_h.svg", "V": "svg/ps2_dpad_v.svg", "W": "svg/ps2_dpad.svg",
+      "S": "svg/ps2_start.svg", "T": "svg/ps2_select.svg",
+      "I": "svg/mark_dot.svg", "J": "svg/mark_check.svg"
+    },
+    "xbox": {
+      "A": "svg/xbox_a.svg", "B": "svg/xbox_b.svg", "X": "svg/xbox_x.svg", "Y": "svg/xbox_y.svg",
+      "LB": "svg/xbox_lb.svg", "RB": "svg/xbox_rb.svg", "LT": "svg/xbox_lt.svg", "RT": "svg/xbox_rt.svg",
+      "LS": "svg/xbox_ls.svg", "RS": "svg/xbox_rs.svg", "Menu": "svg/xbox_menu.svg", "View": "svg/xbox_view.svg",
+      "DpadV": "svg/xbox_dpad_v.svg", "DpadH": "svg/xbox_dpad_h.svg", "Dpad": "svg/xbox_dpad.svg"
+    }
+  }
+}

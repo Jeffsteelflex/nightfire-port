@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 16" width="100%" height="100%" preserveAspectRatio="none">
+<defs>
+<linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="1" x2="0" y2="15">
+<stop offset="0" stop-color="#45454b" stop-opacity="1"/>
+<stop offset="1" stop-color="#121214" stop-opacity="1"/>
+</linearGradient>
+</defs>
+<path d="M4.50,2.50 L17.50,2.50 A3.50,3.50 0 0 1 21.00,6.00 L21.00,10.00 A3.50,3.50 0 0 1 17.50,13.50 L4.50,13.50 A3.50,3.50 0 0 1 1.00,10.00 L1.00,6.00 A3.50,3.50 0 0 1 4.50,2.50 Z" fill="url(#g)" stroke="#c4c4ca" stroke-opacity="0.75" stroke-width="0.9"/>
+<path d="M6.19,5.50 L6.19,11.70 L10.04,11.70 M11.16,11.70 L11.16,5.50 L13.76,5.50 L13.76,5.50 L14.28,5.58 L14.74,5.80 L15.11,6.14 L15.35,6.57 L15.43,7.05 L15.35,7.53 L15.11,7.96 L14.74,8.30 L14.28,8.52 L13.76,8.60 L11.16,8.60 L14.07,8.60 L14.07,8.60 L14.61,8.68 L15.09,8.90 L15.47,9.24 L15.72,9.67 L15.81,10.15 L15.72,10.63 L15.47,11.06 L15.09,11.40 L14.61,11.62 L14.07,11.70 L11.16,11.70" fill="none" stroke="#f4f4f6" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

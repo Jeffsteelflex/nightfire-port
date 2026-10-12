@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 511 255" width="100%" height="100%" preserveAspectRatio="none">
+<defs>
+<linearGradient id="frame" gradientUnits="userSpaceOnUse" x1="5" y1="0" x2="506" y2="0">
+<stop offset="0" stop-color="#b0461a" stop-opacity="1"/>
+<stop offset="0.28" stop-color="#cc7230" stop-opacity="1"/>
+<stop offset="0.5" stop-color="#e3ac6c" stop-opacity="1"/>
+<stop offset="0.7" stop-color="#b8662e" stop-opacity="1"/>
+<stop offset="0.88" stop-color="#73351a" stop-opacity="1"/>
+<stop offset="1" stop-color="#4e220e" stop-opacity="1"/>
+</linearGradient>
+<linearGradient id="shade" gradientUnits="userSpaceOnUse" x1="0" y1="200" x2="0" y2="251">
+<stop offset="0" stop-color="#000000" stop-opacity="0"/>
+<stop offset="0.55" stop-color="#000000" stop-opacity="0.08"/>
+<stop offset="1" stop-color="#000000" stop-opacity="0.42"/>
+</linearGradient>
+<linearGradient id="band" gradientUnits="userSpaceOnUse" x1="0" y1="5" x2="0" y2="37">
+<stop offset="0" stop-color="#5c2610" stop-opacity="1"/>
+<stop offset="0.18" stop-color="#94461e" stop-opacity="1"/>
+<stop offset="0.5" stop-color="#c07a3e" stop-opacity="1"/>
+<stop offset="0.82" stop-color="#d8a264" stop-opacity="1"/>
+<stop offset="1" stop-color="#b5743e" stop-opacity="1"/>
+</linearGradient>
+<linearGradient id="bandx" gradientUnits="userSpaceOnUse" x1="5" y1="0" x2="506" y2="0">
+<stop offset="0" stop-color="#000000" stop-opacity="0.32"/>
+<stop offset="0.22" stop-color="#000000" stop-opacity="0.05"/>
+<stop offset="0.55" stop-color="#ffffff" stop-opacity="0.1"/>
+<stop offset="0.75" stop-color="#ffffff" stop-opacity="0"/>
+<stop offset="1" stop-color="#000000" stop-opacity="0.3"/>
+</linearGradient>
+<radialGradient id="bandhi" gradientUnits="userSpaceOnUse" cx="300" cy="14" r="70">
+<stop offset="0" stop-color="#fff4dc" stop-opacity="0.32"/>
+<stop offset="1" stop-color="#fff4dc" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="glass" gradientUnits="userSpaceOnUse" x1="10" y1="0" x2="502" y2="0">
+<stop offset="0" stop-color="#140302" stop-opacity="0.72"/>
+<stop offset="0.1" stop-color="#380906" stop-opacity="0.68"/>
+<stop offset="0.45" stop-color="#6a150d" stop-opacity="0.66"/>
+<stop offset="0.75" stop-color="#5c130c" stop-opacity="0.66"/>
+<stop offset="1" stop-color="#360907" stop-opacity="0.7"/>
+</linearGradient>
+<radialGradient id="glasshi" gradientUnits="userSpaceOnUse" cx="330" cy="110" r="210">
+<stop offset="0" stop-color="#8c2c18" stop-opacity="0.18"/>
+<stop offset="0.6" stop-color="#8c2c18" stop-opacity="0.06"/>
+<stop offset="1" stop-color="#8c2c18" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="glasstop" gradientUnits="userSpaceOnUse" x1="0" y1="38" x2="0" y2="222">
+<stop offset="0" stop-color="#ffffff" stop-opacity="0.06"/>
+<stop offset="0.25" stop-color="#ffffff" stop-opacity="0"/>
+<stop offset="1" stop-color="#000000" stop-opacity="0.18"/>
+</linearGradient>
+<linearGradient id="rim" gradientUnits="userSpaceOnUse" x1="0" y1="5" x2="0" y2="251">
+<stop offset="0" stop-color="#8a2410" stop-opacity="1"/>
+<stop offset="0.5" stop-color="#a02c14" stop-opacity="1"/>
+<stop offset="1" stop-color="#5c1406" stop-opacity="1"/>
+</linearGradient>
+<radialGradient id="barhi" gradientUnits="userSpaceOnUse" cx="260" cy="236" r="150">
+<stop offset="0" stop-color="#fff0d8" stop-opacity="0.3"/>
+<stop offset="1" stop-color="#fff0d8" stop-opacity="0"/>
+</radialGradient>
+<clipPath id="outclip"><path d="M61.00,5.00 L464.00,5.00 A42.00,42.00 0 0 1 506.00,47.00 L506.00,204.50 A46.00,46.00 0 0 1 460.00,250.50 L61.00,250.50 A56.00,56.00 0 0 1 5.00,194.50 L5.00,61.00 A56.00,56.00 0 0 1 61.00,5.00 Z"/></clipPath>
+<clipPath id="bandclip"><rect x="0" y="0" width="512" height="37"/></clipPath>
+<clipPath id="barclip"><rect x="0" y="222" width="512" height="40"/></clipPath>
+</defs>
+<path d="M61.00,5.00 L464.00,5.00 A42.00,42.00 0 0 1 506.00,47.00 L506.00,204.50 A46.00,46.00 0 0 1 460.00,250.50 L61.00,250.50 A56.00,56.00 0 0 1 5.00,194.50 L5.00,61.00 A56.00,56.00 0 0 1 61.00,5.00 Z M13.00,38.50 L493.00,38.50 A9.00,9.00 0 0 1 502.00,47.50 L502.00,178.00 A44.00,44.00 0 0 1 458.00,222.00 L58.00,222.00 A48.00,48.00 0 0 1 10.00,174.00 L10.00,41.50 A3.00,3.00 0 0 1 13.00,38.50 Z" fill="url(#frame)" fill-rule="evenodd"/>
+<path d="M61.00,5.00 L464.00,5.00 A42.00,42.00 0 0 1 506.00,47.00 L506.00,204.50 A46.00,46.00 0 0 1 460.00,250.50 L61.00,250.50 A56.00,56.00 0 0 1 5.00,194.50 L5.00,61.00 A56.00,56.00 0 0 1 61.00,5.00 Z M13.00,38.50 L493.00,38.50 A9.00,9.00 0 0 1 502.00,47.50 L502.00,178.00 A44.00,44.00 0 0 1 458.00,222.00 L58.00,222.00 A48.00,48.00 0 0 1 10.00,174.00 L10.00,41.50 A3.00,3.00 0 0 1 13.00,38.50 Z" fill="url(#shade)" fill-rule="evenodd"/>
+<g clip-path="url(#outclip)">
+<g clip-path="url(#bandclip)">
+<rect x="0" y="0" width="512" height="37" fill="url(#band)"/>
+<rect x="0" y="0" width="512" height="37" fill="url(#bandx)"/>
+<ellipse cx="300" cy="14" rx="90" ry="12" fill="url(#bandhi)"/>
+</g>
+<g clip-path="url(#barclip)"><ellipse cx="260" cy="236" rx="170" ry="11" fill="url(#barhi)"/></g>
+</g>
+<g clip-path="url(#outclip)"><line x1="0" y1="37" x2="512" y2="37" stroke="#c63e18" stroke-width="1.7"/></g>
+<path d="M13.00,38.50 L493.00,38.50 A9.00,9.00 0 0 1 502.00,47.50 L502.00,178.00 A44.00,44.00 0 0 1 458.00,222.00 L58.00,222.00 A48.00,48.00 0 0 1 10.00,174.00 L10.00,41.50 A3.00,3.00 0 0 1 13.00,38.50 Z" fill="url(#glass)"/>
+<path d="M13.00,38.50 L493.00,38.50 A9.00,9.00 0 0 1 502.00,47.50 L502.00,178.00 A44.00,44.00 0 0 1 458.00,222.00 L58.00,222.00 A48.00,48.00 0 0 1 10.00,174.00 L10.00,41.50 A3.00,3.00 0 0 1 13.00,38.50 Z" fill="url(#glasshi)"/>
+<path d="M13.00,38.50 L493.00,38.50 A9.00,9.00 0 0 1 502.00,47.50 L502.00,178.00 A44.00,44.00 0 0 1 458.00,222.00 L58.00,222.00 A48.00,48.00 0 0 1 10.00,174.00 L10.00,41.50 A3.00,3.00 0 0 1 13.00,38.50 Z" fill="url(#glasstop)"/>
+<path d="M13.00,38.50 L493.00,38.50 A9.00,9.00 0 0 1 502.00,47.50 L502.00,178.00 A44.00,44.00 0 0 1 458.00,222.00 L58.00,222.00 A48.00,48.00 0 0 1 10.00,174.00 L10.00,41.50 A3.00,3.00 0 0 1 13.00,38.50 Z" fill="none" stroke="#1c0503" stroke-opacity="0.9" stroke-width="1.3"/>
+<path d="M61.00,5.00 L464.00,5.00 A42.00,42.00 0 0 1 506.00,47.00 L506.00,204.50 A46.00,46.00 0 0 1 460.00,250.50 L61.00,250.50 A56.00,56.00 0 0 1 5.00,194.50 L5.00,61.00 A56.00,56.00 0 0 1 61.00,5.00 Z" fill="none" stroke="url(#rim)" stroke-width="2.2"/>
+<path d="M61.00,6.60 L464.00,6.60 A40.40,40.40 0 0 1 504.40,47.00 L504.40,204.50 A44.40,44.40 0 0 1 460.00,248.90 L61.00,248.90 A54.40,54.40 0 0 1 6.60,194.50 L6.60,61.00 A54.40,54.40 0 0 1 61.00,6.60 Z" fill="none" stroke="#ffd8a8" stroke-opacity="0.22" stroke-width="0.8"/>
+</svg>

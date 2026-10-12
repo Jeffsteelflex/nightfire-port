@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="100%" height="100%" preserveAspectRatio="none">
+<defs>
+<radialGradient id="bg" gradientUnits="userSpaceOnUse" cx="10" cy="10" r="10">
+<stop offset="0" stop-color="#2a2a2e" stop-opacity="1"/>
+<stop offset="1" stop-color="#0a0a0c" stop-opacity="1"/>
+</radialGradient>
+<linearGradient id="lit" gradientUnits="userSpaceOnUse" x1="0" y1="0.6" x2="0" y2="8.9">
+<stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
+<stop offset="0.5" stop-color="#d8d8dc" stop-opacity="1"/>
+<stop offset="1" stop-color="#8a8a90" stop-opacity="1"/>
+</linearGradient>
+<linearGradient id="dim" gradientUnits="userSpaceOnUse" x1="0" y1="0.6" x2="0" y2="8.9">
+<stop offset="0" stop-color="#5a5a60" stop-opacity="1"/>
+<stop offset="0.5" stop-color="#2a2a2e" stop-opacity="1"/>
+<stop offset="1" stop-color="#111113" stop-opacity="1"/>
+</linearGradient>
+</defs>
+<circle cx="10" cy="10" r="9.6" fill="url(#bg)" stroke="#8a8a90" stroke-opacity="0.6" stroke-width="0.7"/>
+<path d="M7.6,3 C7.6,2.4 8,2.1 8.6,2.1 L11.4,2.1 C12,2.1 12.4,2.4 12.4,3 L12.4,6.9 L10,8.9 L7.6,6.9 Z" transform="rotate(0 10 10)" fill="url(#lit)" stroke="#000000" stroke-opacity="0.7" stroke-width="0.6" stroke-linejoin="round"/>
+<path d="M7.6,3 C7.6,2.4 8,2.1 8.6,2.1 L11.4,2.1 C12,2.1 12.4,2.4 12.4,3 L12.4,6.9 L10,8.9 L7.6,6.9 Z" transform="rotate(90 10 10)" fill="url(#dim)" stroke="#000000" stroke-opacity="0.7" stroke-width="0.6" stroke-linejoin="round"/>
+<path d="M7.6,3 C7.6,2.4 8,2.1 8.6,2.1 L11.4,2.1 C12,2.1 12.4,2.4 12.4,3 L12.4,6.9 L10,8.9 L7.6,6.9 Z" transform="rotate(180 10 10)" fill="url(#lit)" stroke="#000000" stroke-opacity="0.7" stroke-width="0.6" stroke-linejoin="round"/>
+<path d="M7.6,3 C7.6,2.4 8,2.1 8.6,2.1 L11.4,2.1 C12,2.1 12.4,2.4 12.4,3 L12.4,6.9 L10,8.9 L7.6,6.9 Z" transform="rotate(270 10 10)" fill="url(#dim)" stroke="#000000" stroke-opacity="0.7" stroke-width="0.6" stroke-linejoin="round"/>
+</svg>
