@@ -8,6 +8,8 @@
 #include <cmath>
 #include <cstring>
 
+#include "engine/game.h"
+#include "engine/object.h"
 #include "engine/gamestate.h"
 #include "engine/resetmap.h"
 #include "engine/script.h"
@@ -16,6 +18,7 @@
 #include "platform/psi_pad.h"
 
 PlayerInput_tag PlayerSetting[4];
+DLISTINFO_tag ComboKeysList;
 
 namespace {
 struct StickCurve {
@@ -66,6 +69,17 @@ void Input_Init() {
         p.unknown_0b = 0;
     }
     psiInput_Init();
+}
+
+// [decomp] 0x0017f1c0 Input_Ready
+// A cada carga (o reinício do ResetMap_Load, depois do Mem_Init) e no boot: descongela o jogo, zera as ações de
+// todos os jogadores e refaz a lista das combinações de botões (ComboKeysList: 10 nós de 0x18 bytes no heap do
+// jogo, que Input_Check4Combo, ainda não portada, usaria); psiInputReady é vazia no PS2.
+void Input_Ready() {
+    FreezeGame = 0;
+    Input_ClearAllActions(-1);
+    DList_Init(&ComboKeysList, 0x18, 10);
+    psiInputReady();
 }
 
 // [decomp] 0x0017ee88 Input_Update

@@ -1194,6 +1194,37 @@ int8_t Effect_RicochetProb(uint8_t surface, uint16_t mask) {
     return int8_t(Rand_Rand(EffectInfo[s].ricochet) & mask);
 }
 
+// [decomp] 0x0017ea80 Occlude_Create
+// A nuvem da granada de fumaça (Bullet_CollisionHandler): um objeto do tipo 0x2a sem dados, com o modelo pelo tipo (1
+// 0x2000273, 2 0x2000274, 3 0x2000275, 0 e o resto 0x200026b), a duração em ticks em obj->state, ligado à sala.
+// Drone_BuildDynamicAwarePoints faz dele dois pontos de atenção (raio 3: a IA o evita e foge dele,
+// DroneFunc_HandleExplosives) e marca as ligações da rede à volta com 0x200 (fumaça).
+obj_tag* Occlude_Create(_VECTOR* pos, int16_t ticks, uint16_t kind) {
+    obj_tag* obj = control_create_object(0, pos, nullptr, nullptr);
+    if (obj == nullptr) return nullptr;
+    obj->state = uint16_t(ticks);
+    obj->type = 0x2a;
+    uint32_t model = 0x200026b;
+    if (kind == 1) {
+        model = 0x2000273;
+    } else if (kind == 2) {
+        model = 0x2000274;
+    } else if (kind == 3) {
+        model = 0x2000275;
+    }
+    hashtable_set_object_to_entity_gfx(obj, model);
+    build_LinkToRoom(obj, 0, glb_world);
+    return obj;
+}
+
+// [decomp] 0x0017eba0 Occlude_Update
+// Conta os ticks da nuvem (obj->state, com sinal); no 0 pede a remoção.
+void Occlude_Update(obj_tag* obj) {
+    if (obj == nullptr) return;
+    if (int16_t(obj->state) == 0) obj->life |= 1;
+    if (0 < int16_t(obj->state)) obj->state = uint16_t(obj->state - 1);
+}
+
 void bullet_debug_power_on() {
     std::memset(ShellCasings, 0, sizeof(ShellCasings));
     NextCasing = 0;

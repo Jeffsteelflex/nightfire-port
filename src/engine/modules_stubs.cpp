@@ -29,8 +29,6 @@ std::vector<ProvisionalObject> g_provisional_objects;
 #define NF_STUB(name, params) \
     void name params { pending_call(#name); }
 
-NF_STUB(Input_Ready, ())
-NF_STUB(ReadTuningVars, ())
 NF_STUB(MP_Start, ())
 NF_STUB(MP_PostLoad_Init, ())
 NF_STUB(Cameras_PostLoad, ())
@@ -39,9 +37,6 @@ NF_STUB(MP_Init, ())
 NF_STUB(Car_Init, ())
 
 NF_STUB(MP_objectBeingDeleted, (obj_tag*))
-
-// Chamadas pelo desenho (view.cpp).
-NF_STUB(Rand_FRand_MVar2_Vec, (_VECTOR*, float, float))
 
 // Chamadas pelo laço do jogo (game.cpp, gameflow.cpp, control.cpp, trigger.cpp).
 NF_STUB(MP_Update, ())
@@ -52,17 +47,10 @@ void Boot_GetPTPData(uint8_t** data, uint32_t* size) {
     *data = nullptr;
     *size = 0;
 }
-NF_STUB(Drone_FellOutMap, (obj_tag*))
 NF_STUB(Car_Deactivate, (obj_tag*))
 NF_STUB(MP_setLoadingSkins, ())
 
 
-// Chamadas pelos projéteis (bullet.cpp).
-obj_tag* Occlude_Create(_VECTOR*, int16_t, uint16_t) {
-    pending_call("Occlude_Create");
-    return nullptr;
-}
-NF_STUB(Drone_MessageObjVicinity, (uint32_t, obj_tag*, float, uint32_t, uint32_t))
 
 // Chamadas pelo jogador (player.cpp) e pelas câmeras.
 NF_STUB(AnimDebugCreate, ())
@@ -94,7 +82,6 @@ NF_STUB(camera_chasecam, (obj_tag*, viewer_tag*))
 float debug_cam_posy = 0.0f;
 
 // Chamadas pelo módulo de animação (anim.cpp) e ainda não portadas.
-NF_STUB(View_DrawGlist, (celglist_tag*, _VECTOR*, _VECTOR*, _VECTOR*, uint32_t))
 
 NF_STUB(MP_EquipPlayer, (obj_tag*))
 NF_STUB(MP_sendTeamBotMessage, (int32_t, int32_t, int32_t, int32_t, obj_tag*))

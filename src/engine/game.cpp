@@ -14,6 +14,7 @@
 #include "engine/resetmap.h"
 #include "engine/view.h"
 #include "platform/psi.h"
+#include "platform/psi_woman.h"
 
 uint8_t FreezeGame = 0;
 uint8_t switch_AllowFreeze = 0;

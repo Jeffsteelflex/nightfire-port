@@ -13,6 +13,7 @@
 #include "engine/vecmath.h"
 #include "platform/psi.h"
 #include "platform/psi_file.h"
+#include "platform/psi_woman.h"
 
 void* DirFileBuf = nullptr;
 uint32_t DirFileLen = 0;
@@ -273,6 +274,7 @@ bool LoaderProcess() {
             break;
         case 0x10:
             PS2SetUpWoman(data);
+            psi_woman_set_end(data + DirFileLen);  // só do port: o fim do item, para as guardas
             break;
         default:
             break;

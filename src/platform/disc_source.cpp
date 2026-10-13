@@ -372,7 +372,8 @@ std::shared_ptr<DiscSource> open_disc(const std::wstring& path, std::string* err
     if (p.size() == 2 && p[1] == L':') p += L'\\';
     if (host_is_dir(p)) {
         const bool root = p.size() == 3 && p[1] == L':' && (p[2] == L'\\' || p[2] == L'/');
-        const bool drive = root && os::is_optical_drive(p);
+        // Fora do Windows a raiz de um volume é uma pasta qualquer (/Volumes/NIGHTFIRE): os::is_optical_drive diz.
+        const bool drive = (root || os::kPathSep == L'/') && os::is_optical_drive(p);
         return open_disc_folder(p, drive ? DiscKind::Drive : DiscKind::Folder);
     }
     if (!host_exists(p)) {
@@ -390,6 +391,16 @@ std::shared_ptr<DiscSource> open_disc(const std::wstring& path, std::string* err
 }
 
 std::vector<std::wstring> optical_drives() { return os::optical_drives(); }
+
+bool disc_image_extension(const std::wstring& ext) {
+    if (ext == L".iso") return true;
+#if !defined(_WIN32)
+    // O "DVD/CD master" do Utilitário de Disco do macOS: setores de 2048 bytes com o mesmo ISO 9660 (no Windows a procura
+    // continua só com .iso, como antes; open_disc abre qualquer arquivo com o ISO 9660 nos dois).
+    if (ext == L".cdr") return true;
+#endif
+    return false;
+}
 
 // ---------------------------------------------------------------- a versão
 
@@ -493,14 +504,19 @@ DiscPlaces disc_places_here() {
     p.exe = os::exe_path();
     p.exe_dir = parent_of(p.exe);
     p.cwd = os::current_dir();
-    // As imagens .iso ao lado do executável, em ordem de nome.
+    // As imagens .iso (e .cdr fora do Windows: disc_image_extension) ao lado do executável, em ordem de nome; num pacote
+    // do macOS, ao lado do "Nightfire PC.app" (a pasta do executável é o Contents/MacOS de dentro dele). No Windows o
+    // bundle_dir é vazio: a mesma pasta e as mesmas alocações de antes.
     {
+        const std::wstring bundle = os::bundle_dir();
+        const std::wstring beside_bundle = bundle.empty() ? std::wstring() : parent_of(bundle);
+        const std::wstring& image_dir = bundle.empty() ? p.exe_dir : beside_bundle;
         std::error_code ec;
-        for (std::filesystem::directory_iterator it(p.exe_dir, ec), end; !ec && it != end; it.increment(ec)) {
+        for (std::filesystem::directory_iterator it(image_dir, ec), end; !ec && it != end; it.increment(ec)) {
             if (!it->is_regular_file(ec)) continue;
             std::wstring ext = it->path().extension().wstring();
             for (wchar_t& ch : ext) ch = wchar_t(std::towlower(ch));
-            if (ext == L".iso") p.exe_isos.push_back(it->path().wstring());
+            if (disc_image_extension(ext)) p.exe_isos.push_back(it->path().wstring());
         }
         std::sort(p.exe_isos.begin(), p.exe_isos.end());
     }

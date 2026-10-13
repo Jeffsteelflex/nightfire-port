@@ -168,9 +168,13 @@
 // gravadas em nightfire.ini ([video], [ui], [controls], [bindings]). Nos menus o mouse fica solto e funciona
 // (engine/menu_mouse.h): passar por cima, clicar, a roda, o botão direito volta.
 
-// A matemática da câmera livre e das matrizes de visão (só cabeçalhos, MIT: github.com/microsoft/DirectXMath; no macOS,
-// a cópia do GitHub com o caminho NEON ou _XM_NO_INTRINSICS_).
+// A matemática da câmera livre e das matrizes de visão (só cabeçalhos, MIT: github.com/microsoft/DirectXMath). Fora do
+// Windows, o pedaço dele que este laço usa, com as contas do caminho sem intrínsecos (app/xmath_compat.h).
+#if defined(_WIN32)
 #include <DirectXMath.h>
+#else
+#include "app/xmath_compat.h"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -250,6 +254,7 @@
 #include "platform/psi_card.h"
 #include "platform/psi_draw.h"
 #include "platform/psi_input.h"
+#include "platform/psi_woman.h"
 #include "platform/sfx_iop.h"
 #include "platform/settings.h"
 #include "platform/video_settings.h"
@@ -1007,6 +1012,9 @@ void write_frame_report(const std::wstring& png, const std::string& level, size_
     std::fprintf(f, "%s\n", menus);
     Menu_MouseDescribe(menus, sizeof(menus));
     std::fprintf(f, "%s\n", menus);
+    // O fundo animado do painel da pausa (a textura 0x030000db, platform/psi_woman.h): o último quadro decodificado.
+    psi_woman_describe(menus, sizeof(menus));
+    std::fprintf(f, "%s\n", menus);
     // O menu principal (o perfil, a operação do cartão) e o cartão de memória.
     Menu_FrontEndDescribe(menus, sizeof(menus));
     std::fprintf(f, "%s\n", menus);
@@ -1031,10 +1039,10 @@ void write_frame_report(const std::wstring& png, const std::string& level, size_
                              c->y, c->w, c->h);
                 if (c->type == MCT_LABEL) {
                     const M_LABEL* l = reinterpret_cast<const M_LABEL*>(c);
-                    std::fprintf(f, " rotulo %08x \"%s\"", l->label, l->string != nullptr ? l->string : "");
+                    std::fprintf(f, " rotulo %08x \"%s\"", l->label, l->string != nullptr ? nf::raw(l->string) : "");
                 } else if (c->type == MCT_BUTTON) {
                     const M_BUTTON* b = reinterpret_cast<const M_BUTTON*>(c);
-                    std::fprintf(f, " rotulo %08x \"%s\"", b->label.label, b->label.string != nullptr ? b->label.string : "");
+                    std::fprintf(f, " rotulo %08x \"%s\"", b->label.label, b->label.string != nullptr ? nf::raw(b->label.string) : "");
                 } else if (c->type == MCT_LIST) {
                     const M_LISTBOX* l = reinterpret_cast<const M_LISTBOX*>(c);
                     std::fprintf(f, " linhas %u escolhida %d", l->rows.count,
@@ -1046,7 +1054,7 @@ void write_frame_report(const std::wstring& png, const std::string& level, size_
                     }
                 } else if (c->type == MCT_MEMO) {
                     const M_MEMOBOX* mm = reinterpret_cast<const M_MEMOBOX*>(c);
-                    std::fprintf(f, " \"%s\"", mm->text != nullptr ? mm->text : "");
+                    std::fprintf(f, " \"%s\"", mm->text != nullptr ? nf::raw(mm->text) : "");
                 } else if (c->type == MCT_RADIO) {
                     const M_RADIO* r = reinterpret_cast<const M_RADIO*>(c);
                     std::fprintf(f, " opcoes %u valor %d \"%s\"", r->options.count,
@@ -1581,6 +1589,12 @@ std::wstring pc_text_s(PcText id, const std::wstring& arg) {
 // --pack-disc: a cópia pessoal em um arquivo só (platform/disc_pack.h), sem janela: o andamento e o resultado no console.
 int run_pack_cli(const Options& opt) {
     PcText_SetLanguage(opt.language_pc);
+    // A cópia pessoal só existe no Windows (platform/disc_pack.h: no macOS o programa é um Mach-O assinado num .app).
+    if (!nf::personal_copy_supported()) {
+        console_write("--pack-disc: a copia pessoal em um arquivo so existe no Windows (no macOS, use a imagem .iso/.cdr "
+                      "ou a pasta com os arquivos do disco)\n");
+        return 2;
+    }
     const nf::DiscTitle& title = nf::nightfire_disc();
     const nf::DiscFound f = nf::probe_disc(opt.pack_disc, nf::DiscOrigin::Command, title);
     if (!f.ok()) {

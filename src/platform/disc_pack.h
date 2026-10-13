@@ -32,6 +32,12 @@
 
 namespace nf {
 
+// A cópia pessoal existe nesta plataforma: só no Windows (os arquivos depois da imagem PE). No macOS o programa é um
+// Mach-O assinado (o arm64 sempre, ao menos ad hoc: bytes depois da assinatura a invalidam) dentro de um pacote .app,
+// onde os dados iriam para dentro do pacote ou ao lado dele (etapa 4): a tela de entrada não mostra a linha da cópia e o
+// --pack-disc recusa (docs/port.md, "macOS: os backends"). Ler uma cópia continua igual em todo lugar (os testes).
+bool personal_copy_supported();
+
 // O executável tem a cópia pessoal? Nula sem o rodapé (error vazio) ou com um rodapé estragado (error com o motivo).
 std::shared_ptr<DiscSource> open_packed_disc(const std::wstring& exe, std::string* error = nullptr);
 // O tamanho da parte do programa (sem a cópia; o arquivo inteiro num executável comum).

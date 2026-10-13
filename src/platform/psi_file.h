@@ -40,4 +40,4 @@ void SetUpIconFile(uint8_t* data, uint32_t size);
 // O ícone do cartão de memória (o item tipo 15 do pacote do menu principal; MemCard_CREATE_DIR o grava).
 extern uint8_t* PS2IconBuffer;  // 0x0030d6c8
 extern uint32_t PS2IconSize;    // 0x0030d6c4 sempre 0x128f8
-void PS2SetUpWoman(uint8_t* data);
+// O tipo 16 (PS2SetUpWoman, o fundo animado da pausa): platform/psi_woman.h.

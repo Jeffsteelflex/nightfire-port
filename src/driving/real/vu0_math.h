@@ -21,4 +21,15 @@ void VU0_MATRIX4_mult(const float a[4][4], const float b[4][4], float out[4][4])
 // A transposta 4x4 com pextlw/pextuw/pcpyld/pcpyud (cópia exata dos bits).
 void transpose4(const float in[4][4], float out[4][4]);
 
+// [driving] 0x2cbd50 VU0_Sin(float): o seno de um ângulo em voltas (1 = 360 graus): reduzido a -0,5..0,5 volta pela
+// FPU, vezes 2 pi, e o polinômio ímpar de grau 9 na VU0 (x - x³/6 + ...; os coeficientes do código).
+float VU0_Sin(float turns);
+// [driving] 0x2cbeb0 VU0_Cos(float): o mesmo com um quarto de volta somado depois da redução inteira.
+float VU0_Cos(float turns);
+// [driving] 0x2cc510 VU0_MATRIX4setxrot, 0x2cc590 VU0_MATRIX4setyrot, 0x2cc610 VU0_MATRIX4setzrot (MATRIX4 &, float):
+// a rotação em torno de um eixo (o ângulo em voltas), linha 3 = (0, 0, 0, 1).
+void VU0_MATRIX4setxrot(float m[4][4], float turns);
+void VU0_MATRIX4setyrot(float m[4][4], float turns);
+void VU0_MATRIX4setzrot(float m[4][4], float turns);
+
 }  // namespace drv

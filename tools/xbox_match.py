@@ -24,6 +24,9 @@ Entradas (no out/ do checkout com os dados, NF_DATA ou a raiz do repositório):
 
   python tools/xbox_match.py match [--evaluate]   out/xbox/match.tsv, out/xbox/xbox_names.tsv (para
                                                   tools/ghidra_xbox.sh names) e as estatísticas por módulo
+  python tools/xbox_match.py match --cxbx         o mesmo, com os pares pelo nome do nightfire-cxbx (NightfireResearch)
+                                                  como âncoras de confiança 2 (out/xbox/cxbx_pairs.tsv, de
+                                                  tools/cxbx_names.py pairs; docs/driving.md, "O nightfire-cxbx")
   python tools/xbox_match.py show <nome|0xendereço_ps2>...   o par e as provas de cada função
   python tools/xbox_match.py test                 testes com dois programas montados à mão
 """
@@ -249,9 +252,10 @@ def feature_score(fp, fx):
 
 
 class Matcher:
-    def __init__(self, ps2, xbox, mask=frozenset()):
+    def __init__(self, ps2, xbox, mask=frozenset(), extra=()):
         self.ps2, self.xbox = ps2, xbox
         self.mask = mask                 # funções do PS2 cujas cadeias e constantes ficam de fora (--evaluate)
+        self.extra = extra               # pares de fora (--cxbx): [(ps2, xbox, nota)], âncoras de confiança 2
         self.p2x, self.x2p = {}, {}
         self.how = {}                    # ps2 -> (método, confiança, nota)
         self.index = collections.defaultdict(list)
@@ -531,7 +535,10 @@ class Matcher:
             if bad > max(1, v // 4):
                 continue
             for k, f in enumerate(slots):
-                if f not in self.p2x and xt[k] not in self.x2p and self.size_ok(f, xt[k], 3.0):
+                # (uma entrada pode apontar para fora das funções conhecidas: um pedaço de função que o Ghidra não
+                # separou; os pares do --cxbx levam a tabelas que o casamento sem eles não alcançava)
+                if (f not in self.p2x and xt[k] not in self.x2p and f in self.ps2.funcs and xt[k] in self.xbox.funcs
+                        and self.size_ok(f, xt[k], 3.0)):
                     if self.add(f, xt[k], "tabela virtual", 2, "entrada %d de %x / %x (%d votos)" % (k, pa, xtabs[ti][0], v)):
                         added += 1
         return added
@@ -604,6 +611,12 @@ class Matcher:
         n = self.anchor_features()
         self.calibrate()
         n += self.anchor_features()
+        # os pares pelo nome do nightfire-cxbx entram depois das características (as cadeias raras ganham de um nome)
+        # e antes dos vizinhos, que se propagam a partir deles
+        k = sum(1 for p, x, note in self.extra if p in self.ps2.funcs and x in self.xbox.funcs and p not in self.mask
+                and self.add(p, x, "nomes cxbx", 2, note))
+        if log and self.extra:
+            log("nomes do nightfire-cxbx: %d pares de %d" % (k, len(self.extra)))
         if log:
             log("características: %d pares; razão de tamanho x86/MIPS %.2f (desvio %.2f no log)"
                 % (len(self.p2x), math.exp(self.ratio_mu), self.ratio_sd))
@@ -693,11 +706,27 @@ def is_named(f):
     return not f.name.startswith(("FUN_", "thunk_FUN_"))
 
 
+def load_cxbx_pairs(path):
+    """out/xbox/cxbx_pairs.tsv (tools/cxbx_names.py pairs): os pares novos pelo nome igual e único, com o nome do Xbox
+    dado pelo nightfire-cxbx (NightfireResearch). Os que confirmam ou contradizem os nossos ficam de fora."""
+    out = []
+    for line in open(path, encoding="utf-8"):
+        p = line.rstrip("\n").split("\t")
+        if len(p) < 5 or p[0] == "ps2" or not p[4].startswith("novo"):
+            continue
+        out.append((int(p[0], 16), int(p[1], 16), "o mesmo nome no Xbox (nightfire-cxbx, NightfireResearch) e no PS2 "
+                                                  "(%s): %s" % (p[3], p[2])))
+    return out
+
+
 def cmd_match(args):
     root = data_root()
     ps2, xbox = load_real(root)
     log = lambda s: print(s)
-    m = Matcher(ps2, xbox).run(log)
+    extra = ()
+    if args.cxbx is not None:
+        extra = load_cxbx_pairs(args.cxbx or os.path.join(root, "out", "xbox", "cxbx_pairs.tsv"))
+    m = Matcher(ps2, xbox, extra=extra).run(log)
     groups = ps2_groups(root, ps2)
     out_dir = os.path.join(root, "out", "xbox")
     with open(os.path.join(out_dir, "match.tsv"), "w", encoding="utf-8", newline="\n") as f:
@@ -837,6 +866,7 @@ def cmd_test(args):
         (0x1500, "Q::g", 22, [], [], []),
         (0x1600, "G::leaf", 10, [], [], []),
         (0x1700, "H::other", 30, [], ["gamma unique"], [fl[2]]),
+        (0x1800, "I::lonely", 14, [], [], []),
     ] + [(0x3000 + 0x10 * i, "N%d" % i, 12, [], [noise_s[i]], []) for i in range(40)]
     xb_funcs = [
         (0x21000, "FUN_21000", 35, [0x21200, 0x21100, 0x21300], ["alpha unique", "beta"], []),
@@ -848,6 +878,7 @@ def cmd_test(args):
         (0x21600, "FUN_21600", 9, [], [], []),
         (0x21700, "FUN_21700", 26, [], ["gamma unique"], [fl[2]]),
         (0x21800, "FUN_21800", 30, [], ["beta"], []),
+        (0x21900, "FUN_21900", 13, [], [], []),
     ] + [(0x23000 + 0x10 * i, "FUN_x%d" % i, 11, [], [noise_s[i]], []) for i in range(40)]
     with tempfile.TemporaryDirectory() as tmp:
         pp, px = os.path.join(tmp, "p.tsv"), os.path.join(tmp, "x.tsv")
@@ -872,6 +903,11 @@ def cmd_test(args):
         assert 0x21800 not in m.x2p          # "beta" sozinho não basta
         assert all(p2x.get(0x3000 + 0x10 * i) == 0x23000 + 0x10 * i for i in range(40))
         assert len(set(p2x.values())) == len(p2x)
+        assert 0x1800 not in p2x                  # nada liga I::lonely ao Xbox...
+        # ...até um par pelo nome (--cxbx); um par pelo nome não tira o das cadeias raras
+        m2 = Matcher(ps2, xbox, extra=[(0x1800, 0x21900, "nome"), (0x1700, 0x21800, "nome")]).run()
+        assert m2.p2x.get(0x1800) == 0x21900 and m2.how[0x1800][:2] == ("nomes cxbx", 2), m2.how.get(0x1800)
+        assert m2.p2x.get(0x1700) == 0x21700 and 0x21800 not in m2.x2p
     assert _increasing([(0, 5), (1, 1), (2, 2), (3, 0), (4, 3)]) == [(1, 1), (2, 2), (4, 3)]
     assert float_key(0x3f800000) == "f1" and float_key(0) is None and float_key(0x00001234) is None
     assert double_key(struct.pack("<d", 0.5)) == "f0.5"
@@ -883,6 +919,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd")
     a = sub.add_parser("match")
     a.add_argument("--evaluate", action="store_true")
+    a.add_argument("--cxbx", nargs="?", const="", default=None,
+                   help="usa também os pares pelo nome do nightfire-cxbx (padrão: out/xbox/cxbx_pairs.tsv)")
     a = sub.add_parser("show")
     a.add_argument("names", nargs="+")
     sub.add_parser("test")

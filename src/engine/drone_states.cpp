@@ -656,7 +656,7 @@ uint32_t NDrone2_DSTATE_Death_Anim(DCVars_tag* dcv, Drone_tag* drone, obj_tag* o
                 d->state_a = 0;
             }
             Drone_AlertStatusSet(3, dcv);
-            if (d->enter_script != 0) return set_state(dcv, 0x46);
+            if (d->death_script != 0) return set_state(dcv, 0x46);
             DroneFunc_OnInitDeath(dcv);
             if (GameState.level_file == 0x7000002) {
                 set_timer1(d, static_cast<uint32_t>(float(GameState.frame) + FRAME_RATE_DIV * 90.0f));
@@ -702,7 +702,7 @@ uint32_t NDrone2_DSTATE_DeathByExplosion(DCVars_tag* dcv, Drone_tag* drone, obj_
         case 1:
             obj->flags |= 0x20;
             Drone_AlertStatusSet(3, dcv);
-            if (d->enter_script != 0) return set_state(dcv, 0x46);
+            if (d->death_script != 0) return set_state(dcv, 0x46);
             DroneFunc_OnInitDeath(dcv);
             if (GameState.level_file == 0x7000002) {
                 set_timer1(d, static_cast<uint32_t>(float(GameState.frame) + FRAME_RATE_DIV * 90.0f));

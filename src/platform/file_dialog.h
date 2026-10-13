@@ -3,7 +3,7 @@
 // backends"): a tela de configuração (render/setup_app.h) a abre para o jogador apontar a imagem do disco e continua
 // desenhando e bombeando a janela do jogo enquanto ela está aberta. No Windows (file_dialog_win32.cpp), o
 // IFileOpenDialog numa thread STA própria (a thread do jogo já está no apartamento multithread do Direct3D e do Media
-// Foundation); no macOS será o NSOpenPanel (etapa 3).
+// Foundation); no macOS o NSOpenPanel (file_dialog_macos.mm, etapa 3c).
 
 #include <memory>
 #include <string>

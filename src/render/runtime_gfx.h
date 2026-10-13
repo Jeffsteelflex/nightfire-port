@@ -93,6 +93,9 @@ private:
     };
     static void on_texture(void* user, int index, const bmpheader_tag& header, const uint8_t* pixels,
                            uint32_t pixels_bytes, const uint8_t* palette, uint32_t palette_bytes);
+    // O jogo reescreveu a textura (o fundo animado da pausa): o conteúdo novo vai para o renderizador e o espelho.
+    static void on_texture_update(void* user, int index, const bmpheader_tag& header, const uint8_t* pixels,
+                                  uint32_t pixels_bytes, const uint8_t* palette, uint32_t palette_bytes);
     static int on_entity(void* user, const celglist_tag* glist, const map_tag* map);
     static void on_reset(void* user);
     // Malha da entidade para desenho rígido (-1 se não houver ou se for com skinning).
@@ -110,6 +113,7 @@ private:
     int skinned_failed_ = 0;
     int morph_meshes_ = 0;
     int morph_failed_ = 0;
+    Texture updated_;  // o último quadro de on_texture_update (a memória fica: nada é alocado a cada quadro)
 };
 
 }  // namespace nf

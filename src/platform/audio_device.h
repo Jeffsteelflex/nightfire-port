@@ -2,7 +2,7 @@
 // O aparelho de som do sistema (só do port; docs/port.md, "Plataforma: interfaces e backends"): uma fila de pedaços de
 // PCM de 48 kHz, estéreo, 16 bits. platform/audio_out.h decide o que misturar e quando (a linha do tempo do jogo, o WAV
 // de --audio-dump, o descarte com a fila cheia); o backend só toca a fila. No Windows é o XAudio2 2.9
-// (audio_device_xaudio2.cpp); no macOS será o Core Audio (etapa 3).
+// (audio_device_xaudio2.cpp); no macOS o Core Audio (audio_device_macos.cpp, etapa 3c).
 
 #include <cstdint>
 #include <memory>

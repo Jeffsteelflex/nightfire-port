@@ -8,9 +8,8 @@
 // falha (o acesso inválido, a página de guarda) roda numa pilha alternativa da thread, para o relatório de falhas
 // (crash_report_posix.cpp) funcionar também num estouro da pilha.
 //
-// Nota para a etapa 3c: o AppKit quer a janela e os eventos na thread principal; com o jogo nesta thread, ou a principal
-// bombeia os eventos e o jogo pede o resto a ela, ou esta função passa a trocar a pilha na própria thread principal, como
-// no Windows (um trecho de assembly de ARM64).
+// O AppKit quer a janela e os eventos na thread principal: no programa de janela do macOS o jogo roda nesta thread e a
+// principal fica com o laço de eventos do NSApplication (entry_macos.mm; docs/port.md, "macOS: os backends").
 
 #include "platform/arena.h"
 

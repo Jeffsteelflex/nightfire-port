@@ -155,4 +155,75 @@ void transpose4(const float in[4][4], float out[4][4]) {
     std::memcpy(out, t, sizeof(t));
 }
 
+namespace {
+
+// A redução inteira de VU0_Sin/VU0_Cos: acima de 1, menos a parte inteira (cvt.w trunca); abaixo de 0, menos (a parte
+// inteira - 1). Entre 0 e 1 nada muda.
+float reduce_turns(float x) {
+    if (ee::lt(1.0f, x)) return ee::sub(x, ee::cvt_s(ee::cvt_w(x)));
+    if (ee::lt(x, 0.0f)) return ee::sub(x, ee::cvt_s(ee::cvt_w(x) - 1));
+    return x;
+}
+
+// O fim comum: para -0,5..0,5 volta, vezes 2 pi (0x40c90fdb) e o polinômio na VU0, na ordem do código.
+float sin_poly(float x) {
+    if (ee::lt(x, -0.5f)) x = ee::add(x, 1.0f);
+    else if (ee::lt(0.5f, x)) x = ee::sub(x, 1.0f);
+    const uint32_t a = ps2::mul(ps2::fbits(x), 0x40c90fdbu);  // mul.S f12, f12, 2 pi
+    const uint32_t x2 = ps2::mul(a, a);                        // vmulx.x vf3, vf20, vf20
+    const uint32_t x3 = ps2::mul(x2, a);                       // vmulx.x vf1, vf3, vf20
+    const uint32_t x5 = ps2::mul(x3, x2);                      // vmulx.x vf2, vf1, vf3
+    uint32_t acc = ps2::mul(a, 0x3f800000u);                   // vmulaw.x ACC, vf20, vf0
+    acc = ps2::madd(acc, x3, 0xbe2aaaa4u);                     // vmaddax.x ACC, vf1, vf11
+    const uint32_t x7 = ps2::mul(x5, x2);                      // vmulx.x vf1, vf2, vf3
+    acc = ps2::madd(acc, x5, 0x3c08873eu);                     // vmaddax.x ACC, vf2, vf12
+    const uint32_t x9 = ps2::mul(x7, x2);                      // vmulx.x vf5, vf1, vf3
+    acc = ps2::madd(acc, x7, 0xb94fb21fu);                     // vmadda.x ACC, vf1, vf13
+    return ps2::ffloat(ps2::madd(acc, x9, 0x362e9c14u));       // vmadd.x vf20, vf5, vf14
+}
+
+}  // namespace
+
+// [driving] 0x2cbd50 VU0_Sin
+float VU0_Sin(float turns) { return sin_poly(reduce_turns(turns)); }
+
+// [driving] 0x2cbeb0 VU0_Cos
+float VU0_Cos(float turns) { return sin_poly(ee::add(reduce_turns(turns), 0.25f)); }
+
+// [driving] 0x2cc510 VU0_MATRIX4setxrot
+void VU0_MATRIX4setxrot(float m[4][4], float turns) {
+    const float c = VU0_Cos(turns), s = VU0_Sin(turns);
+    std::memset(m, 0, 64);
+    m[1][1] = c;
+    m[2][2] = c;
+    m[3][3] = 1.0f;
+    m[2][1] = ee::neg(s);
+    m[1][2] = s;
+    m[0][0] = 1.0f;
+}
+
+// [driving] 0x2cc590 VU0_MATRIX4setyrot
+void VU0_MATRIX4setyrot(float m[4][4], float turns) {
+    const float c = VU0_Cos(turns), s = VU0_Sin(turns);
+    std::memset(m, 0, 64);
+    m[2][2] = c;
+    m[0][0] = c;
+    m[3][3] = 1.0f;
+    m[0][2] = ee::neg(s);
+    m[2][0] = s;
+    m[1][1] = 1.0f;
+}
+
+// [driving] 0x2cc610 VU0_MATRIX4setzrot
+void VU0_MATRIX4setzrot(float m[4][4], float turns) {
+    const float c = VU0_Cos(turns), s = VU0_Sin(turns);
+    std::memset(m, 0, 64);
+    m[0][0] = c;
+    m[1][1] = c;
+    m[3][3] = 1.0f;
+    m[1][0] = ee::neg(s);
+    m[0][1] = s;
+    m[2][2] = 1.0f;
+}
+
 }  // namespace drv

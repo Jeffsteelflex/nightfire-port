@@ -520,7 +520,7 @@ void ResolveLeverForces(RigidBody* rb, const LeverParams* params, const float (*
     if (rb->type < 4) {
         PhysicsObject* owner = GetOwner(rb);
         const PhysicsAttributes* attr = owner_attributes(owner);
-        if (attr && attr->alt_layout != 0) restitution_scale = t.vehicle_restitution_scale;
+        if (attr && attr->is_snowmobile != 0) restitution_scale = t.vehicle_restitution_scale;
     }
     float(*block)[4] = s.lever_block;
     std::memset(&block[0][0], 0, 4);  // sw zero, 0x360

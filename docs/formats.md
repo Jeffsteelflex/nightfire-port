@@ -100,9 +100,17 @@ Tipos de item, confirmados em `LoaderProcess()` (`0x001d4880`):
 | 11 | 666    | `01` | igual ao tipo 0, com `MemType = 1` | mapa ou modelo |
 | 12 | 26     | vazio | grava em `LoadableFiles[]` | descritor de seção carregável, 32 bytes |
 | 15 | 1      | vazio | `SetUpIconFile(buf, len)` | ícone do memory card |
-| 16 | 33     | `woman` etc. | `PS2SetUpWoman(buf)` | ? |
+| 16 | 33     | `woman` etc. | `PS2SetUpWoman(buf)` | o fundo animado da pausa: 348 quadros de 128 x 128 num RLE (ver abaixo) |
 
 As texturas não têm tipo próprio: ficam embutidas nos itens de mapa.
+
+O item tipo 16 (`woman`, o mesmo em todos os pacotes de missão: 88.638 bytes de dados, 88.640 a 90.528 com o
+preenchimento) é lido pelo `psiDecompressWoman` (0x001202a8; `docs/port.md`, "O fundo animado da pausa"), um quadro de
+128 x 128 por vez, 348 quadros e de volta ao começo. Cada quadro alterna, começando por um trecho zerado: um trecho
+zerado é um u16 big-endian com quantos bytes zerar; um bloco é um u16 big-endian com quantos trechos ele tem e um u8 de
+tamanho por trecho, alternando cópia (da textura de fogo `030000da`, numa posição que anda com o quadro) e zeros; o
+quadro acaba quando os 0x4000 bytes foram escritos. O resultado são os índices de 8 bits da textura `030000db`, com a
+paleta do fogo.
 
 ## Itens de mapa (tipos 0, 1, 2 e 11)
 

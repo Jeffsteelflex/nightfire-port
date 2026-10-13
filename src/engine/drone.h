@@ -101,7 +101,8 @@ struct alignas(16) DIVars_tag {
     // 0x34 cópia de level_tag::params: [0] pele (05xxxxxx), [1] script (06xxxxxx; 0x6000000 nenhum),
     // [2] dificuldade mínima, [3] canal a, [4] grupo, [5] modo, [6] canal b, [7] ?, [8] estado
     // de ataque pedido, [9] arma, [10] arma secundária, [11] olhar (alto: tipo, baixo: variante),
-    // [12] ?, [13] script de entrada, [14] alcance, [15..] estrutura de comportamento nova.
+    // [12] ?, [13] script da morte especial (Drone_tag::death_script), [14] alcance, [15..] estrutura de
+    // comportamento nova.
     uint32_t params[33];
     uint32_t unknown_b8[2];
 };
@@ -484,7 +485,11 @@ struct alignas(16) Drone_tag {
     uint16_t look;
     uint16_t look_variant;        // 0xbce
     float unknown_bd0;            // 0xbd0 (0.5)
-    uint32_t enter_script;        // 0xbd4 parâmetro 13
+    // 0xbd4 parâmetro 13: o script da morte especial (NDrone2_DSTATE_SpecialDeath_Anim, 0x46, o toca perto do
+    // lugar e da direção do posicionamento, guardados em script_pos/script_rot); com ele o personagem não é posto
+    // no chão (DroneInit_Collision) e, fora o 0600021f, nasce com a flag 0x10. Não é o script de entrada
+    // (parâmetro 1, entry_script).
+    uint32_t death_script;
     uint8_t unknown_bd8[8];
     _VECTOR script_pos;           // 0xbe0
     _VECTOR script_rot;           // 0xbf0
@@ -709,6 +714,11 @@ void Drone_PauseNoDraw(int8_t on);
 void Drone_Control(obj_tag* obj);
 uint32_t NDrone2_PreDroneControl(DCVars_tag* dcv);
 uint32_t NDrone2_ControlSTANDARD(DCVars_tag* dcv);
+// Os controles próprios de três tipos (DroneTypeSettings +8; os outros usam o padrão): a Zoe de 07000008 (canais 1 e
+// 0x9b; longe do jogador, a missão falha), os ninjas (os olhos) e os astronautas.
+uint32_t NDrone2_ControlDTYPE_Zoe(DCVars_tag* dcv);
+uint32_t NDrone2_ControlDTYPE_Ninja(DCVars_tag* dcv);
+uint32_t NDrone2_ControlDTYPE_Astronaut(DCVars_tag* dcv);
 uint32_t NDrone2_PostDroneControl(DCVars_tag* dcv);
 uint32_t NDrone2_DoAnimation(Drone_tag* drone);
 
@@ -854,6 +864,8 @@ uint32_t DroneAnim_LocationDeathAnim(DCVars_tag* dcv, int16_t end_state);
 uint32_t NDrone2_ExplosionDir(DCVars_tag* dcv, const void* impact);
 uint32_t DroneFunc_DoForcedAttack(DCVars_tag* dcv);
 void DroneFunc_ConsiderExplosive(DCVars_tag* dcv, obj_tag* obj, int16_t state);
+// Por tick (fim do NDrone2_ControlSTANDARD): um explosivo visto no raio dele vira a mensagem 0x21.
+void DroneFunc_HandleExplosives(DCVars_tag* dcv);
 void NDrone2_SeenAndAttacking(DCVars_tag* dcv);
 // Falas (drone_behaviour.cpp): o grito de morte por classe, a conversa dos guardas de 07000008 com o jogador, os
 // avisos dos alto-falantes de 0700000c/0d (PowerSfx: {canal em 0700000c, canal em 0700000d, fala}, do ELF) e o que os
@@ -1037,8 +1049,8 @@ struct alignas(16) DroneImpact_tag {
 };
 static_assert(sizeof(DroneImpact_tag) == 0x30 && offsetof(DroneImpact_tag, source) == 0x20);
 
-// Multiplicadores do dano que os personagens recebem (copiados do ELF na partida): pela dificuldade,
-// pelo lugar do acerto e pela proteção (Drone_tag::armour).
+// Multiplicadores do dano que os personagens recebem (copiados do ELF na partida e regravados por ReadTuningVars a
+// cada carga, por grupo de fases): pela dificuldade, pelo lugar do acerto e pela proteção (Drone_tag::armour).
 extern float DroneDamage_Easy, DroneDamage_Normal, DroneDamage_Hard;
 extern float DroneDamage_Head, DroneDamage_Legs, DroneDamage_Arms, DroneDamage_Torso;
 extern float DroneArmour_Helmet, DroneArmour_Combat, DroneArmour_Jacket, DroneArmour_Vest;
@@ -1208,7 +1220,9 @@ static_assert(offsetof(Drone_tag, clip) == 0xbbc && offsetof(Drone_tag, burst) =
 static_assert(offsetof(Drone_tag, next_shot) == 0xbc4 && offsetof(Drone_tag, last_shot) == 0xbc8);
 
 // Constantes de tiro da IA (DroneFiring_BurstDelay_Min até DroneFiring_PlayerBackShot_Damage, 0x48
-// bytes contíguos no ACTION.ELF, copiados na partida). Tempos em segundos, pausas em ticks a 60 Hz.
+// bytes contíguos no ACTION.ELF, copiados na partida e regravados por ReadTuningVars a cada carga). Tempos em
+// segundos, pausas em ticks a 60 Hz. Os comentários dão o valor do .data e, depois da barra, o da maioria das fases
+// (resetmap.cpp, kStandardTuning).
 struct DroneFiringSettings {
     float burst_delay_min;              // 15
     float burst_delay_normal;           // 45 (vezes 1,66/1,33/1/0,66/0,33 por stats[1])
@@ -1216,15 +1230,15 @@ struct DroneFiringSettings {
     float burst_delay_min_dist;         // 4: mais perto, a pausa mínima
     float burst_delay_max_dist;         // 30: mais longe, a máxima
     float accuracy_easy;                // 0,5 (dificuldade 1)
-    float accuracy_normal;              // 1 (0, 2 e 5 em diante)
-    float accuracy_hard;                // 2 (3 e 4)
+    float accuracy_normal;              // 1 / 0,7 (0, 2 e 5 em diante)
+    float accuracy_hard;                // 2 / 1 (3 e 4)
     float new_sighting_time_to_hit;     // 2: só acerta depois de ver o alvo por este tempo
     float target_first_moved_time_to_hit;   // 2
     float target_first_moved_accuracy;      // 0,25
     float target_moving_accuracy;           // 0,75
     float target_first_stopped_time_to_hit; // 2
     float target_first_stopped_accuracy;    // 1
-    float too_close_distance;           // 4
+    float too_close_distance;           // 4 / 3
     float too_close_accuracy;           // 2 (aplicado duas vezes, como no original)
     float too_close_damage;             // 2: dano no jogador de perto (Drone_ModBulletDamage)
     float player_back_shot_damage;      // 2: dano no jogador pelas costas (subclasse 0x12)

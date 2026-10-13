@@ -5,7 +5,7 @@
 // tecla da pausa do jogo (não solta o mouse sozinho: release_mouse).
 //
 // Este cabeçalho não traz nada do sistema: o backend do Windows é window_win32.cpp (Win32, Raw Input para o mouse,
-// GetAsyncKeyState para as teclas); o do macOS será o Cocoa (etapa 3). native_handle() é o identificador do sistema
+// GetAsyncKeyState para as teclas); o do macOS é o AppKit (window_macos.mm, etapa 3c). native_handle() é o identificador do sistema
 // para o renderizador (o HWND no Windows).
 
 #include <memory>

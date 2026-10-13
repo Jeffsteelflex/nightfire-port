@@ -130,6 +130,14 @@ uint64_t packed_program_size(const std::wstring& exe) {
     return f.size();
 }
 
+bool personal_copy_supported() {
+#if defined(_WIN32)
+    return true;
+#else
+    return false;
+#endif
+}
+
 bool inside_git_tree(const std::wstring& path) {
     std::wstring d = parent_of(full_path(path));
     for (int guard = 0; guard < 64 && !d.empty(); ++guard) {

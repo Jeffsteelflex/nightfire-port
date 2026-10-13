@@ -238,7 +238,7 @@ TEST(platform_code_stays_behind_the_interfaces) {
         for (const auto& e : fs::recursive_directory_iterator(root / top)) {
             if (!e.is_regular_file()) continue;
             const std::string ext = e.path().extension().string();
-            if (ext != ".cpp" && ext != ".h" && ext != ".inc") continue;
+            if (ext != ".cpp" && ext != ".h" && ext != ".inc" && ext != ".mm") continue;
             std::string rel = fs::relative(e.path(), root).generic_string();
             ++files;
             if (any_glob(backends, rel)) continue;

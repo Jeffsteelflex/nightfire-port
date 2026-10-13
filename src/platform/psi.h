@@ -64,7 +64,6 @@ void psiRestoreScreenPos();
 // VRAM na primeira vez e atualizam o som.
 void psiPreGame_Run();
 void psiPostGame_Run();
-// Ainda não implementadas no PC.
-void psiDecompressWoman();
+// Ainda não implementada no PC (o psiDecompressWoman está em platform/psi_woman.h).
 void psiLaunchDriving(uint8_t* data, uint32_t size);
 void SFXUpdate();

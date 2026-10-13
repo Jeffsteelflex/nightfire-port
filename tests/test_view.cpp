@@ -1,11 +1,14 @@
-// Testes do módulo de visão (src/engine/view.cpp) e do registro de desenho (platform/psi_draw.cpp).
+// Testes do módulo de visão (src/engine/view.cpp) e do registro de desenho (platform/psi_draw.cpp); também o tremor da
+// câmera (Rand_FRand_MVar2_Vec) e o modelo solto (View_DrawGlist).
 
 #include <cmath>
 #include <cstring>
 
+#include "engine/anim.h"
 #include "engine/build.h"
 #include "engine/collide.h"
 #include "engine/door.h"
+#include "engine/gameflow.h"
 #include "engine/gamestate.h"
 #include "engine/memory.h"
 #include "engine/object.h"
@@ -405,4 +408,53 @@ TEST(view_sky_follows_camera) {
     w.a->type = 0x1000c023;
     Game_Draw();
     for (const PsiDrawCall& d : g_psi_frame.draws) CHECK(d.glist != &sky);
+}
+
+TEST(view_rand_vec_and_camera_shake) {
+    // Rand_FRand_MVar2_Vec: os três sorteios de Rand_FRand_MVar2, na ordem x, y, z, somados ao vetor; w fica.
+    view_debug_power_on();
+    const float rx = Rand_FRand_MVar2(2.0f, 0.5f), ry = Rand_FRand_MVar2(2.0f, 0.5f),
+                rz = Rand_FRand_MVar2(2.0f, 0.5f);
+    const float after = Rand_FRand(1.0f);
+    view_debug_power_on();
+    _VECTOR v{10, 20, 30, 7};
+    Rand_FRand_MVar2_Vec(&v, 2.0f, 0.5f);
+    CHECK(v.x == 10.0f + rx && v.y == 20.0f + ry && v.z == 30.0f + rz && v.w == 7.0f);
+    CHECK(Rand_FRand(1.0f) == after);  // avançou as sementes três vezes
+
+    // O tremor do Camera_Update (range = minus = tremor x REC_FRAME_RATE): a posição da câmera anda entre -s e 0 em
+    // cada eixo, só neste tick (o updater a refaz no seguinte), e o tremor cai entre 0 e 1/4.
+    fresh();
+    TwoRooms w;
+    w.v->shake = 6.0f;
+    const float s = 6.0f * REC_FRAME_RATE;
+    Camera_Update(0);
+    const _VECTOR p = w.v->pos;
+    CHECK(-s <= p.x && p.x < 0.0f && -s <= p.y && p.y < 0.0f && -s <= p.z && p.z < 0.0f);
+    CHECK(w.v->camera.m[3][0] == p.x && w.v->shake <= 6.0f && 6.0f * 0.75f < w.v->shake);
+    // Sem tremor, nenhum sorteio.
+    w.v->shake = 0.0f;
+    const uint32_t sx = SEED_X, sy = SEED_Y;
+    w.look(1.0f);
+    CHECK(SEED_X == sx && SEED_Y == sy && w.v->pos.x == 0.0f);
+}
+
+TEST(view_draw_glist_draws_a_loose_model) {
+    // View_DrawGlist: View_RotTransScaleMatrix e psiDrawObjectMatrix (a coluna w corrigida), sem objeto.
+    fresh();
+    TwoRooms w;
+    psi_draw_debug_power_on();
+    _VECTOR pos{1, 2, 3, 0}, rot{0, 0, 0, 0}, scale{1, 1, 4, 0};
+    View_DrawGlist(&w.glist_obj, &pos, &rot, &scale, 77);
+    CHECK(g_psi_frame.draws.size() == 1);
+    if (g_psi_frame.draws.size() == 1) {
+        const PsiDrawCall& d = g_psi_frame.draws[0];
+        CHECK(d.glist == &w.glist_obj);
+        CHECK(d.world.m[3][0] == 1.0f && d.world.m[3][1] == 2.0f && d.world.m[3][2] == 3.0f && d.world.m[3][3] == 1.0f);
+        CHECK_NEAR(d.world.m[0][0], 1.0, 1e-5);  // os senos do PS2 (PS2Sinf3, um polinômio)
+        CHECK_NEAR(d.world.m[1][1], 1.0, 1e-5);
+        CHECK_NEAR(d.world.m[2][2], 4.0, 1e-4);
+        CHECK_NEAR(d.world.m[0][1], 0.0, 1e-5);
+        CHECK(d.world.m[0][3] == 0.0f && d.world.m[1][3] == 0.0f && d.world.m[2][3] == 0.0f);
+    }
 }

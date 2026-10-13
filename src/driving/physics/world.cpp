@@ -25,7 +25,7 @@ bool FlatGround::find_closest_face(WWorldPos& wp, const float pos[3], bool flag)
     wp.v2[0] = 1.0f;
     wp.v2[1] = height_;
     wp.v2[2] = 0.0f;
-    wp.face = this;
+    wp.valid = 1;
     return true;
 }
 

@@ -5,8 +5,8 @@
 //    passadas (base, especular, reflexo);
 //  - MatCarTextureDullPacked: o mesmo código com outro leiaute e só a passada base;
 //  - MatCarDash: o mesmo código sem o passo 1 (as entradas já vêm em float, UNPACK V4-32), base e especular.
-// No Vanquish são 360 dos 389 lotes (o resto vai ao substituto: MatCarTextureSwitchPacked, que é esta família com um
-// passo a mais que acende a cor pelos SwitchData; MatCarGlassPacked; MatCarGouraudDullPacked; BondCarShadow).
+// No Vanquish são 360 dos 389 lotes; o vidro (MatCarGlassPacked, abaixo) mais 5 e as luzes (MatCarTextureSwitchPacked,
+// abaixo) mais 19; o resto vai ao substituto (MatCarGouraudDullPacked; BondCarShadow).
 //
 // O que o microprograma faz com cada lote (até 44 vértices) que o VIF põe no buffer TOP:
 //  0. preenche a cor de trabalho (TOP+cor) com (127, 127, 127, 128) inteiros: sem cor por vértice;
@@ -33,6 +33,28 @@
 //     VU55.y (W = WorldMatrix sem a translação); ST = (0.5 + a.x, 0.5 + a.z), Q = 1;
 //     cor = int(min(props.w x alfa_f, 100000 x max(a.y, 0))); XGKICK do EnvMapState, do TAR ReflectionMap2 e dos
 //     vértices.
+//
+// MatCarGlassPacked (o vidro, `vudis.py --eagl bondrm.o MatCarGlassPacked`): os passos 0-5 iguais (outro leiaute, até 40
+// vértices), com três diferenças e quatro passadas:
+//  - o alfa da cor de trabalho é a palavra w da zona de dano do vértice, crua (LQ.w + SQI.w): o RVehicle::ComputeDamage
+//    (0x001d3138) a põe em 127 (o inteiro, 1.77965e-43 em float) quando o dano da zona passa do limite (o vidro
+//    quebrado), senão 0;
+//  - depois da transformação, a face de trás: n' e p' pela ModelView (TOP+0x1f..0x22: n' = M0 n.x + M1 n.y + M2 n.z,
+//    p' = M0 p.x + M1 p.y + M2 p.z + M3), d = ((n'.z p'.z + n'.x p'.x) + n'.y p'.y); com d >= 0 (o vértice de costas
+//    para a câmera: o sinal do MAC do z apagado) o w do XYZF vira 0x8000 (o ADC, a névoa zerada): o triângulo que esse
+//    vértice fecha não é desenhado. Só então o AND 0xbffe dos SplitReg;
+//  - passada 1: o GlassDmgState (TOP+0xfd; o State em 0xf5 não é chutado) e o TAR do DmgTexture (0x23), o alfa w;
+//    passada 2: o mesmo estado, o TAR do Texture (0x0a), o alfa int(127 - w) (ITOF0, x -1, + 127, FTOI0), o STQ da
+//    passada 1; passadas 3 e 4: o especular e o reflexo da família (EnvMapState 0x105, SpecularMap 0x11,
+//    ReflectionMap2 0x18) com o alfa 127 - w. Sem dano: o DmgTexture com alfa 0 e o Texture com 127; quebrado, o inverso.
+//    (Um laço entre as passadas 2 e 3 faz min(rgb, alfa) com o xyz de registradores velhos (ITOF0.w só no w); o xyz que
+//    ele grava é sobrescrito pelo especular antes de qualquer XGKICK: sem efeito.)
+//
+// MatCarTextureSwitchPacked (as luzes do carro): o MatCarTextureDullPacked com outro leiaute e um passo entre o 4 e o 5:
+// com s = SwitchData (TOP+0x11: a cópia do GAME::SwitchData[n] do lote; o RVehicle::SetPerObjectBuffers (0x001d2b38)
+// grava o w de cada um a cada quadro, a partir do RVehicle +0x268) e k = SwitchParam (TOP+0xf1),
+// alvo = (s.z, s.z, s.z, s.y) x 255 x k.x e cor = int(min(255, cor x (1 - s.w) + alvo x s.w)), nas quatro componentes
+// (o alfa de partida 128 também: com s.w = 0, a lâmpada apagada, nada muda).
 // As constantes I são as do microcódigo (o I de uma instrução com o bit I é o carregado na anterior: a instrução de cima
 // executa antes do LOI do mesmo par). A referência abaixo faz as contas em float do IEEE na mesma ordem; a VU não tem
 // denormais nem infinitos e arredonda para zero (diferenças no último bit, que os testes evitam com valores exatos).
@@ -45,7 +67,11 @@
 
 namespace drv {
 
-enum CarPass { kPassBase = 1, kPassSpec = 2, kPassRefl = 4 };
+// As passadas, na ordem dos XGKICK do microprograma (bit p = a passada p). Na família: 0 a base, 1 o especular, 2 o
+// reflexo. No vidro: 0 o DmgTexture, 1 o Texture, 2 o especular, 3 o reflexo.
+enum CarPass { kPassBase = 1, kPassSpec = 2, kPassRefl = 4, kPassGlassRefl = 8 };
+constexpr int kCarMaxPasses = 4;
+enum CarKind { kCarStd = 0, kCarGlass = 1, kCarSwitch = 2 };
 
 struct CarMethodLayout {
     const char* name;
@@ -55,9 +81,17 @@ struct CarMethodLayout {
     // Endereços relativos ao TOP (qwords).
     int count, mvp, world, props, tar, tar_spec, tar_refl, split, pos, stq, normal, dmgvec, dmgnrm, colour, gif_tag,
         out, state, env_state;
+    int kind = kCarStd;
+    int tar_dmg = 0;    // o vidro: o TAR do DmgTexture
+    int modelview = 0;  // o vidro: a ModelView (a face de trás)
+    int switch_data = 0, switch_param = 0;  // as luzes: SwitchData e SwitchParam
 };
 // A família pelo nome do render method (nullptr se não é dela).
 const CarMethodLayout* car_method_layout(const char* method_name);
+// O STQ de uma passada: 0 o da carga x Q (a base), 1 o especular, 2 o reflexo.
+int car_pass_stq(const CarMethodLayout& l, int pass);
+// O alfa dos vértices de uma passada: 0 o 128 da cor de partida, 1 o w da zona de dano, 2 int(127 - w).
+int car_pass_alpha(const CarMethodLayout& l, int pass);
 
 // As constantes globais da VU1 que o microprograma lê (endereços absolutos), postas pelos métodos MatBondPerViewPort
 // (PositionalLightSources 0x40-0x47, FogData 0x48) e MatCarPerCar (LightSources 0x49-0x4f, SpecularMat 0x50-0x53,
@@ -106,7 +140,9 @@ struct CarBatch {
     float mvp[4][4];      // linhas, como a VU as lê (p' = p x M)
     float world[4][4];
     float props[4];       // LightingProperties: (ambiente, difusa, especular, reflexo)
-    eagl::GsRegs pass[3];  // o estado de cada passada (o GeoPrimState e o TAR que o microprograma chuta)
+    float modelview[4][4] = {};  // o vidro: a ModelView
+    float switch_data[4] = {}, switch_param[4] = {};  // as luzes
+    eagl::GsRegs pass[kCarMaxPasses];  // o estado de cada passada (o GeoPrimState e o TAR que o microprograma chuta)
     bool strip = true;     // PRIM do State: 4 faixa, 3 lista
     int split[12];        // as entradas SplitReg (vértice x 3)
     std::vector<CarVertexIn> v;
@@ -121,16 +157,24 @@ struct CarVertexOut {
     float stq[3];      // s, t, q
     int32_t rgba[4];   // inteiros (0x80 = 1,0 no GS)
     int32_t xyzf[4];   // FTOI4: x, y, z e a névoa F << 4; o bit 15 do w é o ADC (só o das faixas, ver acima)
-    bool adc;          // o recomeço de faixa (SplitReg); o descarte por recorte não é reproduzido (ver car_reference)
+    bool adc;          // o recomeço de faixa (SplitReg) ou, no vidro, a face de trás; o descarte por recorte não é
+                       // reproduzido (ver car_reference)
 };
 
 // A referência na CPU do microprograma (passos 0-7) para um lote: out[passada][vértice] (vazio nas passadas que o
 // método não tem). Divergência documentada: o descarte de triângulos por recorte (CLIPw e os testes de FCAND/FCOR) não é
 // feito; no PC o hardware recorta. Os demais valores saem como o microprograma os grava.
-void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVertexOut> out[3]);
+void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVertexOut> out[kCarMaxPasses]);
+
+// As luzes: a cor (as quatro componentes, inteiras) depois do passo do SwitchData (ver acima).
+void car_switch_colour(const float switch_data[4], const float switch_param[4], int32_t col[4]);
+
+// O vidro: o vértice está de costas para a câmera da ModelView (o ADC que o microprograma põe; ver acima).
+bool car_glass_backface(const float modelview[4][4], const float pos[3], const float normal[3]);
 
 // Os triângulos de um lote (índices dentro do lote) pela regra do GS: numa faixa, cada vértice a partir do terceiro
-// fecha um triângulo, menos os que têm ADC; numa lista, de três em três.
-void car_triangles(const CarBatch& b, std::vector<uint16_t>& tris);
+// fecha um triângulo, menos os que têm ADC; numa lista, de três em três. Com `closing_first` o vértice que fecha vem
+// primeiro (v, v - 2, v - 1: a mesma volta): o vértice provocador do Direct3D, que decide a face de trás do vidro.
+void car_triangles(const CarBatch& b, std::vector<uint16_t>& tris, bool closing_first = false);
 
 }  // namespace drv

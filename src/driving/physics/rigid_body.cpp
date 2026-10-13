@@ -14,6 +14,8 @@
 
 #include "driving/physics/rigid_body.h"
 
+#include "driving/physics/collide.h"
+
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -91,6 +93,9 @@ void reset_rigid_globals() {
     g_underwater = false;
     g_mission_uses_health = 0;
     ground_impacts() = GroundImpactStats{};
+    // Os contadores dos choques (os ganchos ficam).
+    CollideEvents& ce = collide_events();
+    ce.collisions = ce.mission_events = ce.stimuli = ce.kind_zero = 0;
     rigid_static_init();
 }
 
@@ -289,6 +294,93 @@ void SetAngularMomentum(RigidBody* rb, const float l[4]) {
     store(&rb->ang_momentum[0], out);
 }
 
+namespace {
+// vmulax.xyz/vmadday/vmaddaz pelas linhas r e vmaddw.xyz pela linha 3: v * M com a linha 3 somada (o w de out fica).
+void rows_times(const float r[4][4], const uint32_t* v, uint32_t* out) {
+    Reg r0, r1, r2, r3, acc;
+    load(r0, r[0]);
+    load(r1, r[1]);
+    load(r2, r[2]);
+    load(r3, r[3]);
+    static const uint32_t vf0[4] = {0, 0, 0, 0x3f800000};
+    mulabc(acc, r0, v, BX, XYZ);
+    maddabc(acc, r1, v, BY, XYZ);
+    maddabc(acc, r2, v, BZ, XYZ);
+    maddbc(out, acc, r3, vf0, BW, XYZ);
+}
+}  // namespace
+
+// [driving] 0x1f8168 RigidBody::ModifyAngularMomentum
+void ModifyAngularMomentum(RigidBody* rb, float l[4]) {
+    Reg v, out, am;
+    load(v, l);
+    load(out, l);
+    rows_times(rb->info->orient, v, out);
+    store(l, out);
+    load(am, &rb->ang_momentum[0]);
+    add(am, am, out, XYZ);
+    store(&rb->ang_momentum[0], am);
+}
+
+// [driving] 0x1f8380 RigidBody::GetLocalAngularVelocity
+void GetLocalAngularVelocity(const RigidBody* rb, float out[3]) {
+    float t[4][4];
+    transpose4(rb->info->orient, t);
+    Reg v, r{};
+    load(v, &rb->ang_vel[0]);
+    rows_times(t, v, r);
+    std::memcpy(out, r, 12);
+}
+
+// [driving] 0x1f8250 RigidBody::GetLocalAngularMomentum
+void GetLocalAngularMomentum(const RigidBody* rb, float out[3]) {
+    float t[4][4];
+    transpose4(rb->info->orient, t);
+    Reg v, r{};
+    load(v, &rb->ang_momentum[0]);
+    rows_times(t, v, r);
+    std::memcpy(out, r, 12);
+}
+
+// [driving] 0x1f8830 RigidBody::ResolveMassScaledForce4
+void ResolveMassScaledForce4(RigidBody* rb, const float f[4]) { ResolveMassScaledForce(rb, f); }
+
+// [driving] 0x1f8888 RigidBody::ResolveMassScaledTorque
+void ResolveMassScaledTorque(RigidBody* rb, const float t[4]) {
+    if (rb->state == 3) return;
+    rb->state = 2;
+    Reg v1, torque, tm;
+    load(v1, t);
+    load(torque, &rb->torque[0]);
+    load(tm, &rb->torque[0]);
+    const uint32_t m[4] = {b(rb->mass), 0, 0, 0};
+    mulbc(tm, v1, m, BX, XYZ);
+    add(tm, torque, tm, XYZ);
+    store(&rb->torque[0], tm);
+}
+
+// [driving] 0x1f88c8 RigidBody::ResolveMassScaledTorque4
+void ResolveMassScaledTorque4(RigidBody* rb, const float t[4]) { ResolveMassScaledTorque(rb, t); }
+
+// [driving] 0x1f85c0 RigidBody::SetOrientation
+void SetOrientation(RigidBody* rb, const float q[4]) {
+    std::memcpy(rb->quat, q, 16);
+    float m[4][4], mt[4][4], d[4][4], a[4][4], inv[4][4];
+    VU0_quattom4(rb->quat, m);
+    transpose4(m, mt);
+    GetBodyTensorMatrix4(rb, d);
+    VU0_MATRIX4_mult(d, m, a);
+    VU0_MATRIX4_mult(mt, a, inv);
+    StoreBodyMatrix(rb, m);
+    StoreInvWorldTensor(rb, inv);
+}
+
+// [driving] 0x1f80d8 RigidBody::ApplyHeavyFriction
+void ApplyHeavyFriction(RigidBody* rb) {
+    for (int i = 0; i < 3; ++i) rb->momentum[i] = ee::mul(rb->momentum[i], 0.0f);  // v3scale(1, +0x40, +0x40, 0)
+    for (int i = 0; i < 3; ++i) rb->ang_momentum[i] = ee::mul(rb->ang_momentum[i], 0.0f);
+}
+
 // [driving] 0x1f7c00 RigidBody::GetOrientToGround
 float GetOrientToGround(const RigidBody* rb) {
     static const float kUp[3] = {0.0f, 1.0f, 0.0f};  // 0x396568
@@ -304,7 +396,7 @@ void InitLevers(RigidBody* rb, PhysicsObject* owner, const float half[4]) {
     RigidBodyInfo* info = rb->info;
     uint32_t count = 0;
     float y_offset = 0;
-    const float(*geometry)[4] = nullptr;
+    const CollisionPoint* geometry = nullptr;
     if (owner) geometry = owner->collision_geometry(count, y_offset);
     else physics_pending("dono nulo");
     if (count != 0) {
@@ -324,7 +416,7 @@ void InitLevers(RigidBody* rb, PhysicsObject* owner, const float half[4]) {
             l[1][2] = ee::add(half[2], zf_off);
             l[1][3] = 0;
             const PhysicsAttributes* attr = owner_attributes(GetOwner(rb));
-            if (!attr || attr->alt_layout == 0) {
+            if (!attr || attr->is_snowmobile == 0) {
                 l[2][0] = ee::add(ee::neg(half[0]), x_off);
                 l[2][1] = ee::neg(half[1]);
                 l[2][2] = ee::add(ee::neg(half[2]), zr_off);
@@ -361,7 +453,7 @@ void InitLevers(RigidBody* rb, PhysicsObject* owner, const float half[4]) {
         std::memcpy(info->lever_local, box, sizeof(box));
         if (rb->type < 4) {
             PhysicsAttributes* attr = owner_attributes(owner);
-            if (attr) attr->lever_scale = 1.5f;
+            if (attr) attr->spring_rest_length = 1.5f;
         }
     }
     info->lever_friction = ee::mul(ee::div(rb->mass, g_base_friction_mass), g_tuning.ground_friction_coeff);
@@ -502,7 +594,7 @@ void ApplyInitialForcesAndTorques(RigidBody* rb) {
     bool skip_gravity = false;
     if (rb->type < 4) {
         PhysicsAttributes* attr = owner_attributes(GetOwner(rb));
-        if (attr && attr->heavy_ground != 0) {
+        if (attr && attr->is_boat != 0) {
             gravity[1] = ee::mul(gravity[1], 0.2f);
             velocity_drag(-1.0f);
             ResolveMassScaledForce(rb, drag);
@@ -525,7 +617,7 @@ void ApplyInitialForcesAndTorques(RigidBody* rb) {
             }
         }
         attr = owner_attributes(GetOwner(rb));
-        if (attr && attr->special_mode == 1) skip_gravity = true;
+        if (attr && attr->sub_physics == 1) skip_gravity = true;
     }
     if (!skip_gravity) ResolveMassScaledForce(rb, gravity);
     // Um corpo comum parado no chão (três alavancas ou mais) perde 4 x GROUND_FRICTION_COEFF da velocidade.
@@ -551,7 +643,14 @@ void ApplyInitialForcesAndTorques(RigidBody* rb) {
 int TempGetHeightInformation(RigidBody* rb, const float pos[3], float out[4], WWorldPos* wp) {
     WorldCollision* w = world();
     int result = 1;
-    // O WCollisionMgr global (+0x2c = 0x20 durante a consulta, 0x10 depois) não foi portado.
+    // O WCollisionMgr global: +0x2c = 0x20 durante a consulta e 0x10 ao sair (por todos os caminhos).
+    struct BarrierMask {
+        WorldCollision* w;
+        ~BarrierMask() {
+            if (w) w->set_barrier_mask(0x10);
+        }
+    } barrier_mask{w};
+    if (w) w->set_barrier_mask(0x20);
     bool found = false;
     if (!wp) {
         physics_pending("WWorldPos nulo");
@@ -563,18 +662,18 @@ int TempGetHeightInformation(RigidBody* rb, const float pos[3], float out[4], WW
     }
     if (w) found = w->find_closest_face(*wp, pos, true);
     else physics_pending("WWorldPos::FindClosestFace (mundo)");
-    if (wp->face == nullptr) {
+    if (wp->valid == 0) {
         if (wp->surface[0] != 0) {
             found = true;
             float p[3] = {pos[0], pos[1], pos[2]};
             for (int tries = 1;; ++tries) {
                 p[0] = ee::add(p[0], 0.1f);
                 if (w) w->find_closest_face(*wp, p, true);
-                if (wp->face != nullptr) break;
+                if (wp->valid != 0) break;
                 if (tries >= 2) {
                     if (wp->surface[0] != 0) {
                         result = 0;
-                        wp->face = nf::p32_ptr<const void>(1);
+                        wp->valid = 1;
                     }
                     break;
                 }
@@ -586,7 +685,7 @@ int TempGetHeightInformation(RigidBody* rb, const float pos[3], float out[4], WW
         }
     }
     if (found) {
-        if (wp->face == nullptr) {
+        if (wp->valid == 0) {
             out[2] = 0;
             out[1] = 1.0f;
             out[0] = 0;
@@ -622,7 +721,7 @@ int TempGetHeightInformation(RigidBody* rb, const float pos[3], float out[4], WW
             out[3] = 0;
         }
     }
-    if (wp->face == nullptr) {
+    if (wp->valid == 0) {
         out[3] = 0;
         return result;
     }
@@ -637,7 +736,7 @@ int TempGetHeightInformation(RigidBody* rb, const float pos[3], float out[4], WW
     out[3] = d;
     if (rb->type < 4) {
         const PhysicsAttributes* attr = owner_attributes(GetOwner(rb));
-        if (attr && attr->heavy_ground != 0) out[3] = ee::add(out[3], 10.0f);
+        if (attr && attr->is_boat != 0) out[3] = ee::add(out[3], 10.0f);
     }
     return result;
 }
@@ -647,7 +746,7 @@ void CollideWithGround(RigidBody* rb) {
     if (g_underwater) return;
     if (rb->type < 4) {
         const PhysicsAttributes* attr = owner_attributes(GetOwner(rb));
-        if (attr && attr->skip_ground != 0) return;
+        if (attr && attr->no_world_collisions != 0) return;
         PhysicsObject* owner = GetOwner(rb);
         if (owner && owner->ignores_ground()) {
             rb->info->ground[0] = 0;

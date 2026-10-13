@@ -21,7 +21,8 @@ def main():
     text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
     exe = sys.argv[2]
     name = re.escape(os.path.basename(exe))
-    bases = re.findall(r"imagem \S*%s base (0x[0-9a-fA-F]+)" % name, text)
+    # O caminho pode ter espaços (o "Nightfire PC.app/Contents/MacOS/Nightfire PC" do macOS).
+    bases = re.findall(r"imagem .*?%s base (0x[0-9a-fA-F]+)" % name, text)
     if not bases:
         print("symbolize: nenhuma pilha do executável na saída")
         return 0

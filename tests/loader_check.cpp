@@ -13,6 +13,7 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -79,11 +80,13 @@
 #include "game/hud_tables.h"
 #include "game/level_scene.h"
 #include "game/static_init.h"
+#include "data/mips_interp.h"
 #include "platform/pending.h"
 #include "platform/psi.h"
 #include "platform/psi_draw.h"
 #include "platform/psi_file.h"
 #include "platform/psi_gfx.h"
+#include "platform/psi_woman.h"
 #include "platform/psi_shard.h"
 #include "platform/fmath.h"
 
@@ -870,6 +873,123 @@ int decode_entity(void*, const celglist_tag* glist, const map_tag* map) {
 // Nomes das funções de estado da IA, para o relatório dos não portados.
 std::vector<std::string> g_drone_state_names;
 
+// O ReadTuningVars portado (engine/resetmap.cpp) contra o do ELF no interpretador MIPS, fase a fase (07000000 a
+// 0700004f e três códigos de fora): os 65 globais que ele grava, envenenados antes dos dois lados com o mesmo NaN
+// (então também confere quais cada caso deixa sem gravar). Devolve as fases iguais; `diff` recebe as diferenças.
+int check_tuning_vars(const nf::Elf& elf, int* total, std::string* diff) {
+    struct Var {
+        const char* name;
+        float* port;
+    };
+    const Var vars[] = {
+        {"Plr_AimSpeed_X", &Plr_AimSpeed_X}, {"Plr_AimSpeed_Y", &Plr_AimSpeed_Y},
+        {"Plr_AimTurnSpeed_X", &Plr_AimTurnSpeed_X}, {"Plr_AimTurnSpeed_Y", &Plr_AimTurnSpeed_Y},
+        {"Plr_ScopeSpeed_X", &Plr_ScopeSpeed_X}, {"Plr_ScopeSpeed_X_Mul", &Plr_ScopeSpeed_X_Mul},
+        {"Plr_ScopeSpeed_X_Steps", &Plr_ScopeSpeed_X_Steps}, {"Plr_ScopeSpeed_Y", &Plr_ScopeSpeed_Y},
+        {"Plr_ScopeSpeed_Y_Mul", &Plr_ScopeSpeed_Y_Mul}, {"Plr_ScopeSpeed_Y_Steps", &Plr_ScopeSpeed_Y_Steps},
+        {"Plr_NoAimTurnSpeed_X", &Plr_NoAimTurnSpeed_X}, {"Plr_NoAimTurnSpeed_X_Mul", &Plr_NoAimTurnSpeed_X_Mul},
+        {"Plr_NoAimTurnSpeed_X_Steps", &Plr_NoAimTurnSpeed_X_Steps}, {"Plr_NoAimTurnSpeed_Y", &Plr_NoAimTurnSpeed_Y},
+        {"Plr_NoAimTurnSpeed_Y_Mul", &Plr_NoAimTurnSpeed_Y_Mul},
+        {"Plr_NoAimTurnSpeed_Y_Steps", &Plr_NoAimTurnSpeed_Y_Steps},
+        {"ContinueHealthBoostEasy", &ContinueHealthBoostEasy},
+        {"ContinueHealthBoostMedium", &ContinueHealthBoostMedium},
+        {"ContinueHealthBoostHard", &ContinueHealthBoostHard},
+        {"Autoaim_Angle_H", &Autoaim_Angle_H}, {"Autoaim_Angle_V", &Autoaim_Angle_V}, {"Autoaim_Range", &Autoaim_Range},
+        {"Autoaim_LockOnMul", &Autoaim_LockOnMul}, {"Autoaim_EasyMul", &Autoaim_EasyMul},
+        {"Autoaim_NormalMul", &Autoaim_NormalMul}, {"Autoaim_HardMul", &Autoaim_HardMul},
+        {"Plr_DMod_Easy", &Plr_DMod_Easy}, {"Plr_DMod_Normal", &Plr_DMod_Normal}, {"Plr_DMod_Hard", &Plr_DMod_Hard},
+        {"Plr_DMod_Multi", &Plr_DMod_Multi}, {"Plr_DMod_Head", &Plr_DMod_Head},
+        {"Plr_DMod_LowerLimb", &Plr_DMod_LowerLimb}, {"Plr_DMod_UpperLimb", &Plr_DMod_UpperLimb},
+        {"DroneDamage_Easy", &DroneDamage_Easy}, {"DroneDamage_Normal", &DroneDamage_Normal},
+        {"DroneDamage_Hard", &DroneDamage_Hard}, {"DroneDamage_Head", &DroneDamage_Head},
+        {"DroneDamage_Legs", &DroneDamage_Legs}, {"DroneDamage_Arms", &DroneDamage_Arms},
+        {"DroneDamage_Torso", &DroneDamage_Torso}, {"DroneArmour_Helmet", &DroneArmour_Helmet},
+        {"DroneArmour_Combat", &DroneArmour_Combat}, {"DroneArmour_Jacket", &DroneArmour_Jacket},
+        {"DroneArmour_Vest", &DroneArmour_Vest},
+        {"DroneFiring_BurstDelay_Min", &DroneFiring.burst_delay_min},
+        {"DroneFiring_BurstDelay_Normal", &DroneFiring.burst_delay_normal},
+        {"DroneFiring_BurstDelay_Max", &DroneFiring.burst_delay_max},
+        {"DroneFiring_BurstDelay_MinDist", &DroneFiring.burst_delay_min_dist},
+        {"DroneFiring_BurstDelay_MaxDist", &DroneFiring.burst_delay_max_dist},
+        {"DroneFiring_Accuracy_Easy", &DroneFiring.accuracy_easy},
+        {"DroneFiring_Accuracy_Normal", &DroneFiring.accuracy_normal},
+        {"DroneFiring_Accuracy_Hard", &DroneFiring.accuracy_hard},
+        {"DroneFiring_NewSighting_TimeToHit", &DroneFiring.new_sighting_time_to_hit},
+        {"DroneFiring_TargetFirstMoved_TimeToHit", &DroneFiring.target_first_moved_time_to_hit},
+        {"DroneFiring_TargetFirstMoved_Accuracy", &DroneFiring.target_first_moved_accuracy},
+        {"DroneFiring_TargetMoving_Accuracy", &DroneFiring.target_moving_accuracy},
+        {"DroneFiring_TargetFirstStopped_TimeToHit", &DroneFiring.target_first_stopped_time_to_hit},
+        {"DroneFiring_TargetFirstStopped_Accuracy", &DroneFiring.target_first_stopped_accuracy},
+        {"DroneFiring_TooClose_Distance", &DroneFiring.too_close_distance},
+        {"DroneFiring_TooClose_Accuracy", &DroneFiring.too_close_accuracy},
+        {"DroneFiring_TooClose_Damage", &DroneFiring.too_close_damage},
+        {"DroneFiring_PlayerBackShot_Damage", &DroneFiring.player_back_shot_damage},
+        {"DroneCaptain_Mod_BulletDamage", &DroneCaptain_Mod_BulletDamage},
+        {"DroneCaptain_Mod_BulletAccuracy", &DroneCaptain_Mod_BulletAccuracy},
+        {"DroneCaptain_Mod_Health", &DroneCaptain_Mod_Health},
+    };
+    constexpr size_t kVars = sizeof(vars) / sizeof(vars[0]);
+    std::vector<uint32_t> addr(kVars);
+    std::vector<float> saved(kVars);
+    for (size_t i = 0; i < kVars; ++i) saved[i] = *vars[i].port;
+    const uint32_t saved_level = GameState.level_file;
+    *total = 0;
+    int same = 0;
+    try {
+        for (size_t i = 0; i < kVars; ++i) {
+            const auto s = elf.find(vars[i].name);
+            if (!s) throw std::runtime_error(std::string("sem o símbolo ") + vars[i].name);
+            addr[i] = s->value;
+        }
+        const auto fn = elf.find("ReadTuningVars__Fv");
+        const auto gs = elf.find("GameState");
+        if (!fn || !gs) throw std::runtime_error("sem ReadTuningVars ou GameState no ELF");
+        nf::MipsMachine m;
+        nf::setup_constructor_machine(m, elf);
+        m.allow_code(fn->value, fn->value + fn->size);
+        std::vector<uint32_t> levels;
+        for (uint32_t l = 0x7000000; l < 0x7000050; ++l) levels.push_back(l);
+        levels.push_back(0x7100001);  // um código de filme
+        levels.push_back(0x9000001);  // uma missão de carro
+        levels.push_back(0);
+        for (size_t k = 0; k < levels.size(); ++k) {
+            const uint32_t poison = 0x7fc0de00u | uint32_t(k);
+            for (size_t i = 0; i < kVars; ++i) {
+                m.write32(addr[i], poison);
+                std::memcpy(vars[i].port, &poison, 4);
+            }
+            m.write32(gs->value + 0xc, levels[k]);
+            GameState.level_file = levels[k];
+            m.call(fn->value);
+            ReadTuningVars();
+            std::string bad;
+            for (size_t i = 0; i < kVars; ++i) {
+                uint32_t port;
+                std::memcpy(&port, vars[i].port, 4);
+                const uint32_t ps2 = m.read32(addr[i]);
+                if (port != ps2) {
+                    char line[160];
+                    std::snprintf(line, sizeof(line), " %s=%08x/%08x", vars[i].name, ps2, port);
+                    bad += line;
+                }
+            }
+            ++*total;
+            if (bad.empty()) {
+                ++same;
+            } else {
+                char head[32];
+                std::snprintf(head, sizeof(head), " %08x:", levels[k]);
+                *diff += head + bad;
+            }
+        }
+    } catch (const std::exception& e) {
+        *diff += std::string(" ERRO ") + e.what();
+    }
+    GameState.level_file = saved_level;
+    for (size_t i = 0; i < kVars; ++i) *vars[i].port = saved[i];
+    return same;
+}
+
 // Construtores estáticos do ACTION.ELF (no PS2, o __main): o que cada um escreve e as tabelas que
 // o port copia (weapon_data, ammo_data). Falha alto se o interpretador parar.
 bool check_static_constructors(const nf::DiscSource& disc) {
@@ -919,6 +1039,14 @@ bool check_static_constructors(const nf::DiscSource& disc) {
         int codes = 0;
         while (Menu_PortSecretCode(uint32_t(codes)) != nullptr) ++codes;
         std::printf("codinomes especiais: %d de %d conferem com o ELF%s%s\n", same, 3 * (codes + 2),
+                    diff.empty() ? "" : " diferenças:", diff.c_str());
+    }
+    {
+        // O ajuste por fase (ReadTuningVars) portado contra o do ELF.
+        std::string diff;
+        int total = 0;
+        const int same = check_tuning_vars(elf, &total, &diff);
+        std::printf("ajuste das fases (ReadTuningVars): %d de %d conferem com o ELF%s%s\n", same, total,
                     diff.empty() ? "" : " diferenças:", diff.c_str());
     }
     // Fatos independentes: cada entrada guarda o próprio índice em +0 (weapon_definition_tag::id),
@@ -1256,6 +1384,33 @@ void menu_check(MenuCheck* out) {
     SEED_Y = seed_y;
     GameState = state;
     pending_restore(stubs);
+}
+
+// O fundo animado da pausa (platform/psi_woman.h) com o RLE de verdade de cada fase: do quadro 0, 696 ticks pausados
+// (um quadro a cada dois) dão o ciclo inteiro, que tem de voltar ao começo no quadro 348 sem guardas e sem passar do
+// item. Roda depois dos menus (que já decodificaram alguns quadros na pausa); o RLE volta ao quadro 0, como na carga.
+struct WomanCheck {
+    int levels = 0, cycles = 0;
+    uint32_t guards = 0, paused_frames = 0;
+    uint32_t min_bytes = ~0u, max_bytes = 0, min_item = ~0u, max_item = 0;
+};
+WomanCheck g_woman_check;
+
+void woman_cycle_check(uint32_t decoded_before) {
+    if (PS2Woman == nullptr || hashtable_getitem(kWomanTexture) == nullptr) return;
+    WomanCheck& w = g_woman_check;
+    ++w.levels;
+    w.paused_frames += g_psi_woman.decoded - decoded_before;
+    const uint32_t item = g_psi_woman.item_bytes, guards = g_psi_woman.guards, decoded = g_psi_woman.decoded;
+    PS2SetUpWoman(PS2Woman);
+    psi_woman_set_end(PS2Woman + item);
+    for (uint32_t t = 0; t < 2 * kWomanFrames; ++t) psiDecompressWoman();
+    if (g_psi_woman.decoded - decoded == kWomanFrames && WomanFrame == 0 && pWoman == PS2Woman) ++w.cycles;
+    w.guards += g_psi_woman.guards - guards;
+    w.min_bytes = std::min(w.min_bytes, g_psi_woman.cycle_bytes);
+    w.max_bytes = std::max(w.max_bytes, g_psi_woman.cycle_bytes);
+    w.min_item = std::min(w.min_item, item);
+    w.max_item = std::max(w.max_item, item);
 }
 
 // ---- geradores de personagens (DroneSpawner_*) ----
@@ -1889,7 +2044,9 @@ int main_body(int argc, char** argv) {
         if (g_drone_spawner_stats.guards != 0) std::printf(" guardas_geradores=%u", g_drone_spawner_stats.guards);
         // Os menus de jogo (pausa e fim de missão) com o arquivo de menu da fase, por último.
         {
+            const uint32_t woman_decoded = g_psi_woman.decoded;
             menu_check(&mc);
+            woman_cycle_check(woman_decoded);
             if (mc.file == 0) {
                 std::printf(" menus: sem_arquivo");
             } else if (mc.open_in_game == 5) {
@@ -1975,6 +2132,15 @@ int main_body(int argc, char** argv) {
         };
         std::printf(" [ALPHA=%s TEST=%s ZBUF=%s ABE=%d]=%d", hex(std::get<0>(key)).c_str(),
                     hex(std::get<1>(key)).c_str(), hex(std::get<2>(key)).c_str(), std::get<3>(key), n);
+    }
+    // O fundo animado da pausa: as fases com o RLE, os ciclos de 348 quadros que voltaram ao começo, os bytes lidos num
+    // ciclo e o tamanho dos itens, os quadros decodificados com a pausa dos menus e as guardas (zero nos dados do jogo).
+    {
+        const WomanCheck& w = g_woman_check;
+        std::printf("\nfundo animado da pausa: %d fases, %d ciclos de %u quadros, bytes lidos %u-%u de itens com %u-%u, "
+                    "quadros na pausa dos menus %u, guardas %u",
+                    w.levels, w.cycles, kWomanFrames, w.levels ? w.min_bytes : 0, w.max_bytes, w.levels ? w.min_item : 0,
+                    w.max_item, w.paused_frames, w.guards);
     }
     std::printf("\nVU1: %d partes com mapa de ambiente (rotina 0x2e0) em %d malhas; cores de vértice: %llu, %.1f%% com r, g "
                 "ou b acima de 0x80, alfa máximo 0x%x",

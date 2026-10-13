@@ -181,6 +181,15 @@ void game_options_rebase() {
     g_based = true;
 }
 
+void game_options_codename_loaded() {
+    // Os volumes são da máquina: os do .ini (quando ele os conhece) ganham dos que o codinome gravou.
+    for (const GameOption o : {GameOption::MusicVolume, GameOption::EffectsVolume}) {
+        const int i = int(o);
+        if (g_ini.known[i]) set_game_option(o, g_ini.value[i]);
+    }
+    game_options_rebase();
+}
+
 void game_options_apply_ini() {
     for (int i = 0; i < kGameOptionCount; ++i) {
         // O estilo, a inversão e a vibração já vieram do ControlsConfig (psiInput_Init).

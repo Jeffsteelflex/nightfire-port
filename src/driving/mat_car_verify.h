@@ -26,6 +26,8 @@ struct CarVerifyStats {
     int fog_diff = 0;           // névoa (o w sem o ADC) a mais de 16 (1 em F)
     int adc_clip = 0;           // ADC só no PS2 (o recorte do microprograma)
     int adc_extra = 0;          // ADC só na referência (seria um erro)
+    int adc_back = 0;           // o vidro: o ADC da face de trás (o w 0x8000) nos dois lados
+    int variant_batches = 0;    // lotes rodados de novo com o vidro quebrado ou as luzes acesas (contados em batches)
     uint32_t stq_max_ulps = 0;
     float stq_max_abs = 0.0f;
     int rgba_max = 0, xyz_max = 0, z_max = 0;

@@ -42,6 +42,10 @@ Tudo aqui foi conferido nos arquivos do disco (NTSC-U) com as ferramentas citada
   interpretador da VU1 (494 mil vértices; a cor, a posição e a névoa iguais dentro do truncamento).
 - O **protótipo da física** (seção 11): o corpo rígido portado, com o microcódigo da VU0 reescrito à mão, igual bit a
   bit ao código original do PS2 (o EE e a VU0) rodado nos interpretadores do port; estimativa 26-39 dias.
+- O **nightfire-cxbx** (NightfireResearch; seção 12 e `docs/cxbx.md`), que porta a versão de Xbox rodando o x86
+  original: os nomes deles dão 2.376 funções novas com nome ao `DRIVING.ELF` (o código do jogo de 63% para 84%) e 3.629
+  pares Xbox ↔ PS2 (74% dos bytes do jogo com par de confiança >= 2), e o C++ deles da física, do mundo, do CARP, do
+  `Scheduler` e do render acima do EAGL vira referência de leitura: estimativa **20-32 dias**.
 
 ## 1. O que há no disco
 
@@ -378,6 +382,7 @@ Os campos que um ou outro lado usa (deslocamentos no bloco; "A" = o `ACTION`, "D
 | +0x98c..+0x99c | A, D | estilo do controle, índice do controle, vibração, HUD sempre visível, mira |
 | +0x9a0 | A, D | bits: 8 = ouro em Paris (`Menu_HasMedal(0x9000001, 3)`); 0x80/0x100 fazem o `main` devolver 2 (provavelmente sair pela pausa; quem os liga não foi lido) |
 | +0x9a8..+0xa10 | D → A | as 9 linhas da pontuação, {valor, alvo, pontos} cada (`NewScoresRef` = `PTPDATA` + 0x9a8, lido por `PlrStat_GetScore`) |
+| +0xa14 | A, D | `PlayerSetting[0]` +0x10, o estilo de controle do carro (`Boot_GetPTPData` grava, `Boot_LoadPTPData` devolve; nome do nightfire-cxbx, `drivingConfig`) |
 | +0xa18 | A, D | 0 na minimissão de Paris (antes do primeiro codinome) |
 | +0xa1c, +0xa20 | A, BASE | tipo de TV (`psiGetTVType`), modo (2; o `BASE` escolhe CD ou `host0:` por ele) |
 | +0xa24..+0xa48 | A, D | `PlayerSetting` +0 (inverter), modo do som, `DrawInfo[2]` (legendas), posição da tela, a melhor medalha da missão, a mira automática, a mira manual e a troca automática de arma |
@@ -814,7 +819,8 @@ Dois métodos que existem nos dois conjuntos, `LitGouraud` e `LitTextureEnvmap_S
   pacote GIF, pele com vários ossos.
 
 Veredito: os programas de vértice do Xbox são legíveis e dizem a fórmula de luz de um método em poucas linhas, e ela
-bate com o programa da VU1 do mesmo nome; mas só ~17 nomes são comuns aos dois conjuntos, os formatos de vértice são
+bate com o programa da VU1 do mesmo nome; mas só 43 nomes são comuns aos dois conjuntos (128 no Xbox, 108 no PS2,
+contados pelos símbolos `__EAGLMicroCode*`; a primeira versão deste texto dizia ~17), os formatos de vértice são
 outros e a parte difícil do porte do render (ler os pacotes de DMA dos modelos, o recorte, os efeitos do GS) não tem
 equivalente no Xbox. Serve de referência conceitual e para conferir uma fórmula; não muda o risco 2.
 
@@ -947,10 +953,9 @@ lotes, 24.739 vértices, STQ a 1,2e-7, cor, X, Y, Z e névoa iguais (dentro das 
 
 Os métodos do carro fora da família vão para um substituto marcado nos relatórios (`substitutos`): os fluxos pela ordem
 dos parâmetros do método, a textura e a primitiva do primeiro pacote, a luz e a névoa da família, só a passada base. No
-Vanquish são 29 de 389 lotes: `MatCarTextureSwitchPacked` (as lanternas que acendem pelos `SwitchData`: a família com um
-passo a mais), `MatCarGlassPacked` (o vidro: quatro passadas e um passo que escurece e deixa ver o interior; no
-substituto fica preto opaco), `MatCarGouraudDullPacked` e `BondCarShadow` (a sombra, que nenhuma instância usa: o jogo a
-desenha à parte).
+Vanquish eram 29 de 389 lotes: `MatCarTextureSwitchPacked` (as lanternas que acendem pelos `SwitchData`: a família com um
+passo a mais) e `MatCarGlassPacked` (o vidro), os dois agora reproduzidos (seção 14), `MatCarGouraudDullPacked` e
+`BondCarShadow` (a sombra, que nenhuma instância usa: o jogo a desenha à parte).
 
 ### O censo dos 115 métodos
 
@@ -1225,6 +1230,377 @@ O próximo passo da física: o chão de verdade (os blocos `CGrd`/`CDat` do CARP
 as medidas do modelo, `ProcessPhysics` e `AddWheelForces`), para o Vanquish andar em Paris; depois `CollideWithObject`
 (`ResolveCollision` já espera por ele).
 
+## 12. O nightfire-cxbx
+
+O **nightfire-cxbx** da NightfireResearch (https://github.com/NightfireResearch/nightfire-cxbx) porta a versão de Xbox
+rodando o x86 original do `default.xbe` e do `Driving.xbe` e reescrevendo funções em C++; na engine de carro, a física,
+a colisão, o mundo, as câmeras, a animação, a entrada e a biblioteca de som SND estão reescritos, e o jogo roda. O estudo
+inteiro, com os arquivos deles de onde vem cada coisa e o crédito, está em **`docs/cxbx.md`**; o que muda aqui:
+
+- **Nomes** (`tools/cxbx_names.py`, `tools/xbox_match.py match --cxbx`; `docs/cxbx.md` seção 1): o Ghidra deles do
+  `Driving.xbe` tem 6.714 funções com nome, e os lotes deles põem 3.970 nomes do SYM no `DRIVING.ELF` (o europeu, que tem
+  o leiaute do nosso). Importados no `out/ghidra_driving`: 2.376 funções novas com nome (antes do `crt0`, de 63% para
+  84% dos inícios de função), 71 nomes nossos corrigidos (o alinhamento pelo tamanho do `driving_sym.py` erra nas
+  corridas de funções de tamanho igual e nas bibliotecas da EA), 480 globais; os pares Xbox ↔ PS2 sobem de 2.332 para
+  3.629 (o código do jogo com par de confiança >= 2: de 57% para 74% dos bytes; a física 92%, a IA 89%, os eventos 69%).
+- **Para a física** (`docs/cxbx.md` 2.1-2.3): `CollideWithObject`, `CollideWithWorld`, `WCollisionMgr`, `WGrid`,
+  `WWorldPos`, `PBondCar::ProcessPhysics`/`AddWheelForces` em C++ legível, o leiaute do `PBondCar` (0x420), de onde vêm as
+  medidas e os pontos de colisão do Vanquish (o `BaseDesc` do CARP), e os blocos `CDat`/`CGrd`/`RNgp` do CARP.
+- **Para o render** (`docs/cxbx.md` 2.4): o que o protótipo da seção 10 ainda supõe está no código do jogo deles: a
+  `SpecularMat` é o referencial do vetor médio entre a luz e a câmera (conferido no `RLightManager::AddSpecularLight` do
+  PS2, 0x1aefb8), falta a luz do chão, o brilho por carro e o `ReflectionInfo2` têm regra própria, o mapa de reflexo é
+  feito a cada quadro, e `GAME::SwitchData` sem índice é a entrada 8 no Xbox (o `car_model.cpp` usa a 0; a conferir no
+  PS2); a ordem do quadro, as glares, a sombra, o céu e a água.
+- **Para o laço e a troca** (`docs/cxbx.md` 2.5-2.6): o `Scheduler` (quatro agendas de oito prioridades, o tempo de 12
+  ticks ou mais jogado fora, um bug do original no `timeScale`), a ordem do `GameLoop_StartUp`, e campos novos do bloco
+  da seção 4 (+0xa14, já na tabela; +0x5d8, +0x5dc, +0x614, +0x618, +0x624 no lado do `DRIVING`).
+
+**Estimativa** (`docs/cxbx.md` seção 5): de 26-39 para **20-32 dias** (fase 0: 0,5-1; fase 1: 3,5-6; fase 2: 5-8; fase 3:
+8-13; fase 4: 2,5-4). A economia está em ler menos: o C++ deles é a versão MSVC/x87, então o porte continua saindo do MIPS
+e sendo conferido no interpretador (seção 11); as missões, os eventos, a IA, as armas e o HUD do nível do jogo nenhum dos
+dois projetos portou.
+
+## 13. As fases 0 e 1: Paris desenhada e o Vanquish dirigível
+
+O começo do porte das missões de carro (fases 0 e 1 da seção 6), em passos conferidos contra o código original: o CARP
+de uma pista resolvido como o jogo, a família de render methods do mundo, a pista desenhada, o chão, o carro e um modo
+dirigível no `nf_driving`. Tudo em `src/driving` (namespace `drv`); as funções portadas têm `// [driving] 0x<endereço>`.
+
+### O CARP resolvido (`carp_runtime.h`)
+
+`RCARPFile::Resolve` (0x1a9600) como o PS2: `UGroup::Deserialize` (0x2d61b0) troca as posições relativas por endereços,
+o arquivo entra no espaço de nomes "CARP" (`<<Root>>`, `<<Map>>`, `<<Shared>>` e cada `Arti` pelo seu `Name`; o primeiro
+vale), os símbolos do modelo EAGL no "EAGL", e `CARP::ResolveSymbolicReferences` (0x2daa18) resolve os registros `sr`
+(`USymbolTable::NameLookup`, `UData::AdoptData` 0x2d45d8) e roda os 20 resolvedores por etiqueta de
+`CARP::InitResolvers` (0x2da838: `Base`, `as`, `an`, `aq`, `ef`, `di`, `in`/`Cams`, `ps`, `ci`, `Trgr`, `Rule`, `AIEl`,
+`AICo`, `AISp`, `Wmap`, `wn`...; `el` só contado: os eventos não foram portados). Em Paris: 2.998 nomes no "CARP", 1.890
+no "EAGL"; ficam nulos 21 do CARP, 19 do GIOT, 22 do PHYS e 1 do INSTANCE_ELEMENT (espaços de outros sistemas), e 906
+listas de eventos.
+
+### O mundo desenhado (`track.h`, `mat_bond.h`)
+
+`Track` lê a pista como o `WRender::WRender` (0x21eae8): as 2.552 instâncias do `in#0000` do `Map ` (64 bytes: os eixos,
+o artigo por `TagReference`, a posição e as medidas empacotadas), os artigos (`as`: os LODs com distância e modelo, a
+passada, as bandeiras de render) e as cinco passadas (4 o céu, 3, 2, 1, 0). O desenho segue o `RRenderWorldCamera::DoRender`:
+o céu levado ao olho, sem névoa nem luzes pontuais e sem escrever no Z (`RSky::Draw`, `EAGL::RenderContext::SetZWritesEnable`
+0x2913f8), as passadas 3 e 2, os carros, a 1 e a 0 (do longe para o perto). O LOD é o do `DrawGroupDrawModel` (0x1ad2e0)
+com a distância do `GetInstanceViewDistance` (0x1ad128); todos os artigos de Paris têm um LOD só de distância 1, então o
+multiplicador de LOD da vista vale 0 no jogo (o inteiro truncado de `RViewCamera::RefreshLODMultiplier`; a conferir no
+PCSX2). A névoa é a do `RFog` com o `.tun` da pista (Paris: começo 1, fim 1450,21, densidade 0,000475, cor 22,15,20).
+
+A família **MatBond** (o `bondrm.o`), lida do microprograma da VU1 e refeita como shader e referência na CPU como a MatCar:
+`MatBondTexturePacked`, `MatBondTexture` (entradas em float) e `MatBondReflectTexturePacked` (a passada do mapa de reflexo
+primeiro, com o `GlossMapState` e o TAR `bref`, e a da textura). Em Paris ela cobre 7.367 dos 7.541 lotes; conferida no
+`ps2::VuMachine` contra o microprograma original (`nf_driving --track paris_mis01 --verify`): 598.518 vértices, 0
+diferentes (os 3.847 descartes pelo recorte, ADC, são a divergência documentada). Ficam no substituto
+`MatDynamicTexturePacked` (94 lotes), `MatBondScrollTexture2`(+`Packed`) (76) e `MatBondFrameAnimPacked` (4). Paris
+carrega em ~0,35 s (1.890 modelos, 244.287 triângulos).
+
+### O chão (`physics/world_collision.h`)
+
+O mundo de colisão é o grupo `CDat` do CARP: as instâncias de colisão `ci` (0x40 bytes: os eixos com as meias-medidas, a
+posição no referencial dela, o raio, o artigo), os artigos `ca` (faixas de triângulos com uma esfera cada, barreiras e
+janelas), a grade `CGrd` (células de 24 m no plano xz) e os nós `cn` (as listas por tipo de cada célula).
+`WCollisionMgr::Init` (0x2132b8) e `WGrid::Init` (0x21c1f8) os montam (`TrackWorld`), e as consultas da física foram
+portadas com a aritmética do EE: `WWorldPos::FindClosestFace` (as duas: 0x2322c8 com a face guardada e 0x2324e8 pela lista),
+`GetInstanceList`/`GetInstanceListGuts` (0x217588/0x217228: as células pela caixa, `FindNodesBox` 0x21cf80, no máximo
+21x21), `FindFaceInCInst` (0x213ff8/0x214338), `FindFaceInTriStrip` (0x2138b0: o teste 2D com as faixas em zigue-zague, o
+subtipo 4 ignorado e a máscara de barreiras), `MakeMatrix`, `CalcPosition`, `OrthoInverse`, `MakeFaceAtPoint`,
+`SurfaceBumpHeight` (o relevo dos pisos; o `sinf`/`cosf` do newlib não foi portado: `nf::fm`), `GetWorldHeightAtPoint` e
+`WWorldMath::GetPlaneY`. Os dois caminhos das contas (FPU, e VU0 com o gerente +0x30 ligado, que a `Simulation` liga na
+colisão com os prédios e nos `Simulate` dos objetos) e a máscara de barreiras do gerente (+0x2c: 0xf0 do construtor, 0x20
+durante `TempGetHeightInformation` e 0x10 depois) são os do PS2. O arquivo de atrito do disco
+(`frictionCoefficients[WSurface_k...]`) não bate com os nomes registrados (`friction[k...]`), então o jogo usa o `.data`
+(a grama 0,8, não 0,5): mantido.
+
+**Conferido** (`nf_driving_check`, parte 5): as 8 pistas carregadas pelo porte e a colisão copiada para a RAM emulada; o
+código original no interpretador MIPS: `FindClosestFace` (um WWorldPos novo, o que anda pela pista guardando a face, a face
+velha), `GetWorldHeightAtPoint`, `MakeFaceAtPoint`, `SurfaceBumpHeight` e as marcas de consulta de cada instância, **0
+diferentes** em todas.
+
+### O carro (`game/bond_car.h`, `game/attributes.h`)
+
+O `PBondCar` com o leiaute do PS2 (0x460 bytes: o do nightfire-cxbx até +0x2f0, e daí em diante o do PS2, lido nos
+acessores; o `PhysicsObject` com o `WWorldPos` no começo e a tabela virtual em +0x68). Portados: `ProcessPhysics`
+(0x18cef8: a ré pelo freio parado, as partes da aderência por eixo, o freio de mão, o contraesterço, o turbo, a marcha e a
+tração, a velocidade das rodas, a direção menor com a velocidade, as entradas das rodas com o atrito do piso, a aderência
+que cai com a velocidade, a parada no freio de mão, o giro e o escorregar das rodas, a aterrissagem), `AddWheelForces`
+(0x18c1b0: as molas, o referencial de cada roda no chão, a aderência de lado até o limite de atrito, a tração, as rampas, o
+arrasto do freio de mão, a perda de lado por piso, as travas de rolagem, a estabilidade de guinada), `ImproveLanding`,
+`TwoWheelStunt` e `DisableTwoWheelStunt`, `CalculateRPM` (a marcha), `GetControllerInput` (a fila de ações "CarQ"),
+`Util_Step`, `IsWheelOnGround`, `InitializeCarVariables`, `InitializeCarControls`, `ResetDamage`, `Util_GenerateMatrix`,
+`RSceneObj::GetBoundingDimensions`, `RVehicle::GetRenderOffset`, a parte física do construtor e a de `Simulate` que move o
+carro do jogador (o resto de `Simulate`, som, luzes, setas, efeitos, rastro, armas e IA, fica de fora e é contado). Na física
+do corpo: `ModifyAngularMomentum`, `GetLocalAngularVelocity`/`Momentum`, `ResolveMassScaledForce4`/`Torque`/`Torque4`,
+`SetOrientation`, `ApplyHeavyFriction`; na REAL, `VU0_Sin`/`VU0_Cos` (o seno de grau 9 da VU0 em voltas: erra 0,0033 em
+meia volta) e as rotações por eixo. A `Simulation` chama o `Simulate` dos donos depois de mover os corpos, como a árvore de
++0xe68 do PS2.
+
+Achados do PS2 (onde ele difere do Xbox do nightfire-cxbx): a área de rascunho do carro não é a pilha, é o scratchpad
+(a área livre da `Simulation` + 0x3af, alinhada), e `Simulate` copia por DMA (canal 9, `toSPR`) o `CarPhysics` para o começo
+dela e troca o ponteiro +0x23c pela cópia durante a física; a ordem das contas em float (o Xbox as faz em double) e várias
+constantes (a direção divide por 25, o Xbox multiplica por 0,04; o contraesterço multiplica |giro| pela escala e só depois
+pela |direção|; a estabilidade de guinada nega antes de multiplicar por 8); o leiaute depois de +0x2f0 (o som em +0x388, a
+mancha de óleo em +0x43c, a vida em +0x42c). O `CarPhysics` (0x100 bytes) agora é a estrutura dos atributos do dono na
+física inteira (era `PhysicsAttributes` só com os campos usados); os nomes são os do registro de
+`PVehicle::InitializeGlobals` (0x1968f8). O sistema de atributos (`AttributeCollection`) lê as coleções `.atr` com as
+regras do jogo (a seção da pista, a da coleção e a `[default]`, a posterior vale; a coleção "default" da classe como mãe).
+
+**Conferido** (`nf_driving_check`, parte 6): o Vanquish do `vanquish.atr` do disco num corpo rígido sobre o chão de Paris,
+mil estados sorteados (posições sobre as instâncias de colisão, inclinações, velocidades, controles, marcha, turbo, duas
+rodas, ré, freio de mão, a face guardada ou não), o código original no interpretador MIPS com a VU0 (a tabela virtual do
+carro com as funções originais `GetPhysics`, `IsWheelOnGround`, `DisableTwoWheelStunt`): `ProcessPhysics` (com
+`AddWheelForces`, `TempGetHeightInformation` e o chão, `ImproveLanding`, `TwoWheelStunt`), `CalculateRPM` e
+`GetControllerInput` comparando o `PBondCar`, o `RigidBody`, o `RigidBodyInfo` e a área de rascunho: **0 diferentes**.
+
+### Dirigindo (`nf_driving --drive`)
+
+`nf_driving --data . --track paris_mis01 --car vanquish --drive` abre uma janela com o carro na largada do
+`GameLoop_StartUp` (0x176658: a origem, na altura do chão + 1; `--car-pos x,y,z,giro` escolhe outra, por exemplo a rua
+de `-327.7,20,-17.7,0.3155`): os bancos de ajuste da física do disco (`Physics\Rigid`, `Physical`, `Friction`), o teclado
+fazendo as vezes do controle do `drivecfg.def` (W/↑ o X analógico, o acelerador; S/↓ o quadrado, o freio e a ré; A/D/←/→ o
+direcional; espaço a bola, o freio de mão), a física a 60 passos por segundo (`ESimFrameUpdate`: `SimulateGame` e o
+`Simulate` do carro) e a câmera do jogador (seção 14; antes uma provisória do port). `--drive-input "none:1 W:2 W+A:1.2" --screenshot <png>`
+roda um roteiro e captura; `--bench-frames N` mede o quadro inteiro (o passo da física, a visibilidade e o desenho, fora
+da tela).
+
+Capturas (1920x1080, em `out/shots/drv/` do checkout principal): `drive_paris_reta.png` (2,5 s de acelerador: 33 m/s,
+terceira marcha), `drive_paris_curva.png` (virando à esquerda), `drive_paris_freio_de_mao.png`, `drive_paris_re.png`,
+`paris_vanquish_parado.png`. Custo do quadro inteiro a 1080p: **4,65 ms (215 qps) na Radeon integrada**, 0,65 ms (1.537
+qps) na RTX 5090.
+
+### O que falta da fase 1
+
+- ~~A colisão com os prédios e os objetos~~ e ~~a câmera `RPlayerCamera`~~: feitas, seção 14.
+- ~~**A entrada do jogo**: `IOModule::SendGameMessages` lendo o `.def`~~ (feito, seção 14; falta o `InputConfigManager`
+  que escolhe o `.def` pelo `Master.def` e o `IFeedback`, a vibração).
+- ~~**O laço**: `Scheduler` (as quatro agendas, o `timeScale`)~~ (feito, seção 14) e `GameLoop_MainGameLoop`.
+- **O desenho**: a árvore de cenas (`Wmap`/`wn`) e as cortinas de visibilidade (`VisC`), que o jogo usa para cortar (sem
+  elas aparecem pedaços do mundo de longe, como a laje com a cidade espelhada sobre o Sena); os métodos
+  `MatDynamicTexturePacked`, `MatBondScrollTexture2`, `MatBondFrameAnimPacked`; ~~o vidro do carro
+  (`MatCarGlassPacked`)~~ e ~~as luzes (`MatCarTextureSwitchPacked`)~~ (feitos, seção 14) e os outros métodos de carro;
+  as rodas (`RVehicle::ComputeWheels`: a compressão, o giro e o esterço); as luzes por quadro. A lista atual e a
+  estimativa ficam no fim da seção 14.
+- **A missão**: a largada de verdade (as regras e os gatilhos do `SMissionManager` põem o carro na rua), o resto de
+  `Simulate`.
+- **Fase 0**: os personagens no `--check` (as 8 pistas e os 63 carros carregam).
+
+### Estimativa revista
+
+O que foi feito aqui (o CARP, um método do mundo, o chão e o carro, todos conferidos) é a metade difícil da fase 1. Falta
+dela: a colisão com o mundo e os objetos (3-4 dias, com a conferência no interpretador), a câmera (1-2), a entrada e o
+laço (1), a visibilidade e os outros métodos (2-3). Fase 1: **7-10 dias** restantes; as fases 2-4 ficam como na seção 12
+(15-25 dias), já que a infraestrutura de conferência (as partes 5 e 6 do `nf_driving_check`) serve a elas.
+
+## 14. A fase 1, segunda metade: os choques, a câmera, o vidro, o laço e a entrada
+
+A continuação da seção 13: o Vanquish que bate nas paredes e nos objetos de Paris como no PS2 e a câmera de perseguição do
+jogo no lugar da provisória. Tudo portado do MIPS (o PS2 é a verdade) e conferido contra o código original no
+interpretador (as partes 7 e 8 do `nf_driving_check`); o Xbox e o nightfire-cxbx (NightfireResearch) só como guia de
+leitura (os nomes dos campos e a estrutura das funções grandes).
+
+### Os choques (`physics/collide.h`, `collider.h`, `obb.h`, `world_barriers.cpp`)
+
+- `RigidBody::CollideWithWorld` (0x1fc2f0): o `WCollider` do dono (`WCollider::WCollider`, `Refresh`, `PrepareRegion`,
+  `InRegion`, `Validate`, `Clear`; a região é uma esfera um pouco maior que o corpo, puxada para onde ele anda, com as
+  instâncias e as barreiras listadas e os carimbos dos artigos), os 11 pontos de um veículo (as 8 quinas, a frente, os
+  lados) contra as barreiras (`GetBarrierList` com as instâncias inclinadas no referencial delas, `GetBarrierNormal`,
+  `GetClosestIntersectingBarrier`, `SegmentIntersect`, `ClosestCollisionInfo`), os cilindros dos objetos do mundo
+  (`GetObjectLists`, `GetClosestIntersectingCylObject`, `GetCylObjectNormal`, `IntersectCircle`) e as caixas (`OBB`,
+  `CheckOBBOverlapAndFindIntersection`, `ResolveWorldOBBCollision` 0x1fade8), o empurrão, o impulso (`GenerateImpulse`),
+  o dano (`CalculateAndApplyWorldDamage` 0x1fc198), o "encostado na parede" do carro do jogador, os estímulos da animação
+  da instância batida e o evento da missão da face 0x0e.
+- `RigidBody::CollideWithObject` (0x1fbbd8): as duas caixas orientadas, `ResolveCollision`, o susto (`SetInShock`) e o
+  dano nos dois donos. `Simulation::SimulateGame` chama os dois como o PS2.
+- Do carro: `PBondCar::SetInShock` (0x187a78), `AddDamageByPlayer` (0x187608) e as entradas pequenas; `ApplyDamage`
+  (0x189598) fica contado como pendente (o dano do carro, as peças que caem).
+
+A conferência (parte 7): o código original sobre quatro pistas (as 25.015 barreiras de Paris, os 600 cilindros de
+snow1a, as caixas de junglea e os 173 cilindros e 352 caixas de snow2a), com os `WCollider` guardados entre os casos que
+seguem andando: os corpos, os `RigidBodyInfo`, os carros, a área de rascunho, os `WCollider`, os eventos `ECollision` na
+ordem, as chamadas aos donos e os estímulos, 0 diferentes. A parte 4 roda o `CollideWithObject` original dentro do
+`SimulateGame` (147 choques entre corpos, iguais). No `nf_driving --drive` o Vanquish para nas paredes de Paris (de
+`-327.7,20,-17.7,0.3155` com 5 s de acelerador: 0,19 m/s encostado no prédio).
+
+### O chão ao longo de um segmento (`world_collision.h`)
+
+A câmera pede ao `WCollider` também as instâncias (a máscara 0xc), e as consultas dela atravessam as faces das faixas de
+colisão, o que o carro não usava: `WCollisionMgr::GetInstanceStripList` (0x216ec0: as faixas de cada instância com algum
+triângulo perto, pelo raio guardado no w do terceiro vértice; o `GetInstanceListGuts` com as listas), `GetWorldNormal`
+(0x2166f8) com o chão (`WWorldPos::FindClosestFace` 0x232638 pelo segmento, `WWorldMath::MakeSegSpaceMatrix` 0x231d68,
+`WCollisionMgr::FindFaceInCInst` 0x214c08 e 0x214678, `FindFaceInTriStrip` 0x213d68, a normal do triângulo 0x213bd8,
+`WWorldMath::IntersectSegPlane` 0x231af0). Os veículos com `SUB_PHYSICS` também passam por aqui agora.
+
+### A câmera do jogador (`camera/`)
+
+- `dafi.h`: o leitor de INI da EA (`DAFI_open`, `setsection`, `getkeyindex`... 0x2d9408..0x2d9bdc) e o `IniFiles`
+  (0x24b9c8..0x24bd60), portados como são: o buffer recortado no lugar a cada `DAFI_setsection`, as chaves e as seções sem
+  diferença de caixa, o valor até o fim da linha ou o `;` (um `// comentário` fica no valor: o número é lido do começo).
+  Peculiaridades mantidas: um valor vazio engole a linha seguinte. Divergência: uma linha de seção sem `=` (o texto
+  depois de um `;`, por exemplo) faz o PS2 girar para sempre; o port pula e conta (o `camera.ini` não tem nenhuma).
+- `camera_ini.h`: `RCameraIniLoader::LoadFile` (0x1a49e0) lê o `data/render/camera.ini` do .VIV da missão para o carro
+  (`CheckCameraAgainstCar` 0x1a6cf8: a lista "car" da seção, só a primeira ocorrência do nome), nas duas passadas do
+  original: as tabelas de modos (0x1c bytes com o ponteiro para membro do GCC 2.95) e as de cada tipo (Heli com os braços,
+  Bumper, Spline, Ellipse com as alturas, Fixed, Dashboard, os braços do AutoDrive), os índices dos modos especiais e as
+  constantes de `[Global]`, nos leiautes e endereços do PS2. O Vanquish de Paris tem 22 modos, 9 deles Heli.
+- `player_camera.h`: o `RPlayerCamera` (0x370 bytes): o construtor e as duas `RestartCamera` (0x1bbc90, 0x1d5538), o
+  diretor (`RDirectorQueue::ProcessDirectorLogic` 0x1aa890, `SetCameraModeByIndex`, `DirectorChangeCameraMode`
+  0x1ba7a0, `FindHeliArmInd`, `SetupCameraZoom`, as transições), `UpdateCamera` (0x1b29e0) e o modo Heli,
+  `UpdateMomentumHeliCam` (0x1b2b48): o braço do modo (o recuo com a velocidade, a vertigem nas ladeiras, o ruído de Perlin
+  dos modos do submarino, o braço rígido com o "para cima" suavizado), a âncora (`AnchorCamera`, os `GetAnchor*`), a
+  suavização e a transição entre modos, o zoom (`SetCameraZoom`, as duas), a matriz (`SetViewingTransform`); a colisão
+  (`ResolveAllCollisions` 0x1b9198: três segmentos do carro para o olho pelo `WCollider` da câmera, a correção pelo
+  primeiro choque, o anti-vertigem com o `PointInTriangle`; `CheckObjectCollisions` e `AdjustCamAroundObjectEllipse`: o
+  olho sobe pela elipse em volta dos outros carros); o tremor (`CheckForCameraShaking`, `Noise::Init`/`Noise1` com o
+  `random()` de 192 bits da biblioteca do PS2).
+- O que fica pendente (contado em `camera_pending()`): os outros modos (Bumper, Dashboard, Spline, Ellipse, Fixed,
+  Tumble, as animações, o AutoDrive), a câmera do capotamento (o `PBondCar::GetResetAvailable` é zero até o estado do carro
+  que o liga ser portado), os pedidos do diretor com outra âncora, as explosões (nenhuma no port), os corpos simples, as
+  armas (o gerente de armas: `FindHeliArmInd` e `ResolveWeaponNames` veem nenhuma arma; os braços do Vanquish não
+  dependem delas).
+
+`nf_driving --drive` usa a câmera do jogo: o referencial dela vira a matriz de visão e o campo de visão é o do
+`RViewCamera` (2 x fov na horizontal da tela 4:3; aqui o vertical dessa tela, Hor+ nas janelas largas). O relatório da
+captura ganha `modo braco fov distancia olhar colisoes chao barreiras antivertigem pendentes`.
+
+A conferência (parte 8, `--so camera` roda só ela): o `LoadFile` original com o `IniFiles` e o `DAFI` originais (só a
+leitura do arquivo é um gancho) para o "vanquish" e o "vanquishsub" (os modos com ruído, braço rígido e "para cima"),
+`Noise::Init`, o construtor, e quadro a quadro o `UpdateCamera` original com a âncora andando por Paris perto das paredes
+e do chão (pausas, o olhar para trás, pedidos de outro modo Heli, reinícios, saltos, a máscara de barreiras e o caminho
+VU0 do gerente variando): a câmera inteira, o `RPlayerCamState`, os globais do anti-vertigem e do tremor e a fila do
+diretor, 0 diferentes (2 x 1.200 quadros por padrão; com `--quadros 1500`, 3.000 por carro: 758 choques com o chão e
+1.505 com barreiras, 378 quadros em transição, 609 com o anti-vertigem, 1.502 com o ruído). Ganchos nativos: a biblioteca
+C (a newlib do PS2 usa instruções MMI de 128 bits que o interpretador não tem), o `RCamera::RCamera` (as identidades por
+PADDW/PEXEW/PEXCW), o scratchpad, a memória, o arquivo e as entradas do carro na tabela virtual.
+
+### O vidro e as luzes do carro (`mat_car.h`)
+
+`MatCarGlassPacked` lido no microprograma (`python tools/vudis.py --eagl bondrm.o MatCarGlassPacked`) e posto na família:
+os passos 0-5 da família com outro leiaute (até 40 vértices; os SplitReg em 0x2a, a ModelView em 0x1f, o DmgTexture em
+0x23, o State em 0xf5 que o microprograma não chuta e o GlassDmgState em 0xfd que ele chuta nas duas passadas de
+textura) e três diferenças:
+
+- o alfa da cor de trabalho é a palavra w da zona de dano do vértice, crua. Quem a escreve é o `RVehicle::ComputeDamage`
+  (0x001d3138): a zona = (dano.x, dano.y, 3 × dano.y, o inteiro 127 se dano.x passa do limite, senão 0), copiada para o
+  `DamageZones` da VU (0x424620) pelo `SetPerObjectBuffers` (0x001d2b38). Sem dano o w é 0;
+- depois da transformação, a face de trás: a normal e a posição pela ModelView e o sinal de n'·p' (a soma na ordem z, x,
+  y); com n'·p' ≥ 0 o w do XYZF vira 0x8000 (o ADC, a névoa zerada) e o triângulo que o vértice fecha some; só então o
+  AND 0xbffe dos SplitReg;
+- quatro passadas: o GlassDmgState com o DmgTexture (`glsd` no Vanquish) e o alfa w; o mesmo estado com o Texture
+  (`glas`) e o alfa int(127 − w) (ITOF0, × −1, + 127, FTOI0), o STQ da primeira; o especular e o reflexo da família
+  (EnvMapState, `carS`, `bref`) com o alfa 127 − w. O estado é ALPHA 0x44 ((Cs − Cd) × As + Cd) com o teste de alfa
+  GREATER 0xa0 e o AFAIL só RGB (o vidro não grava Z). Sem dano o vidro quebrado tem alfa 0 (some) e o vidro inteiro 127;
+  quebrado, o inverso. Um laço entre as passadas 2 e 3 faz min(rgb, alfa) com o xyz de registradores velhos (o ITOF0.w só
+  converte o w); o que ele grava no xyz é sobrescrito pelo especular antes de qualquer XGKICK, então não muda nada.
+
+`car_reference` faz as quatro passadas; o shader do `nf_driving` recebe o alfa da zona de dano (os 8 bits de baixo, que
+são o que o GS lê do A do RGBAQ) e a face de trás pela vista do PC (n'·p' é o mesmo por qualquer rotação: a ModelView do
+jogo e a vista do PC dão o mesmo sinal), com o vértice que fecha o triângulo como o provocador do Direct3D
+(`car_triangles(..., closing_first)`: (v, v − 2, v − 1), a mesma volta) e o descarte no pixel shader. A conferência
+contra o microprograma original (`nf_driving --check --verify`, os 63 carros): 7.285 lotes (267 de vidro), 528.647
+vértices, as mesmas 80 cores a 1 e 24 Z de antes, nenhum ADC só na referência, 32.908 vértices com o ADC da face de trás
+nos dois lados; os 44 ADC de vidro só no PS2 são do recorte (o w = (F + 2048) × 16). No Vanquish o vidro são 5 lotes e
+58 triângulos: o vidro traseiro com o reflexo da cidade, as janelas laterais escuras (`out/shots/drv2/glass_vanquish.png`,
+`glass_curve.png`).
+
+`MatCarTextureSwitchPacked` (os faróis e as lanternas: 368 lotes nos 63 carros, 19 no Vanquish) é o
+`MatCarTextureDullPacked` com outro leiaute (o `SwitchData` em TOP+0x11 empurra o resto um qword; o `SwitchParam` em
+0xf1) e um passo entre as luzes pontuais e a transformação: alvo = (s.z, s.z, s.z, s.y) × 255 × k.x e cor =
+int(min(255, cor × (1 − s.w) + alvo × s.w)) nas quatro componentes. O `SwitchData` fica no .bss (0x424520) e o
+`RVehicle::SetPerObjectBuffers` grava o w de cada entrada a cada quadro (o RVehicle +0x268: a lâmpada acesa ou apagada);
+no port é zero, a lâmpada apagada, e a cor fica a da família.
+
+A conferência roda os dois de novo com valores de jogo na cópia da memória da VU (`variantes`): o vidro quebrado (as zonas
+com o w 127, o dano que move e escurece) e a lâmpada acesa pela metade. Nos 63 carros: 8.288 lotes (635 variantes), 577.119
+vértices, nenhuma diferença fora das tolerâncias (212 cores a 1, o truncamento da VU; nenhum ADC só na referência; 65.688
+com o da face de trás nos dois lados). Sobram no substituto `MatCarGouraudDullPacked` (33 lotes, as cores por vértice de um
+`ColourSet`) e `BondCarShadow` (111, que nenhuma instância desenha).
+
+### O escalonador (`game/scheduler.h`)
+
+O `Profile.obj` portado: `Scheduler` (0x179a28 o construtor, `Reset`, `ResetTime`, `Run` 0x179d40), `Schedule`
+(0x179fc0, `AddTask` 0x17a158, `RemoveTask`, `RemoveAllTasks`, `EmptiestBucket` 0x17a3d8, `RunTasks` 0x17a4a8) e os
+quatro `Process`. Quatro agendas: uma por volta do laço e três no ritmo da simulação (SimRate com um balde, HalfSimRate
+com dois, rodando o balde `tick & 1`, QuarterSimRate com quatro, `tick & 3`); uma tarefa nova vai para o balde mais vazio.
+Uma tarefa (o `TaskRecord` de 0x1c bytes) guarda o índice do criador do evento (a tabela 0x36fda0), o argumento, a
+prioridade, um atraso e uma contagem. O `Run`: os ticks = (relógio − último) × `timeScale`, truncados (`mul.s` e
+`cvt.w.s` do EE); 0 não faz nada e deixa o último; 12 ou mais são jogados fora; senão, para cada tick, as 8 prioridades de
+cada agenda da simulação, os eventos (`EventManager::RunEvents` 0x175690, o trabalho no destrutor de cada evento) e, no
+último tick, as 8 prioridades da agenda por volta e os eventos de novo. Mantido: a fração do `timeScale` se perde (o
+último vira o relógio inteiro: 0,75 roda à metade, 1,5 na velocidade de 1); o um-tick-por-volta e o modo das cinemáticas
+(ticks seguidos até o modo ser desligado, a agenda por volta a cada 4).
+
+O `RunTheGame` (0x175d78) agenda, na simulação, `ESimFrameUpdate` (0), `EAnimUpdate`, `EAIUpdate` e `ECameraUpdate` (2) e
+`ESimEndFrame` (7), e por volta `ERenderFrame` (6) e `EAudioUpdate` (7); o laço é `while (estado != 2) { a fila de ações
+global; SYNCTASK_run (a entrada); Scheduler::Run }`. O `nf_driving --drive` roda assim: a entrada antes do `Run`, o relógio
+a 60 por segundo, os eventos em fila na ordem em que as tarefas os criam, a simulação, a câmera e o pedido de desenho
+ligados ao que já foi portado (os outros contados: o relatório ganha a linha `agenda`); na janela, o quadro só é desenhado
+quando o `Run` pede (sem tick, espera o próximo). A captura de antes e a de agora são iguais byte a byte (no Radeon: na RTX
+5090 a mesma captura varia entre execuções em ~0,005% dos pixels das fachadas, com ou sem o escalonador, coisa do
+driver).
+
+A conferência (parte 9, `--so agenda`): o original (com o construtor, o vetor das agendas e as listas) no interpretador e
+o porte com as mesmas operações sorteadas, `--casos` delas: tarefas nas quatro agendas, remoções, `Reset`/`ResetTime` e
+`Run`s com o relógio andando de 0 a 15, o `timeScale` (1; 0,75; 1,5; 0,5; 2; 1/3), o um-tick e as cinemáticas (desligadas
+depois de alguns eventos). Compara a sequência de criadores chamados e de passagens de eventos, as identidades, os campos
+do `Scheduler` e as tarefas de cada balde: 0 diferentes (4.000 casos: 1.417 tarefas, 2.024 `Run`s, 3.114 ticks, 43 com o
+tempo jogado fora, 61 cinemáticas). Trocar o `>= 12` por `> 12` ou o primeiro balde vazio pelo último é apanhado.
+
+### A entrada (`game/input.h`)
+
+O `iomodule.obj` e o `actionqueuemgr.obj` portados: o `PS2PadDevice` (0x169288 `PollDevice`: os 32 escalares, os
+direcionais `PS2ScaleJoystick` × 1/127,5 − 1 com o y para cima e a zona morta de ±0,3 de `DeadZoneChop`, as 12 pressões
+`PS2ScaleAnalogButton` × 1/192 até 1, os 16 botões digitais, o controle digital do tipo 4 que copia os digitais nos
+analógicos, os quatro direcionais em zero lidos como "sem analógico"), os predicados do `DeviceScalar` (`isDown`, `isUp`,
+as passagens por 0,5, −0,5/0,5 e 1/0, pelo limiar e a volta ao centro), o `InputToAction::LoadParseDefFile` (0x1674d0:
+a linha "AÇÃO BOTÃO [MODO] [LIMIAR]", o cabeçalho pulado, o fim no `FRONTEND`/`END`, o limiar 0,5 dos modos > e <, as
+117 ações de `getActionID` e os 10 modos U + − > < = I N R M) e o `IOModule::SendGameMessages` (0x168678: os modos que
+não repetem só quando o escalar mudou, salvo o "mandar tudo"; a repetição R/M com 300 e 150 ms; o `ACTION_INPUTSYNC` no
+fim). Guardas contadas (memória inválida no PS2): o botão que a tabela não conhece (o PS2 grava na tabela −1), a linha
+sem `\r` ou vazia.
+
+O `nf_driving --drive` usa o `data\Control\drivecfg.def` da missão: o teclado e o controle do PC fazem um controle do PS2
+(W/↑ o X com a pressão inteira, S/↓ o quadrado, espaço a bola, A/D/←/→ o direcional esquerdo nos extremos; o controle do PC
+pela posição dos botões, como o controle virtual do jogo a pé) e as ações vão para a fila do carro. A captura com o
+roteiro de antes dá o mesmo PNG, byte a byte (no Radeon), com 256 ações em 252 ticks.
+
+A conferência (parte 10, `--so entrada`): os construtores das tabelas de nomes (o `StringToNumber` com a busca binária),
+o `PS2PadDevice` e o `InputToAction` originais no interpretador; as tabelas dos dez `.def` do MIS01.VIV (`drivecfg`,
+`FrontEnd` e os oito `povcfg`: 215 linhas) iguais às do porte; e 2.400 quadros de controle sorteados (botões seguros por
+alguns quadros, direcionais, pressões, o controle digital, o eixo invertido, o "mandar tudo", o relógio) para o `drivecfg`
+e o `FrontEnd` (as repetições): as ações (13.067) e os escalares (valores, relógio e estado), 0 diferentes. Mudar a
+passagem para cima do direcional de −0,5 para −0,4 é apanhado no quadro 85.
+
+### O que falta da fase 1 e a estimativa (outubro de 2026)
+
+O critério da fase 1 está cumprido: o Vanquish anda em Paris com a câmera de perseguição do jogo, bate nas paredes e nos
+objetos como no PS2 (as partes 7 e 8 do `nf_driving_check`) e o quadro inteiro custa 4,49 ms a 1080p na Radeon integrada
+(223 quadros por segundo; 0,60 ms na RTX 5090; `--bench-frames 600` com a física, a visibilidade, a cena e o desenho). O
+que falta para a fase 1 ficar completa, em ordem:
+
+- **A visibilidade do mundo**: a árvore de cenas (`Wmap`/`wn`) e as cortinas (`VisC`): `RRenderWorldCamera::CullModule`
+  (0x1c54a0, a quadtree em 2D e as cortinas), `WRender::GenerateCurtainsAndNodes` (0x21f1d8), `AddCurtain` e o teste
+  da esfera no microprograma `VU0_culling` (`vcallms 0x92`); sem elas a laje com a cidade espelhada sobre o Sena aparece
+  de longe. 2-3 dias.
+- **Os métodos do mundo que faltam** (174 lotes de 7.541 em Paris): `MatDynamicTexturePacked` (94: a família MatBond com
+  as três luzes direcionais do lote, TOP+0x10..0x16, sobre as normais em 0x92; lido pela diferença com o
+  `MatBondTexturePacked`), `MatBondScrollTexture2`/`Packed` (76, as texturas que rolam) e `MatBondFrameAnimPacked` (4).
+  1-2 dias com a conferência.
+- **O carro**: `MatCarGouraudDullPacked` (33 lotes nos 63 carros: as cores por vértice de um `ColourSet`) e a sombra
+  (`BondCarShadow` com o `RShadowMap`); as rodas: `RVehicle::ComputeWheels` (0x1d2cb0) já lido (o cubo = rotação em y
+  pelo esterço limitado a ±0,075 e a altura da mola, a roda = rotação em x pelo giro × o cubo; as instâncias com 0xfe no
+  byte +0xd presas ao osso pelo `gProcAnimFunc[0xfe]` (0x1bf600): osso × instância; os nomes dos ossos no `Skel` do
+  CARP; os dados no `PBondCar`: `GetCarWheelSpinAngle` +0x230, `GetCarSteer` +0x28c, `GetSuspensionCompression`
+  +0x210), o `RSkeletalObj::UpdatePosition` (as peças de mola), e por quadro o `SwitchData` (o w das lâmpadas) e as
+  `DamageZones` (`ComputeDamage`). 1-2 dias.
+- **A entrada e o laço, o resto**: o `InputConfigManager` (o `Master.def` escolhe o `.def`), o `IFeedback` (a
+  vibração), o `GameLoop_StartUp` com a largada da missão (as regras e os gatilhos do `SMissionManager`, que já são da
+  fase 2).
+- **Fase 0**: os personagens no `--check`. Meio dia.
+
+Fase 1: **5-8 dias** restantes (eram 7-10 antes desta etapa). As fases 2-4 ficam como na seção 12 (15-25 dias): a
+conferência no interpretador (agora com as partes 9 e 10 do `nf_driving_check`) serve a elas.
+
 ## Ferramentas
 
 | Ferramenta | O que faz |
@@ -1232,14 +1608,15 @@ as medidas do modelo, `ProcessPhysics` e `AddWheelForces`), para o Vanquish anda
 | `tools/driving_sym.py` | lê o `DRIVING.SYM` (`info`, `list`, `objs`, `modules`, `classes`), casa com o ELF (`match --evaluate`) e gera os nomes para o Ghidra (`ghidra`); `test` |
 | `tools/xbox.py` | a cópia da versão americana de Xbox, só como referência de leitura (fica em `xbox/`, no `.gitignore`): `info` (partição, arquivos, os XBE e o certificado: título, região, versão, o caminho do build, as bibliotecas do XDK), `list`, `extract <imagem> <pasta>` (`.xiso` ou a imagem inteira do disco), `xbe`, `pe <xbe> <exe>` (o PE32 equivalente para o Ghidra e os rótulos: os thunks do kernel, as seções do XDK), `vsh <objeto.o> <método>` (o programa de vértice do NV2A de um render method de Xbox), `test` |
 | `tools/ghidra_xbox.sh` | o projeto headless `out/ghidra_xbox` do Xbox (`pe`, `import`, `names`, `functions`, `features`, `decomp`, `disasm`, `callers`) |
-| `tools/xbox_match.py` | casa as funções do Xbox com as do PS2 (`match --evaluate`, `show`, `test`); `out/xbox/match.tsv` e `xbox_names.tsv` |
+| `tools/xbox_match.py` | casa as funções do Xbox com as do PS2 (`match --evaluate`, `show`, `test`); `out/xbox/match.tsv` e `xbox_names.tsv`; `match --cxbx` usa também os pares pelo nome do nightfire-cxbx (seção 12) |
+| `tools/cxbx_names.py` | os nomes do nightfire-cxbx (NightfireResearch) nos nossos projetos do Ghidra (seção 12, `docs/cxbx.md`): `compare`, `pairs` (`out/xbox/cxbx_pairs.tsv`), `names` (`out/driving/cxbx_names.tsv`, `out/xbox/cxbx_xbox_names.tsv`), `test` |
 | `tools/ghidra_driving.sh` | o projeto headless `out/ghidra_driving` (`import`, `import-base`, `functions`, `features`, `names`, `decomp`, `disasm`, `base`) |
-| `tools/ghidra_scripts/ApplySymbolTable.java` | aplica uma tabela de nomes (funções, comentários, rótulos) |
+| `tools/ghidra_scripts/ApplySymbolTable.java` | aplica uma tabela de nomes (funções, comentários, rótulos; o tipo `A` acrescenta uma linha ao comentário de cabeçalho) |
 | `tools/ghidra_scripts/ExportMatchFeatures.java` | por função: cadeias, constantes, globais, chamadas em ordem; as tabelas de ponteiros (o casador) |
 | `tools/ghidra_scripts/XboxVtables.java` | as tabelas virtuais do MSVC sem RTTI e as funções que só elas apontam |
 | `tools/vudis.py` | também `DRIVING.ELF --prog=N` (os três programas da VU0) e `--eagl <objeto.o> <método>` (o microprograma da VU1 de um render method do PS2) |
 | `tools/driving_data.py` | os BIGF da pasta `DRIVING` (`stats`, `list`, `extract`, `ssh`, `carp` (a árvore de UGroup por caminho), `asf`, `eagl`); `test` |
-| `nf_driving` | o desenho (seção 10): um carro girando numa janela (`--data`, `--viv`, `--model`, `--adapter`); `--screenshot` (fora da tela, com o relatório `.txt`: métodos, peças, instâncias, texturas, o estado do GS de cada passada); `--verify` (cada lote da família no interpretador da VU1 contra a referência); `--check` (todos os carros de todos os arquivos; `--check-viv`); `--census` (os 115 render methods por microprograma e família); `--view`, `--part`, `--no-spec`, `--no-refl`, `--no-fallback`, `--bench-frames` |
+| `nf_driving` | o desenho (seção 10): um carro girando numa janela (`--data`, `--viv`, `--model`, `--adapter`); `--screenshot` (fora da tela, com o relatório `.txt`: métodos, peças, instâncias, texturas, o estado do GS de cada passada); `--verify` (cada lote da família no interpretador da VU1 contra a referência); `--check` (todos os carros de todos os arquivos e as 8 pistas com o mundo de colisão; `--check-viv`); `--track <pista>` (a pista desenhada, com `--car`, `--car-pos`, `--cam`, `--verify`); `--drive` (o carro dirigível, seção 13: `--drive-input`, `--seconds`); `--census` (os 115 render methods por microprograma e família); `--view`, `--part`, `--no-spec`, `--no-refl`, `--no-fallback`, `--bench-frames` |
 | `tools/ghidra_scripts/ExportDecompiledAt.java` | decompila funções pelo endereço (cria a função se o Ghidra não a tem), sem gravar no projeto |
-| `nf_driving_check` | a física conferida contra o `DRIVING.ELF` (seção 11): a cobertura do interpretador das VUs (os três programas da VU0 e os 115 render methods), o microcódigo original × o porte à mão, o passo inteiro dos dois jeitos, as funções originais do EE no interpretador MIPS com a VU0 × o porte |
+| `nf_driving_check` | a física conferida contra o `DRIVING.ELF` (seções 11 e 13): a cobertura do interpretador das VUs (os três programas da VU0 e os 115 render methods), o microcódigo original × o porte à mão, o passo inteiro dos dois jeitos, as funções originais do EE no interpretador MIPS com a VU0 × o porte; a parte 5 (o chão das 8 pistas), a 6 (o carro sobre o chão de Paris), a 7 (os choques, seção 14), a 8 (a câmera; `--so camera` só ela), a 9 (o escalonador; `--so agenda`) e a 10 (a entrada; `--so entrada`); `--consultas N` |
 | `tools/pcsx2_pine.py` | grava os corpos rígidos de uma missão de carro a cada quadro pela IPC do PCSX2 (`status`, `record`, `test`) |

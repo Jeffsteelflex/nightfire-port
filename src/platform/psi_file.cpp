@@ -116,25 +116,9 @@ int8_t psiFileSetSingleFileMode(int8_t single) {
 uint8_t* PS2IconBuffer = nullptr;
 uint32_t PS2IconSize = 0;
 
-namespace {
-uint8_t* pWoman = nullptr;
-uint8_t* PS2Woman = nullptr;
-uint32_t WomanBuf = 0;
-uint32_t WomanFrame = 0;
-}  // namespace
-
 // [decomp] 0x00111270 SetUpIconFile
 // O ícone do cartão de memória tem tamanho fixo; o tamanho do arquivo é ignorado.
 void SetUpIconFile(uint8_t* data, uint32_t) {
     PS2IconBuffer = data;
     PS2IconSize = 0x128f8;
-}
-
-// [decomp] 0x00120c20 PS2SetUpWoman
-// Arquivo do tipo 16 do pacote ("woman"). 0x70000000 é o scratchpad do EE, sem equivalente no PC.
-void PS2SetUpWoman(uint8_t* data) {
-    pWoman = data;
-    WomanBuf = 0x70000000;
-    PS2Woman = data;
-    WomanFrame = 0;
 }

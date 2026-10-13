@@ -218,7 +218,7 @@ void SetupScreen::set_rows() {
     add(Row::Section, PcText::LnSecDisc);
     add(Row::Disc, PcText::LnDisc);
     for (size_t i = 0; i < view_.drives.size(); ++i) add(Row::Drive, PcText::LnDrive, int(i));
-    add(Row::Pack, PcText::LnPack);
+    if (view_.pack_available) add(Row::Pack, PcText::LnPack);
     add(Row::Section, PcText::LnSecDisplay);
     add(Row::Resolution, PcText::Resolution);
     add(Row::WindowMode, PcText::WindowMode);
@@ -244,7 +244,8 @@ void SetupScreen::set_rows() {
 }
 
 void SetupScreen::set_view(const SetupView& v) {
-    const bool rows_change = v.drives.size() != view_.drives.size() || rows_.empty() || [&] {
+    const bool rows_change = v.drives.size() != view_.drives.size() || rows_.empty() ||
+                             v.pack_available != view_.pack_available || [&] {
         for (size_t i = 0; i < v.drives.size(); ++i) {
             if (v.drives[i].root != view_.drives[i].root || v.drives[i].usable != view_.drives[i].usable) return true;
         }

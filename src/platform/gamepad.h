@@ -59,7 +59,7 @@ public:
     virtual void vibrate(int pad, uint16_t low, uint16_t high) = 0;
 };
 
-// A fonte do sistema (o backend da plataforma: gamepad_xinput.cpp no Windows; no macOS, o GameController, etapa 3).
+// A fonte do sistema (o backend da plataforma: gamepad_xinput.cpp no Windows; no macOS o GameController, gamepad_macos.mm).
 PadSource& system_pad_source();
 // A fonte em uso: a do sistema, a não ser que set_pad_source tenha posto outra (nulo volta à do sistema).
 PadSource& pad_source();

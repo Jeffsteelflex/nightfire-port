@@ -107,9 +107,9 @@ void Effect_InitLists() { DList_Init(&EffectList, 0x60, 200); }
 
 // [decomp] 0x001ce688 Effect_Create
 // O que um acerto deixa conforme o material: guarda em HITDATA_tag +0x20 uma tangente da superfície
-// (a soma de dois eixos perpendiculares à normal; a normal da água vem invertida), com a flag 0x20
-// cria as faíscas (o emissor do material) e os detritos; no modo história, pela flag, os efeitos de
-// bala (1), de passo (2), de laser (0x10) ou de corpo (0x80).
+// (a soma de dois eixos perpendiculares à normal; a normal do vidro, o material 0x10 GLASS do EffectInfo, vem
+// invertida), com a flag 0x20 cria as faíscas (o emissor do material) e os detritos; no modo história, pela flag, os
+// efeitos de bala (1), de passo (2), de laser (0x10) ou de corpo (0x80).
 void Effect_Create(HITDATA_tag* hit, obj_tag* obj, uint16_t flags, float volume) {
     if (hit == nullptr || obj == nullptr || (hit->surface & 0x3f) == 0) return;
     const plane_equ_tag saved = hit->plane;
@@ -184,9 +184,9 @@ void Effect_Bullet(HITDATA_tag* hit, obj_tag* obj, cel_tag* cel, uint16_t flags)
 }
 
 // [decomp] 0x001cec48 Effect_Player
-// Passo (ou mão, pela flag 4): o som do material e, com as flags 4 ou 8, a pegada no chão sob o
-// osso (55 com a flag 4, 51 com a 8, senão a posição do objeto), virada para onde o personagem
-// olha, se o osso estiver a até 20 cm do chão.
+// Passo: o som do material e, com as flags 4 ou 8 (um pé e o outro: AnimObjectUpdate as alterna com
+// ScriptFootstepFoot), a pegada no chão sob o pé (osso 55 com a flag 4, o pé de AnimObjectInitialPose; 51 com a 8;
+// senão a posição do objeto), virada para onde o personagem olha, se o pé estiver a até 20 cm do chão.
 void Effect_Player(HITDATA_tag* hit, obj_tag* obj, cel_tag* cel, uint16_t flags, float volume) {
     const HEINFO_tag& info = effect_info(hit->surface);
     if ((flags & 0x40) != 0) {

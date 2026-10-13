@@ -4,6 +4,7 @@
 // - ClipPortalWithPlane para em 12 vértices (o tamanho de _PORTAL); o original seguiria escrevendo
 //   por cima de NumPortalPlanes.
 // - View_AddCels não lê a sala da câmera quando ela é nula (o original leria o endereço 0x3c).
+// - View_DrawGlist começa a matriz da pilha zerada (o original deixa lixo na coluna w, que psiDrawObjectMatrix refaz).
 // Só do port, sem mudar o desenho: View_DrawObjList, View_DrawSky e os anexos dizem a psi_draw quem pede cada
 // desenho (psi_draw_set_owner), a identidade com que a interpolação entre ticks (render/frame_interp.h) acha o
 // mesmo desenho no tick seguinte.
@@ -230,6 +231,19 @@ float Rand_FRand_MVar2(float range, float minus) {
     SEED_X = a_318 * (SEED_X & 0xffff) + (SEED_X >> 16);
     SEED_Y = b_319 * (SEED_Y & 0xffff) + (SEED_Y >> 16);
     return range * (float(SEED_X * 0x10000u + (SEED_Y & 0xffff)) * 2.3283064e-10f) - minus;
+}
+
+// [decomp] 0x001e00d0 Rand_FRand_MVar2_Vec
+// Rand_FRand_MVar2(range, minus) somado a x, y e z, nessa ordem (três sorteios; w fica). O Camera_Update o chama com o
+// tremor da câmera (range = minus = shake x REC_FRAME_RATE: cada eixo anda entre -shake e 0).
+void Rand_FRand_MVar2_Vec(_VECTOR* v, float range, float minus) {
+    // Cada sorteio num float antes da soma (no x86 o retorno vem do x87 com 53 bits).
+    const float x = Rand_FRand_MVar2(range, minus);
+    v->x = v->x + x;
+    const float y = Rand_FRand_MVar2(range, minus);
+    v->y = v->y + y;
+    const float z = Rand_FRand_MVar2(range, minus);
+    v->z = v->z + z;
 }
 
 // [decomp] 0x001e3810 Rand_FRandHalf
@@ -631,6 +645,17 @@ int32_t View_3DPoint2Screen(const _VECTOR* in, _VECTOR* out, uint16_t index) {
     out->z = z;
     out->y = ry * (v->proj_y / z) + v->height * 0.5f;
     return side;
+}
+
+// [decomp] 0x001e77f8 View_DrawGlist
+// Desenha um modelo solto (sem objeto) na posição, ângulos e escala dados: View_RotTransScaleMatrix e
+// psiDrawObjectMatrix. O único chamador é o raio da mira laser dos personagens com a arma 0x18 (AnimObjectDraw).
+// Divergência: a matriz na pilha começa zerada (o original deixa a coluna w com o lixo da pilha, que o
+// psiDrawObjectMatrix corrige).
+void View_DrawGlist(celglist_tag* glist, _VECTOR* pos, _VECTOR* rot, _VECTOR* scale, uint32_t created) {
+    MATRIX m{};
+    View_RotTransScaleMatrix(rot, pos, scale, &m);
+    psiDrawObjectMatrix(glist, &m, created);
 }
 
 // [decomp] 0x001e0d58 Cel_ObjectLeftCel

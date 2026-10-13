@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 
 #include "platform/vu_interp.h"
 
@@ -45,8 +46,10 @@ CarConstants car_constants_from(const VuMemory& m) {
     return k;
 }
 
-void car_verify_batch(const std::vector<uint64_t>& code, const VuMemory& mem, uint32_t top, const CarBatch& b,
-                      CarVerifyStats& s) {
+namespace {
+
+void verify_once(const std::vector<uint64_t>& code, const VuMemory& mem, uint32_t top, const CarBatch& b,
+                 CarVerifyStats& s) {
     ++s.batches;
     const CarMethodLayout& l = *b.layout;
     ps2::VuMachine vu(ps2::VuUnit::VU1);
@@ -60,14 +63,14 @@ void car_verify_batch(const std::vector<uint64_t>& code, const VuMemory& mem, ui
         if (s.first_error.empty()) s.first_error = e.what();
         return;
     }
-    std::vector<CarVertexOut> ref[3];
+    std::vector<CarVertexOut> ref[kCarMaxPasses];
     car_reference(b, car_constants_from(mem), ref);
     // Os pacotes de vértices: os XGKICK do endereço da etiqueta GIF dos vértices, um por passada.
     int pass = 0;
     for (const ps2::GifKick& k : vu.kicks()) {
         if (k.address != top + uint32_t(l.gif_tag)) continue;
-        while (pass < 3 && ref[pass].empty()) ++pass;
-        if (pass >= 3) break;
+        while (pass < kCarMaxPasses && ref[pass].empty()) ++pass;
+        if (pass >= kCarMaxPasses) break;
         const std::vector<CarVertexOut>& r = ref[pass];
         if (k.data.size() < 16 + r.size() * 48) {
             ++s.missing_kicks;
@@ -105,6 +108,7 @@ void car_verify_batch(const std::vector<uint64_t>& code, const VuMemory& mem, ui
             const bool adc_ps2 = (w[11] & 0x8000) != 0, adc_ref = (r[v].xyzf[3] & 0x8000) != 0;
             if (adc_ps2 && !adc_ref) ++s.adc_clip;
             if (adc_ref && !adc_ps2) ++s.adc_extra;
+            if (adc_ref && adc_ps2 && l.kind == kCarGlass && r[v].xyzf[3] == 0x8000 && w[11] == 0x8000) ++s.adc_back;
             // A névoa: o w sem o ADC; nos vértices com ADC o microprograma mexe nos bits de baixo (o AND 0xbffe e os
             // somatórios do recorte), então só os sem ADC dos dois lados.
             if (!adc_ps2 && !adc_ref && std::abs(int32_t(w[11] & 0x7fff) - int32_t(r[v].xyzf[3] & 0x7fff)) > 16)
@@ -113,8 +117,41 @@ void car_verify_batch(const std::vector<uint64_t>& code, const VuMemory& mem, ui
         }
         ++pass;
     }
-    while (pass < 3 && ref[pass].empty()) ++pass;
-    if (pass < 3) ++s.missing_kicks;
+    while (pass < kCarMaxPasses && ref[pass].empty()) ++pass;
+    if (pass < kCarMaxPasses) ++s.missing_kicks;
+}
+
+}  // namespace
+
+void car_verify_batch(const std::vector<uint64_t>& code, const VuMemory& mem, uint32_t top, const CarBatch& b,
+                      CarVerifyStats& s) {
+    verify_once(code, mem, top, b, s);
+    // Na carga as zonas de dano e os SwitchData são zero (o carro inteiro, as lâmpadas apagadas): o vidro e as luzes
+    // rodam de novo com valores de jogo na cópia da memória da VU, para a conferência passar pelos dois caminhos (o vidro
+    // quebrado, com o w 127 e o dano que move e escurece; a lâmpada acesa pela metade).
+    const int kind = b.layout->kind;
+    if (kind != kCarGlass && kind != kCarSwitch) return;
+    auto m2 = std::make_unique<VuMemory>(mem);
+    auto put = [&](int qw, int c, float v) { std::memcpy(&m2->w[((qw & 1023) << 2) | c], &v, 4); };
+    if (kind == kCarGlass) {
+        for (int z = 0; z < 16; ++z) {
+            put(0x56 + z, 0, 0.125f * float(z & 3));
+            put(0x56 + z, 1, 0.25f);
+            put(0x56 + z, 2, 0.75f);
+            m2->w[((0x56 + z) << 2) | 3] = (z & 1) ? 127u : 0u;
+        }
+    } else {
+        const int t = int(top) + b.layout->switch_data;
+        put(t, 0, 0.0f);
+        put(t, 1, 0.6f);
+        put(t, 2, 0.9f);
+        put(t, 3, 0.5f);
+        if (m2->f(int(top) + b.layout->switch_param, 0) == 0.0f) put(int(top) + b.layout->switch_param, 0, 1.0f);
+    }
+    CarBatch b2;
+    if (!car_decode_batch(*m2, top, *b.layout, b2)) return;
+    ++s.variant_batches;
+    verify_once(code, *m2, top, b2, s);
 }
 
 }  // namespace drv

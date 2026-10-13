@@ -36,6 +36,7 @@
 
 #include "data/elf.h"
 #include "data/mips_interp.h"
+#include "driving/physics/collide.h"
 #include "driving/physics/collision.h"
 #include "driving/physics/rigid_body.h"
 #include "driving/physics/simulation.h"
@@ -93,6 +94,9 @@ constexpr uint32_t kFaceTag = 0x01041000;
 // SMissionManager falso.
 constexpr uint32_t kOwnerVtable = 0x01042000;
 constexpr uint32_t kOwnerFn9c = 0x01043000, kOwnerFn18c = 0x01043010;
+// As entradas +0x14 (SetInShock) e +0x1c (ApplyDamage) que CollideWithObject chama depois de um choque: ganchos que
+// contam e devolvem o que o PhysicsObject do port devolve (nada e 0x20).
+constexpr uint32_t kOwnerFnShock = 0x01043020, kOwnerFnDamage = 0x01043030;
 constexpr uint32_t kDelta18c = 0x40;  // o ajuste do this na entrada +0x18c (o original soma; o gancho desconta)
 constexpr uint32_t kMissionMgr = 0x01044000;
 constexpr uint32_t kHeapBegin = 0x01100000;
@@ -139,7 +143,7 @@ struct Emu {
     uint32_t heap = kHeapBegin;
     bool ground_on = false;
     float ground = 0;
-    uint64_t impacts = 0;
+    uint64_t impacts = 0, shocks = 0, damages = 0;
     OwnerAnswers answers[48];
     std::vector<uint32_t> owner_calls;
 
@@ -209,8 +213,19 @@ struct Emu {
         m.hook(0x2cc3f0, "VU0_UploadMicrocode", [this](MipsMachine&) {
             vu.load_micro(0, program.data(), uint32_t(program.size()));
         });
-        for (uint32_t a : {0x1fbbd8u, 0x1fc2f0u, 0x1fd798u, 0x2014b8u, 0x2017b8u})
+        for (uint32_t a : {0x1fd798u, 0x2014b8u, 0x2017b8u})
             m.hook(a, "(não portado)", [](MipsMachine&) {});
+        // CollideWithWorld num chão plano sem prédios: só zera RigidBodyInfo +0x4fd (o que o port faz sem o mundo da
+        // pista; a parte 7 confere a função inteira sobre Paris). CollideWithObject roda o original.
+        m.hook(0x1fc2f0u, "RigidBody::CollideWithWorld (sem prédios)", [](MipsMachine& mm) {
+            const uint32_t info = mm.read32(uint32_t(mm.gpr(R::a0)) + 0x5c);
+            mm.mem(info + 0x4fd, 1)[0] = 0;
+        });
+        m.hook(kOwnerFnShock, "dono: SetInShock", [this](MipsMachine&) { ++shocks; });
+        m.hook(kOwnerFnDamage, "dono: ApplyDamage", [this](MipsMachine& mm) {
+            ++damages;
+            mm.set_gpr(R::v0, 0x20);
+        });
         // Os donos de ResolveCollision (só ela chama estes; o resto do código não os alcança).
         m.hook(kOwnerFn9c, "dono: entrada +0x9c", [this](MipsMachine& mm) {
             const int s = owner_slot(uint32_t(mm.gpr(R::a0)));
@@ -239,7 +254,7 @@ struct Emu {
         std::memset(m.mem(kBodies, kHeapEnd - kBodies), 0, kHeapEnd - kBodies);
         std::memset(m.mem(MipsMachine::kStackTop - 0x10000, 0x10000), 0, 0x10000);
         heap = kHeapBegin;
-        impacts = 0;
+        impacts = shocks = damages = 0;
         ground_on = false;
         vu = ps2::VuMachine(ps2::VuUnit::VU0);
         vu.load_micro(0, program.data(), uint32_t(program.size()));
@@ -476,6 +491,11 @@ void construct_both(Emu& e, const drv::RigidBodyParams& p) {
     e.mem_write(a + 0x80, p.orient, 64);
     const uint32_t owner = kOwners + 0x100 * uint32_t(p.slot);
     std::memset(e.m.mem(owner, 0x100), 0, 0x100);
+    e.w32(owner + 0x68, kOwnerVtable);  // as entradas +0x14 e +0x1c (CollideWithObject)
+    e.w32(kOwnerVtable + 0x10, 0);
+    e.w32(kOwnerVtable + 0x14, kOwnerFnShock);
+    e.w32(kOwnerVtable + 0x18, 0);
+    e.w32(kOwnerVtable + 0x1c, kOwnerFnDamage);
     e.w32(kSim + 0x270 + 4 * uint32_t(p.slot), owner);
     e.m.set_gpr(R::t0, a + 0x10);
     e.m.set_gpr(R::t1, a + 0x20);
@@ -1076,9 +1096,16 @@ int run_ee_checks(const nf::Elf& elf, const std::vector<uint8_t>& physics_progra
             }
             report("Simulation::SimulateGame (6 corpos, 600 quadros)", sim_mm, failures);
             if (first_bad >= 0) std::printf("    primeiro quadro diferente: %d\n", first_bad);
-            std::printf("    choques contra o chão: %" PRIu64 " no original, %u no porte; instruções MIPS: %" PRIu64
-                        ", microprogramas: %" PRIu64 "\n",
-                        e->impacts, drv::ground_impacts().events, e->m.steps(), e->m.vu0_calls());
+            const uint64_t port_events = drv::ground_impacts().events + drv::collide_events().collisions;
+            std::printf("    eventos ECollision (o chão e os choques entre corpos): %" PRIu64 " no original, %" PRIu64
+                        " no porte (%" PRIu64 " entre corpos); SetInShock e ApplyDamage no original: %" PRIu64 " e %" PRIu64
+                        "; instruções MIPS: %" PRIu64 ", microprogramas: %" PRIu64 "\n",
+                        e->impacts, port_events, drv::collide_events().collisions, e->shocks, e->damages, e->m.steps(),
+                        e->m.vu0_calls());
+            if (e->impacts != port_events) {
+                std::printf("    os eventos diferem\n");
+                ++failures;
+            }
             for (int s = 0; s < bodies; ++s) {
                 const drv::RigidBody* rb = drv::GetRigidBody(drv::simulation(), s);
                 std::printf("    corpo %d (tipo %d, %.0f kg): (%.4f, %.4f, %.4f) estado %d\n", s, rb->type, rb->mass,

@@ -22,6 +22,7 @@
 #include "engine/menu_mouse.h"
 #include "engine/menu_pc_controls.h"
 #include "engine/modules.h"
+#include "engine/object.h"
 #include "engine/pc_text.h"
 #include "engine/resetmap.h"
 #include "engine/sprite.h"
@@ -1066,4 +1067,33 @@ TEST(menu_escape_backs_and_closes_the_pause_without_reopening) {
     w.menu_tick({nf::key::Return});
     CHECK(MenuManager_Exists(0) == 0 && g_menu_pc_stats.back_closes == 2);
     w.menu_tick({});
+}
+
+TEST(input_ready_unfreezes_clears_and_makes_the_combo_list) {
+    // Input_Ready (a cada carga, depois do Mem_Init): descongela, zera as ações de todos e refaz a lista das
+    // combinações (10 nós zerados de 0x18 bytes no heap, nenhum em uso).
+    psiMemHeapSize = 1u << 20;
+    PtrHeap = nullptr;
+    Mem_Init();
+    FreezeGame = 1;
+    for (PlayerInput_tag& p : PlayerSetting) p.actions[3] = 1.0f;
+    Input_Ready();
+    CHECK(FreezeGame == 0);
+    for (const PlayerInput_tag& p : PlayerSetting) CHECK(p.actions[3] == 0.0f);
+    CHECK(ComboKeysList.free.count == 10 && ComboKeysList.free.node_size == 0x18);
+    CHECK(ComboKeysList.used.count == 0 && ComboKeysList.used.first == nullptr && ComboKeysList.used.node_size == 0x18);
+    int nodes = 0;
+    bool zeroed = true;
+    for (LLNODE_tag* n = ComboKeysList.free.first; n != nullptr; n = n->next) {
+        ++nodes;
+        const uint8_t* b = reinterpret_cast<const uint8_t*>(n);
+        for (int i = 8; i < 0x18; ++i) zeroed = zeroed && b[i] == 0;  // depois dos ponteiros do nó
+    }
+    CHECK(nodes == 10 && zeroed);
+    // Uma segunda carga (o heap reiniciado de novo) refaz a lista do zero.
+    void* taken = DList_MoveFromFree2InUse(&ComboKeysList);
+    CHECK(taken != nullptr && ComboKeysList.used.count == 1);
+    Mem_Init();
+    Input_Ready();
+    CHECK(ComboKeysList.free.count == 10 && ComboKeysList.used.count == 0);
 }

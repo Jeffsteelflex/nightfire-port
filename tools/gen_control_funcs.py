@@ -27,7 +27,7 @@ PORTED = {"control_AnimUpdate", "Door_Update", "Door_ReactToHit", "Player_Update
           "Apocalypse_Update", "InverterTrigger_Update", "GunImp_Update",
           "SpaceLaser_Update", "SpaceMissile_Update", "RB_Update", "RB_CollisionHandler",
           "Lightning_Update", "cloud_update", "rotor_update", "Leaf_Update", "LeafGen_Update", "Ripples_Update",
-          "Env_Tree_Update", "Particles_Update", "OneSided_Update"}
+          "Env_Tree_Update", "Particles_Update", "OneSided_Update", "Occlude_Update"}
 ADDR, COUNT = 0x0026F890, 85
 
 

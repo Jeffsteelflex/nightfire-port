@@ -15,10 +15,8 @@ struct Drone_tag;
 // Efeitos.
 void NDrone2_CreateNinjaEyes(obj_tag* obj);
 void BodyGlow_Delete(obj_tag* glow);
-// Armas (as DroneWeap_* estão em drone_weapon.cpp).
-void DroneFunc_HandleExplosives(DCVars_tag* dcv);
-// Processamento global por tick (Drone_InitComms).
-void NDrone2_NavNodeCache();
+// Armas (as DroneWeap_* estão em drone_weapon.cpp; DroneFunc_HandleExplosives em drone_behaviour.cpp, drone.h).
+// Processamento global por tick (Drone_InitComms; NDrone2_NavNodeCache está em ainetwork.h).
 void Sound_ZeroAlertness();
 extern uint8_t Drone_bDontDraw;
 alignas(4) extern uint8_t MusicVars[36];  // módulo de música (0x002707a0): +2, +0xc, +0xe u16; +0x14/+0x18 float; +0x20
@@ -31,6 +29,7 @@ uint16_t Switch_GetSwitchChannel(obj_tag* sw);
 // Bots do multijogador.
 void BOT_setGender(Drone_tag* drone);
 void BOT_postLoadInit(Drone_tag* drone);
+void BOT_fellOutMap(obj_tag* obj);  // Drone_FellOutMap com os bots
 void BOTWEAP_changeWeapon(Drone_tag* drone, uint16_t weapon);
 uint32_t BOT_validateStateChange(DCVars_tag* dcv, uint32_t state);  // stub: 1 (aceita)
 void BOT_setOtherPlayerInfo(DCVars_tag* dcv);

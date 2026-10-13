@@ -42,10 +42,10 @@ void AIPath_Parse(uint8_t* block);                 // portada (aipath.cpp)
 // ---- chamadas por ResetMap_Load e ResetMap_GameInit (stubs, exceto onde indicado) ----
 void Sound_Kill();
 void Sound_Init();
-void Input_Ready();
+void Input_Ready();  // portada (input.cpp, declarada em input.h)
 // SP_Create: portada (script_player.cpp, declarada em script.h).
 void AIPath_BindNodes();             // portada (aipath.cpp)
-void ReadTuningVars();
+void ReadTuningVars();  // portada (resetmap.cpp; ver resetmap.h)
 void MP_Start();
 void Drone_PostLoad_Init();  // portada (drone.cpp)
 void MP_PostLoad_Init();
@@ -87,7 +87,7 @@ COLLJOINT_tag* AnimGetCollData(obj_tag* obj, uint16_t* count);  // portada (dron
 // Chamadas pelo tratador de objetos (control_movement_object_handler, control_handle_cel_change).
 void Drone_InitComms();  // portada (drone.cpp)
 void MP_DebugDraw();                 // portada (vazia no original)
-void Drone_FellOutMap(obj_tag* obj);
+void Drone_FellOutMap(obj_tag* obj);  // portada (drone_func.cpp)
 void Car_Deactivate(obj_tag* obj);
 // Pedidos de fase (ResetMap_LevelToLoad).
 uint32_t Menu_IsDrivingLevel(uint32_t level);  // portada

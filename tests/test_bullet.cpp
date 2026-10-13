@@ -582,3 +582,32 @@ TEST(ricochet_probability_and_random_helpers) {
     CHECK_NEAR(back.y, -0.4, 1e-4);
     CHECK_NEAR(back.z, -0.5, 1e-4);
 }
+
+TEST(occlude_smoke_cloud_lives_its_ticks) {
+    // Occlude_Create: a nuvem da granada de fumaça é um objeto do tipo 0x2a na sala, com o modelo pelo tipo e a
+    // duração em ticks; Occlude_Update (control_funcs 0x2a) conta até 0 e então pede a remoção.
+    fresh();
+    cel_tag* room = make_room(nullptr);
+    alignas(16) static celglist_tag cloud{}, other{};
+    hashtable_additem(0x2000273, &cloud);
+    hashtable_additem(0x200026b, &other);
+    _VECTOR pos{1, 2, 3, 0};
+    const int32_t count = DynamicObjCount;
+    obj_tag* o = Occlude_Create(&pos, 3, 1);
+    CHECK(o != nullptr && o->type == 0x2a && o->state == 3 && o->glist == &cloud && o->cel == room);
+    CHECK(o->pos.x == 1.0f && o->pos.y == 2.0f && o->pos.z == 3.0f && DynamicObjCount == count + 1);
+    for (int t = 0; t < 3; ++t) tick();
+    CHECK(alive(o) && o->state == 0);
+    tick();
+    tick();
+    CHECK(!alive(o) && DynamicObjCount == count);
+    // Os outros tipos de nuvem; um desconhecido usa o 0x200026b; um modelo ausente deixa o objeto sem modelo.
+    obj_tag* a = Occlude_Create(&pos, 10, 0);
+    obj_tag* b = Occlude_Create(&pos, 10, 7);
+    obj_tag* c = Occlude_Create(&pos, 10, 2);
+    CHECK(a->glist == &other && b->glist == &other && c->glist == nullptr);
+    // Duração negativa: nunca chega a 0 (o original só conta os positivos).
+    obj_tag* forever = Occlude_Create(&pos, -1, 1);
+    for (int t = 0; t < 5; ++t) tick();
+    CHECK(alive(forever) && int16_t(forever->state) == -1);
+}

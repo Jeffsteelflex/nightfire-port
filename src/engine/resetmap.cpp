@@ -1,5 +1,5 @@
-// Port de ResetMap_Load, ResetMap_GameInit, GetLevelToLoadFromMovieCode e da tela de carga (ResetMap_GenLoadScreen,
-// ResetMap_LevelCode2Img). Ver resetmap.h.
+// Port de ResetMap_Load, ResetMap_GameInit, GetLevelToLoadFromMovieCode, ReadTuningVars e da tela de carga
+// (ResetMap_GenLoadScreen, ResetMap_LevelCode2Img). Ver resetmap.h.
 
 #include "engine/lights.h"
 #include "engine/resetmap.h"
@@ -9,6 +9,7 @@
 
 #include "engine/build.h"
 #include "engine/collide.h"
+#include "engine/drone.h"
 #include "engine/effect.h"
 #include "engine/font.h"
 #include "engine/gameflow.h"
@@ -21,6 +22,7 @@
 #include "engine/object.h"
 #include "engine/parsemap.h"
 #include "engine/player.h"
+#include "engine/player_weapon.h"
 #include "engine/sprite.h"
 #include "engine/txt.h"
 #include "engine/vecmath.h"
@@ -465,6 +467,166 @@ void ResetMap_LevelToLoad(uint32_t level, int8_t warm, int8_t no_movie) {
     }
     GameState.load_file = level;
     GameFlow_PushState(GF_LOAD_MAP, 0.0f, 0xff);
+}
+
+namespace {
+
+// Os 32 valores dos personagens que todo caso do switch do ReadTuningVars grava (DroneDamage_*, DroneArmour_*,
+// DroneFiring_*, DroneCaptain_*). O original grava cada caso por inteiro, com as constantes em registradores; a
+// ordem dos stores não importa (nada os lê no meio).
+struct DroneTuning {
+    float damage_easy, damage_normal, damage_hard;  // DroneDamage_Easy/Normal/Hard (o dano que o jogador causa)
+    float head, legs, arms, torso;                   // DroneDamage_Head/Legs/Arms/Torso
+    float helmet, combat, jacket, vest;              // DroneArmour_*
+    DroneFiringSettings firing;                      // DroneFiring_BurstDelay_Min .. DroneFiring_PlayerBackShot_Damage
+    float captain_damage, captain_accuracy, captain_health;  // DroneCaptain_Mod_*
+};
+
+// O conjunto que quase todo caso grava (Henderson, 07000001-04, e as bases de 07000014-16); os outros mudam poucos.
+constexpr DroneTuning kStandardTuning = {
+    1.5f, 1.0f, 0.8f,
+    10.0f, 0.75f, 1.0f, 1.0f,
+    1.0f, 0.25f, 0.5f, 0.75f,
+    {15.0f, 45.0f, 60.0f, 4.0f, 30.0f,  // pausa entre rajadas: mínima, normal, máxima, distâncias
+     0.5f, 0.7f, 1.0f,                   // precisão por dificuldade
+     2.0f, 2.0f, 0.25f, 0.75f, 2.0f, 1.0f,  // tempos e precisões de alvo novo, em movimento, parado
+     3.0f, 2.0f, 2.0f, 2.0f},            // de perto (distância, precisão, dano) e pelas costas
+    2.0f, 2.0f, 2.0f,
+};
+
+void set_drone_tuning(const DroneTuning& t) {
+    DroneDamage_Easy = t.damage_easy;
+    DroneDamage_Normal = t.damage_normal;
+    DroneDamage_Hard = t.damage_hard;
+    DroneDamage_Head = t.head;
+    DroneDamage_Legs = t.legs;
+    DroneDamage_Arms = t.arms;
+    DroneDamage_Torso = t.torso;
+    DroneArmour_Helmet = t.helmet;
+    DroneArmour_Combat = t.combat;
+    DroneArmour_Jacket = t.jacket;
+    DroneArmour_Vest = t.vest;
+    DroneFiring = t.firing;
+    DroneCaptain_Mod_BulletDamage = t.captain_damage;
+    DroneCaptain_Mod_BulletAccuracy = t.captain_accuracy;
+    DroneCaptain_Mod_Health = t.captain_health;
+}
+
+void set_drone_accuracy(DroneTuning& t, float easy, float normal, float hard) {
+    t.firing.accuracy_easy = easy;
+    t.firing.accuracy_normal = normal;
+    t.firing.accuracy_hard = hard;
+}
+
+// O dano que o jogador recebe por dificuldade (Plr_DMod_Easy/Normal/Hard, lidos por Player_HandlePain).
+void set_player_damage(float easy, float normal, float hard) {
+    Plr_DMod_Easy = easy;
+    Plr_DMod_Normal = normal;
+    Plr_DMod_Hard = hard;
+}
+
+}  // namespace
+
+// [decomp] 0x001d3a80 ReadTuningVars
+// O ajuste da fase, a cada carga (ResetMap_Load, depois de criar os objetos). Apesar do nome, não lê arquivo
+// nenhum: tudo são constantes do código. Sem condição: a velocidade da mira e do giro do jogador, a vida mínima ao
+// recomeçar (50) e a mira automática (cones de 0,12 x 0,22 rad, alcance 25, lock-on x 1,4, fáceis x 1,9, 00 Agent
+// x 0). Depois um switch por GameState.level_file (a tabela de saltos 0x00305160 cobre 07000001-0700004c) com os
+// valores dos personagens e o dano que o jogador recebe, por grupo de fases; as fases fora dele (as cenas, o menu
+// principal, as de teste) ficam com os valores da carga anterior (os do .data só antes da primeira carga). As fases do
+// multijogador (07000021-29, 4b, 4c) gravam o dano por parte do corpo (Plr_DMod_Multi/Head/LowerLimb/UpperLimb) e
+// não o por dificuldade. Cada valor foi conferido na desmontagem (e o nf_loader_check roda o ReadTuningVars do ELF no
+// interpretador MIPS para cada fase e compara as 65 globais com este); a divisão em "conjunto padrão + diferenças" é
+// a do ReadTuningVars/SetStandardDroneTuning do nightfire-cxbx (NightfireResearch), que bate com os stores do PS2.
+void ReadTuningVars() {
+    Plr_AimSpeed_X = 0.1275f;
+    Plr_AimSpeed_Y = 0.136f;
+    Plr_AimTurnSpeed_X = 0.05f;
+    Plr_AimTurnSpeed_Y = 0.06f;
+    Plr_ScopeSpeed_X = 0.015f;
+    Plr_ScopeSpeed_Y = 0.011f;
+    Plr_ScopeSpeed_Y_Mul = 3.0f;
+    Plr_NoAimTurnSpeed_X = 0.04f;
+    Plr_NoAimTurnSpeed_Y = 0.01f;
+    Plr_NoAimTurnSpeed_Y_Mul = 2.0f;
+    Plr_NoAimTurnSpeed_Y_Steps = 120.0f;
+    ContinueHealthBoostHard = 50.0f;
+    Autoaim_Angle_H = 0.12f;
+    Autoaim_Angle_V = 0.22f;
+    Autoaim_Range = 25.0f;
+    Autoaim_LockOnMul = 1.4f;
+    Autoaim_EasyMul = 1.9f;
+    Autoaim_NormalMul = 1.0f;
+    Plr_ScopeSpeed_X_Mul = 3.0f;
+    Plr_ScopeSpeed_X_Steps = 120.0f;
+    Plr_ScopeSpeed_Y_Steps = 120.0f;
+    Plr_NoAimTurnSpeed_X_Mul = 2.0f;
+    Plr_NoAimTurnSpeed_X_Steps = 120.0f;
+    ContinueHealthBoostEasy = 50.0f;
+    ContinueHealthBoostMedium = 50.0f;
+    Autoaim_HardMul = 0.0f;
+
+    DroneTuning t = kStandardTuning;
+    switch (GameState.level_file) {
+        case 0x7000001: case 0x7000002: case 0x7000003: case 0x7000004:  // Henderson
+            set_drone_tuning(t);
+            set_player_damage(0.5f, 0.7f, 1.2f);
+            break;
+        case 0x7000005: case 0x7000006: case 0x7000007: case 0x7000008:  // o castelo
+            set_drone_accuracy(t, 0.8f, 0.9f, 1.3f);
+            set_drone_tuning(t);
+            set_player_damage(0.6f, 0.7f, 1.0f);
+            break;
+        case 0x7000009: case 0x700000a: case 0x700000b:  // a torre
+            set_drone_accuracy(t, 0.8f, 1.0f, 1.0f);
+            set_drone_tuning(t);
+            set_player_damage(0.6f, 0.8f, 1.0f);
+            break;
+        case 0x700000c: case 0x700000d:  // a usina
+            set_drone_accuracy(t, 0.6f, 0.8f, 1.2f);
+            t.firing.target_first_stopped_time_to_hit = 1.0f;
+            t.firing.target_first_stopped_accuracy = 0.1f;
+            t.captain_damage = 1.5f;
+            t.captain_accuracy = 1.5f;
+            set_drone_tuning(t);
+            set_player_damage(0.4f, 0.7f, 1.2f);
+            break;
+        case 0x7000011: case 0x7000012: case 0x7000013: case 0x700004a:  // a segunda torre e o elevador
+            t.damage_normal = 1.2f;
+            t.damage_hard = 1.0f;
+            set_drone_accuracy(t, 0.7f, 0.8f, 1.0f);
+            set_drone_tuning(t);
+            set_player_damage(0.5f, 0.6f, 1.0f);
+            break;
+        case 0x7000014: case 0x7000015: case 0x7000016:  // a base
+            set_drone_tuning(t);
+            set_player_damage(0.4f, 0.6f, 1.0f);
+            break;
+        case 0x700001b:  // a estação espacial
+            t.damage_easy = 1.0f;
+            t.damage_normal = 1.0f;
+            t.damage_hard = 1.0f;
+            set_drone_accuracy(t, 0.6f, 0.8f, 1.2f);
+            set_drone_tuning(t);
+            set_player_damage(0.6f, 0.7f, 1.0f);
+            break;
+        case 0x7000021: case 0x7000022: case 0x7000023: case 0x7000024: case 0x7000025: case 0x7000026:
+        case 0x7000027: case 0x7000028: case 0x7000029: case 0x700004b: case 0x700004c:  // o multijogador
+            t.damage_easy = 2.0f;
+            t.damage_normal = 1.5f;
+            t.damage_hard = 0.5f;
+            t.helmet = 0.5f;
+            set_drone_accuracy(t, 0.8f, 1.0f, 1.5f);
+            t.firing.too_close_distance = 4.0f;
+            set_drone_tuning(t);
+            Plr_DMod_Multi = 4.0f;
+            Plr_DMod_Head = 4.0f;
+            Plr_DMod_LowerLimb = 0.8f;
+            Plr_DMod_UpperLimb = 0.8f;
+            break;
+        default:
+            break;
+    }
 }
 
 // [decomp] 0x001d6958 Reset_MapLoadSettings

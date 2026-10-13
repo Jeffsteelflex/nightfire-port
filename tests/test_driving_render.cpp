@@ -711,7 +711,8 @@ TEST(driving_matcar_reference_by_hand) {
     const CarMethodLayout* l = car_method_layout("MatCarTexturePacked");
     CHECK(l && l->passes == (kPassBase | kPassSpec | kPassRefl) && l->packed && car_method_layout("MatCarChrome") &&
           car_method_layout("MatCarTextureDullPacked"));
-    CHECK(!car_method_layout("MatCarGlassPacked") && !car_method_layout("MatCarTextureSwitchPacked"));
+    CHECK(car_method_layout("MatCarGlassPacked") && car_method_layout("MatCarTextureSwitchPacked") &&
+          !car_method_layout("MatCarGouraudDullPacked"));
     CarBatch b = one_vertex_batch(l);
     CarConstants k;
     // Janela de vista: escala 1, deslocamento 0 (a tela = o clip / w). Névoa: perto 0, longe 10, escala 2.
@@ -735,7 +736,7 @@ TEST(driving_matcar_reference_by_hand) {
     k.refl_info2[1] = 0.25f;
     k.refl_info2[2] = 0.5f;
     k.refl_info2[3] = 1.0f;
-    std::vector<CarVertexOut> out[3];
+    std::vector<CarVertexOut> out[kCarMaxPasses];
     car_reference(b, k, out);
     CHECK(out[0].size() == 1 && out[1].size() == 1 && out[2].size() == 1);
     // Normal: (0 x I2 - 1, 255 x I2 - 1, -1): I2 = 0x3c008080 fica um pouco abaixo de 2/255, então n.y não chega a 1
@@ -803,7 +804,7 @@ TEST(driving_matcar_dash_float_inputs_two_passes) {
     }
     for (int r = 0; r < 4; ++r) k.spec_mat[r][r] = 1.0f;
     k.refl_info2[2] = 0.5f;
-    std::vector<CarVertexOut> out[3];
+    std::vector<CarVertexOut> out[kCarMaxPasses];
     car_reference(b, k, out);
     CHECK(out[0].size() == 1 && out[1].size() == 1 && out[2].empty());
     // n.y = 1 exato: 127 x (0,5 + 0,25) = 95,25 -> 95.
@@ -841,7 +842,7 @@ TEST(driving_matcar_damage_point_lights_and_strips) {
     k.point_pos[2][0] = 8.0f;
     k.point_pos[3][0] = 4.0f;
     k.point_col[0][0] = 0.1f;
-    std::vector<CarVertexOut> out[3];
+    std::vector<CarVertexOut> out[kCarMaxPasses];
     car_reference(b, k, out);
     CHECK(out[1].empty() && out[2].empty());  // Dull: uma passada
     // A posição andou 1 x 0,5 em x (I1 x 33792 - 32 é 1 menos um pouco): clip.x ~ 2,5 -> FTOI4 = 39 (2,4999 x 16).
@@ -876,6 +877,101 @@ TEST(driving_matcar_damage_point_lights_and_strips) {
     tris.clear();
     car_triangles(s, tris);
     CHECK(tris.size() == 3);
+}
+
+// O vidro (MatCarGlassPacked), pela leitura do microprograma: quatro passadas na ordem dos XGKICK (DmgTexture, Texture,
+// especular, reflexo); o alfa da primeira é o w cru da zona de dano (0 sem dano, o inteiro 127 com o vidro quebrado:
+// RVehicle::ComputeDamage), o das outras int(127 - w); o vértice de costas para a câmera da ModelView (n' . p' >= 0) leva o
+// ADC com o w 0x8000 (a névoa some); com closing_first o vértice que fecha o triângulo vem primeiro, na mesma volta.
+TEST(driving_matcar_glass_alpha_backface_and_passes) {
+    const CarMethodLayout* l = car_method_layout("MatCarGlassPacked");
+    CHECK(l && l->kind == kCarGlass && l->max_verts == 40 && l->tar_dmg == 0x23 && l->modelview == 0x1f &&
+          l->state == 0xfd && l->env_state == 0x105 && l->split == 0x2a && l->gif_tag == 0x142);
+    CHECK(car_pass_stq(*l, 0) == 0 && car_pass_stq(*l, 1) == 0 && car_pass_stq(*l, 2) == 1 && car_pass_stq(*l, 3) == 2);
+    CHECK(car_pass_alpha(*l, 0) == 1 && car_pass_alpha(*l, 1) == 2 && car_pass_alpha(*l, 2) == 2 &&
+          car_pass_alpha(*l, 3) == 2);
+    const CarMethodLayout* tp = car_method_layout("MatCarTexturePacked");
+    CHECK(tp->kind == kCarStd && car_pass_stq(*tp, 2) == 2 && car_pass_alpha(*tp, 1) == 0);
+    CarBatch b = one_vertex_batch(l);
+    for (int& sp : b.split) sp = 60;  // o vértice 20: nenhum SplitReg neste lote
+    for (int r = 0; r < 4; ++r) b.modelview[r][r] = 1.0f;
+    CarConstants k;
+    for (int c = 0; c < 4; ++c) {
+        k.vp_offset[c] = 0;
+        k.vp_scale[c] = 1;
+    }
+    k.fog[2] = 10;
+    k.fog[3] = 2;
+    for (int c = 0; c < 3; ++c) k.ambient[c] = 1.0f;
+    std::vector<CarVertexOut> out[kCarMaxPasses];
+    car_reference(b, k, out);
+    CHECK(out[0].size() == 1 && out[1].size() == 1 && out[2].size() == 1 && out[3].size() == 1);
+    // Sem dano: o DmgTexture some (alfa 0) e o Texture fica com 127, como o especular e o reflexo.
+    CHECK(out[0][0].rgba[3] == 0 && out[1][0].rgba[3] == 127 && out[2][0].rgba[3] == 127 && out[3][0].rgba[3] == 127);
+    // A passada 2 repete a cor e o STQ da 1; a cor é a da luz (ambiente 1: 127).
+    CHECK(out[1][0].rgba[0] == 127 && out[0][0].rgba[0] == 127 && out[1][0].stq[0] == out[0][0].stq[0] &&
+          out[1][0].stq[2] == out[0][0].stq[2]);
+    // De frente (normal (-1, ~1, -1) em (2, 4, 8): n . p = -10 + ~4 < 0): sem ADC, a névoa 253 x 16.
+    CHECK(!out[0][0].adc && out[0][0].xyzf[3] == 253 * 16);
+    // A zona quebrada: o w é o inteiro 127 (1,77965e-43 em float).
+    const uint32_t i127 = 127;
+    std::memcpy(&k.damage[0][3], &i127, 4);
+    car_reference(b, k, out);
+    CHECK(out[0][0].rgba[3] == 127 && out[1][0].rgba[3] == 0 && out[2][0].rgba[3] == 0 && out[3][0].rgba[3] == 0);
+    // De costas (normal (~1, -1, ~1): n . p = ~10 - 4 > 0): o w vira 0x8000 em todas as passadas.
+    b.v[0].normal[0] = 255;
+    b.v[0].normal[1] = 0;
+    b.v[0].normal[2] = 255;
+    car_reference(b, k, out);
+    CHECK(out[0][0].adc && out[0][0].xyzf[3] == 0x8000 && out[3][0].xyzf[3] == 0x8000);
+    // O sinal pela câmera da ModelView: o ponto na origem com a normal +z fica de costas com a câmera em z = -5 (p' =
+    // (0, 0, 5)) e de frente com ela em z = +5.
+    float mv[4][4] = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 5, 1}};
+    const float o[3] = {0, 0, 0}, nz[3] = {0, 0, 1};
+    CHECK(car_glass_backface(mv, o, nz));
+    mv[3][2] = -5;
+    CHECK(!car_glass_backface(mv, o, nz));
+    // A ordem dos índices: (v, v - 2, v - 1).
+    CarBatch s4 = b;
+    s4.count = 4;
+    s4.v.resize(4, b.v[0]);
+    std::vector<uint16_t> tris;
+    car_triangles(s4, tris, true);
+    CHECK(tris.size() == 6 && tris[0] == 2 && tris[1] == 0 && tris[2] == 1 && tris[3] == 3 && tris[4] == 1);
+}
+
+// As luzes (MatCarTextureSwitchPacked), pela leitura do microprograma: a cor puxada para (s.z, s.z, s.z, s.y) x 255 x
+// k.x por s.w, nas quatro componentes; com s.w = 0 (a lâmpada apagada, como o .bss deixa o SwitchData) nada muda.
+TEST(driving_matcar_switch_lights) {
+    const CarMethodLayout* l = car_method_layout("MatCarTextureSwitchPacked");
+    CHECK(l && l->kind == kCarSwitch && l->passes == kPassBase && l->switch_data == 0x11 && l->switch_param == 0xf1 &&
+          l->split == 0x12 && l->state == 0xfb && l->colour == 0x107);
+    int32_t col[4] = {100, 50, 0, 128};
+    const float off[4] = {0, 1, 1, 0}, param[4] = {0.5f, 0, 0, 0};
+    car_switch_colour(off, param, col);
+    CHECK(col[0] == 100 && col[1] == 50 && col[2] == 0 && col[3] == 128);
+    // Acesa pela metade: (100 + 127,5) / 2 = 113,75 -> 113; alfa (128 + 255 x 0,5 x 0,25) / 2 = 79,9 -> 79.
+    const float half[4] = {0, 0.25f, 1, 0.5f};
+    car_switch_colour(half, param, col);
+    CHECK(col[0] == 113 && col[1] == 88 && col[2] == 63 && col[3] == 79);
+    // Acesa e forte: satura em 255.
+    int32_t c2[4] = {200, 200, 200, 128};
+    const float on[4] = {0, 1, 1, 1}, big[4] = {2, 0, 0, 0};
+    car_switch_colour(on, big, c2);
+    CHECK(c2[0] == 255 && c2[3] == 255);
+    // Na referência: um lote apagado dá a cor da família (o ambiente 1: 127) e o alfa 128.
+    CarBatch b = one_vertex_batch(l);
+    CarConstants k;
+    for (int c = 0; c < 3; ++c) k.ambient[c] = 1.0f;
+    std::vector<CarVertexOut> out[kCarMaxPasses];
+    car_reference(b, k, out);
+    CHECK(out[0].size() == 1 && out[1].empty() && out[0][0].rgba[0] == 127 && out[0][0].rgba[3] == 128);
+    b.switch_data[1] = 1.0f;
+    b.switch_data[2] = 1.0f;
+    b.switch_data[3] = 1.0f;
+    b.switch_param[0] = 1.0f;
+    car_reference(b, k, out);
+    CHECK(out[0][0].rgba[0] == 255 && out[0][0].rgba[3] == 255);
 }
 
 // As constantes globais vão para a memória da VU nos endereços do microprograma e voltam iguais (a conferência contra o

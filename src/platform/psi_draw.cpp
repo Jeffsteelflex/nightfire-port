@@ -25,6 +25,7 @@
 #include "engine/view.h"
 #include "platform/psi_loading.h"
 #include "platform/psi_movie.h"
+#include "platform/psi_woman.h"
 #include "platform/vu1.h"
 #include "platform/fmath.h"
 
@@ -485,9 +486,11 @@ void psiLight_SetLights(P32<light_tag>* lights, uint16_t count, float r, float g
 // A névoa e o plano de longe de cada fase (as de neve também mudam o tamanho dos flocos). No PS2 ela
 // também inicia os sons, limpa o cache de skinning, monta os sprites de névoa e de limpar o Z e
 // empacota as texturas na VRAM (CreateSpaceAndPackTextures, que no fim acha as texturas de fonte); no
-// PC só o cache de skinning e as fontes (o renderizador cuida do resto).
+// PC só o cache de skinning, as fontes e, do empacotamento, o preparo da textura do fundo animado da pausa (a paleta
+// do fogo e os pixels zerados da 0x030000db: platform/psi_woman.h); o renderizador cuida do resto.
 void psiPreGameRun() {
     skin_cache.clear();
+    psi_woman_pack_textures();
     psi_2d_find_font_textures();
     bool fog = true;
     switch (GameState.level_file) {

@@ -338,7 +338,8 @@ uint8_t* LS_MakeGlobalSettings(uint32_t id, uint16_t, uint16_t* size) {
 
 // [decomp] 0x001cdbc8 LS_LoadGlobalSettings
 // O idioma gravado é lido e ignorado. Só no port, no fim: as opções lidas viram a referência de
-// platform/game_options.h (o .ini não muda).
+// platform/game_options.h (o .ini não muda), menos os volumes que o .ini conhece, que ficam os da máquina
+// (game_options_codename_loaded).
 void LS_LoadGlobalSettings(uint8_t* block, uint16_t) {
     uint32_t bit = 0x40;
     uint32_t music = 0, sfx = 0, language = 0, mode = 0, wide = 0;
@@ -361,7 +362,7 @@ void LS_LoadGlobalSettings(uint8_t* block, uint16_t) {
     DrawInfo[1] = wide;
     SFXMusicSetVolume(music);
     SFXSetVolume(sfx);
-    nf::game_options_rebase();  // só no port: as opções do codinome não vão para o nightfire.ini
+    nf::game_options_codename_loaded();  // só no port: o .ini não muda; os volumes dele valem por cima
 }
 
 // [decomp] 0x001ce260 LS_MakeCheats

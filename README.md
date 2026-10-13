@@ -1,13 +1,15 @@
 # 007: Nightfire — native PC port
 
-**Version 0.1 (October 2026) — work in progress.**
+**Version 0.4 (October 2026) — work in progress.**
 
-A native Windows rebuild of *007: Nightfire* for the PlayStation 2 (NTSC-U, SLUS-20579). This is not an emulator.
+A native Windows rebuild of *007: Nightfire* for the PlayStation 2 (NTSC-U, SLUS-20579), with a first macOS version
+for testing. This is not an emulator.
 
 The game is rebuilt from its own executables:
 - the data formats are reverse-engineered;
 - the game logic is decompiled function by function into C++;
-- the PS2 hardware layer (GS, VU0/VU1, IOP, SPU2, CD) is replaced by a PC implementation (Direct3D 11, XAudio2, XInput).
+- the PS2 hardware layer (GS, VU0/VU1, IOP, SPU2, CD) is replaced by a PC implementation (Direct3D 11, XAudio2, XInput;
+  on macOS Metal, Core Audio and GameController).
 
 The aim is to play the original game the way it was made, plus the PC features it lacks: any resolution and aspect ratio, mouse and keyboard, high frame rates.
 
@@ -19,10 +21,10 @@ The aim is to play the original game the way it was made, plus the PC features i
 | Area | State |
 |------|-------|
 | On-foot campaign (7 missions, 12 with the driving ones) | Every level loads and runs on the game's own code, and every objective has its mechanism. A complete playthrough of every mission has not been verified yet. |
-| Driving missions (Paris, Alpine Escape, Enemies Vanquished, Deep Descent, Island Infiltration) | Skipped for now: they count as done without a medal. They run in a separate EA engine (`DRIVING.ELF`), which is being ported. The prototype already draws the cars and runs the physics, both checked against the original code. |
+| Driving missions (Paris, Alpine Escape, Enemies Vanquished, Deep Descent, Island Infiltration) | Skipped for now in the game: they count as done without a medal. They run in a separate EA engine (`DRIVING.ELF`), which is being ported. In the port's test tool (`nf_driving`) the Vanquish already drives through Paris with the game's own physics, collisions, chase camera and controls, each checked against the original code. |
 | Multiplayer | Not yet; planned last. |
-| macOS | In progress. The engine is 64-bit clean, the platform code sits behind interfaces, and the shared code builds and passes its tests on macOS (Apple Silicon) and Linux in CI. The Mac window, input, sound and Metal renderer come next. |
-| Decompilation | 2,103 of 2,550 functions of `ACTION.ELF` (79% of its code). |
+| macOS | First version for testing, from 0.4: a universal app (`Nightfire PC.app`, Apple Silicon and Intel, macOS 11 or newer) with a Metal renderer, the Mac's own drawing of the menus and the HD text, sound, controllers and disc reading. CI builds and tests it on GitHub's Mac machines and compares what it draws with the Windows images. **It has not been played on a real Mac yet**: reports are welcome (see "On a Mac" below). |
+| Decompilation | 2,117 of 2,550 functions of `ACTION.ELF` (80% of its code). |
 
 ### What works
 
@@ -58,6 +60,7 @@ The aim is to play the original game the way it was made, plus the PC features i
 
 - Windows 10 or 11.
 - A GPU with Direct3D 11. Integrated GPUs are fine.
+- Or, for the Mac build (first version, not yet tested on a real Mac): macOS 11 or newer, Apple Silicon or Intel.
 - Your own copy of the game: *007: Nightfire*, PS2, US version (SLUS-20579).
 - To build (not needed to play with the release zip):
   - Visual Studio Build Tools with the C++ workload (MSVC, x86 target), CMake and Ninja;
@@ -83,6 +86,8 @@ The executables land in `build\Release\`:
 
 `build.bat Release x64` builds the 64-bit version into `build\x64\Release\` (experimental: it passes the same checks).
 `python tools/make_release.py` packs both builds into the release zip (`out\release\`), with nothing from the game.
+The Mac build (`Nightfire PC.app`, universal) and its zip are made by the CI on GitHub's macOS runners
+(`tools/make_release_mac.py`; see `docs/port.md`, "macOS: o pacote e a instalação").
 
 ## Game data
 
@@ -108,6 +113,12 @@ another version.
    launcher again.
 4. Optional: **Single-file copy** writes one `.exe` with your game inside (about 1.8 GB) to play without the disc
    image. It contains your copy of the game: it is for you only, do not share it.
+
+**On a Mac** (experimental, from 0.4: the zip is `Nightfire-PC-mac-<version>.zip`, next to the Windows one): unzip it, drag `Nightfire PC.app` to Applications and follow the `README.txt` inside. The app is not
+signed by Apple, so the first start needs "Open Anyway" in System Settings > Privacy & Security (macOS 15 and newer) or
+Control-click > Open (macOS 11 to 14). The disc can be a Disk Utility image (`.cdr`, "DVD/CD master"), an `.iso` or the
+disc in an external DVD drive. Settings, saves and a log for bug reports (`nightfire.log`) are in
+`~/Library/Application Support/Nightfire PC/`.
 
 **From a build:**
 
@@ -153,6 +164,13 @@ Default controls:
 | `tests/` | the unit tests and the regression checks on real data |
 | `tools/` | Python tools for the formats, plus Ghidra scripts |
 | `docs/` | the format, engine and port documentation (in Portuguese) |
+
+## Credits
+
+Thanks to [NightfireResearch](https://github.com/NightfireResearch) for
+[nightfire-cxbx](https://github.com/NightfireResearch/nightfire-cxbx), their decompilation of the Xbox version, and for
+letting us build on it: their function and structure names for the driving engine and their reverse-engineering notes
+are a reading reference for this port (see `docs/cxbx.md`). This port remains a port of the PS2 version.
 
 ## Legal
 

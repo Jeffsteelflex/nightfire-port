@@ -29,8 +29,8 @@ static_assert(sizeof(HEGAS_tag) == 0x1c);
 struct HEINFO_tag {
     uint32_t name;           // 0x00 ponteiro do PS2 para o nome ("CARPET"...); zerado na cópia
     uint32_t decal;          // 0x04 marca de bala (Effect_Bullet)
-    uint32_t decal_foot_b;   // 0x08 marca de pé com a flag 4 (Effect_Player)
-    uint32_t decal_foot_a;   // 0x0c marca de pé (flags 8 ou nenhuma)
+    uint32_t decal_foot_b;   // 0x08 pegada do pé da flag 4 (osso 55; Effect_Player)
+    uint32_t decal_foot_a;   // 0x0c pegada do outro pé (flag 8, osso 51)
     uint32_t laser_gas;      // 0x10 fumaça do laser (Effect_Laser)
     uint16_t sound_bullet;   // 0x14
     uint16_t sound_step;     // 0x16 passos e laser

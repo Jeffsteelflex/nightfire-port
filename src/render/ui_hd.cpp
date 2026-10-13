@@ -50,6 +50,24 @@ bool parse_font(const JVal& v, UiHdFont& f, std::string* error) {
         return false;
     }
     if (const JVal* x = v.get("family"); x != nullptr && x->type == JVal::Str) f.family = widen_utf8(x->s);
+    if (const JVal* x = v.get("family_macos"); x != nullptr) {
+        // Um nome ou uma lista de nomes (a primeira família que existir no macOS).
+        std::vector<std::wstring> names;
+        if (x->type == JVal::Str) names.push_back(widen_utf8(x->s));
+        else if (x->type == JVal::Arr) {
+            for (const JVal& n : x->a) {
+                if (n.type != JVal::Str) {
+                    if (error != nullptr) *error = "family_macos: esperava um nome ou uma lista de nomes";
+                    return false;
+                }
+                names.push_back(widen_utf8(n.s));
+            }
+        } else {
+            if (error != nullptr) *error = "family_macos: esperava um nome ou uma lista de nomes";
+            return false;
+        }
+        f.family_macos = std::move(names);
+    }
     if (const JVal* x = v.get("weight"); x != nullptr && x->type == JVal::Num) f.weight = std::clamp(int(x->n), 1, 999);
     if (const JVal* x = v.get("stretch"); x != nullptr && x->type == JVal::Num) f.stretch = std::clamp(int(x->n), 1, 9);
     if (const JVal* x = v.get("italic"); x != nullptr && x->type == JVal::Bool) f.italic = x->b;

@@ -236,6 +236,7 @@ RuntimeGfx::RuntimeGfx(Renderer& renderer) : renderer_(renderer) {
     g_psi_gfx_backend.create_texture = &RuntimeGfx::on_texture;
     g_psi_gfx_backend.create_entity = &RuntimeGfx::on_entity;
     g_psi_gfx_backend.reset = &RuntimeGfx::on_reset;
+    g_psi_gfx_backend.update_texture = &RuntimeGfx::on_texture_update;
 }
 
 RuntimeGfx::~RuntimeGfx() { g_psi_gfx_backend = {}; }
@@ -258,6 +259,17 @@ void RuntimeGfx::on_texture(void* user, int index, const bmpheader_tag& header, 
             if (!file.empty() && self->renderer_.set_texture_dds(index, file)) ++self->hd_;
         }
     }
+}
+
+void RuntimeGfx::on_texture_update(void* user, int index, const bmpheader_tag& header, const uint8_t* pixels,
+                                   uint32_t pixels_bytes, const uint8_t* palette, uint32_t palette_bytes) {
+    auto* self = static_cast<RuntimeGfx*>(user);
+    if (!decode_texture_frame(header.width1 + 1, header.height1 + 1, (header.flags & 1) != 0, ByteView(pixels, pixels_bytes),
+                              ByteView(palette, palette_bytes), self->updated_)) {
+        return;
+    }
+    self->renderer_.update_texture(index, self->updated_);
+    if (self->mirror_ != nullptr) self->mirror_->mirror_texture(index, self->updated_);
 }
 
 int RuntimeGfx::on_entity(void* user, const celglist_tag* glist, const map_tag* map) {

@@ -48,7 +48,6 @@ void MP_ObjectUpdate(obj_tag*) { pending_call("MP_ObjectUpdate"); }
 void MiniSub_Collide(obj_tag*) { pending_call("MiniSub_Collide"); }
 void MiniSub_Delete(obj_tag*) { pending_call("MiniSub_Delete"); }
 void MiniSub_Update(obj_tag*) { pending_call("MiniSub_Update"); }
-void Occlude_Update(obj_tag*) { pending_call("Occlude_Update"); }
 void Sub_Collide(obj_tag*) { pending_call("Sub_Collide"); }
 void Sub_Delete(obj_tag*) { pending_call("Sub_Delete"); }
 void Sub_Update(obj_tag*) { pending_call("Sub_Update"); }

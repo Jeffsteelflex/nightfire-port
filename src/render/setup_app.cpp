@@ -226,7 +226,7 @@ SetupResult run_setup(const SetupOptions& o) {
     };
     const auto refresh_pack = [&] {
         pack_size.clear();
-        if (chosen.ok()) {
+        if (chosen.ok() && personal_copy_supported()) {
             const PackPlan plan = plan_for(*chosen.source);
             if (plan.error == PackError::None) pack_size = ui::setup_size_text(plan.bytes);
         }
@@ -271,6 +271,7 @@ SetupResult run_setup(const SetupOptions& o) {
             dv.in_use = v.ready && chosen.source->kind() == DiscKind::Drive && os::same_path(chosen.source->location(), d.root);
             v.drives.push_back(dv);
         }
+        v.pack_available = personal_copy_supported();
         v.can_pack = v.ready && !pack_size.empty();
         v.pack_size = pack_size;
         v.pack_path = pack_out;

@@ -1660,6 +1660,22 @@ uint32_t NDrone2_FeetPos(obj_tag* obj, _VECTOR* out) {
     return 1;
 }
 
+// [decomp] 0x00155cd8 NDrone2_NavNodeCache
+// Uma vez por tick (Drone_InitComms): o alvo compartilhado das rotas até o jogador (NPCGlobals.player_target,
+// para onde AINetwork_SetupRouteToObject aponta as rotas que o perseguem) recebe os pés do jogador, a sala, o
+// objeto e a máscara 0x1000000, e AINetwork_BuildAITarget refaz os nós dele quando ele nunca foi buscado ou o
+// jogador andou 2 m desde a última busca (o que avança player_target.frame, que DSTATE_DroneStuck espera).
+void NDrone2_NavNodeCache() {
+    obj_tag* pl = NDrone2_Player();
+    if (pl == nullptr) return;
+    AITarget_tag* t = &NPCGlobals.player_target;
+    NDrone2_FeetPos(pl, &t->pos.pos);
+    t->pos.cel = pl->cel;
+    t->mask = 0x1000000;
+    t->obj = pl;
+    AINetwork_BuildAITarget(t, nullptr, 0.0f);
+}
+
 // [decomp] 0x00149a80 NDrone2_FindCel
 cel_tag* NDrone2_FindCel(_VECTOR* pos) { return build_FindCel(pos, glb_world); }
 

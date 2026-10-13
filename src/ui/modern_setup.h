@@ -82,6 +82,7 @@ struct SetupView {
     std::wstring status;         // pronto (o código do disco), ou o problema
     bool problem = false;        // status é um problema
     std::vector<Drive> drives;   // os leitores com um disco de PS2
+    bool pack_available = true;  // a cópia pessoal existe nesta plataforma (platform/disc_pack.h; no macOS a linha some)
     bool can_pack = false;       // a cópia pessoal dá para fazer (um disco que serve, com SYSTEM.CNF)
     std::wstring pack_size;      // "1.9 GB"
     std::wstring pack_path;      // onde ela vai

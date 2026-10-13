@@ -2,7 +2,7 @@
 backends").
 
 Uso: python tools/check_platform.py [--quiet]
-Lê as regras de tools/platform_rules.txt e procura em src/ e tests/ (os .cpp, .h e .inc) cada cabeçalho, identificador e
+Lê as regras de tools/platform_rules.txt e procura em src/ e tests/ (os .cpp, .h, .inc e .mm) cada cabeçalho, identificador e
 #pragma proibido fora dos arquivos de backend e das exceções da regra. Os comentários e os textos entre aspas não contam.
 Sai com 1 (e a lista, arquivo:linha) se achar algum; 0 sem nenhum. O nf_tests faz a mesma conferência
 (tests/test_platform.cpp), com as mesmas regras.
@@ -15,7 +15,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RULES = os.path.join(ROOT, "tools", "platform_rules.txt")
 SCAN = ("src", "tests")
-EXTS = (".cpp", ".h", ".inc")
+EXTS = (".cpp", ".h", ".inc", ".mm")
 
 
 def load_rules(path=RULES):

@@ -1,6 +1,8 @@
 #include "data/map_item.h"
 
 #include <algorithm>
+#include <array>
+#include <cstring>
 #include <tuple>
 #include <cmath>
 #include "platform/fmath.h"
@@ -84,6 +86,39 @@ bool decode_texture(int w, int ht, int frames, bool bpp8, ByteView px, ByteView 
         dst[1] = c[1];
         dst[2] = c[2];
         dst[3] = c[3];  // alfa como no GS (0x80 = opaco); o shader dobra, como nas texturas HD
+        if (dst[3] < 0x7d) t.has_alpha = true;
+    }
+    return true;
+}
+
+bool decode_texture_frame(int w, int ht, bool bpp8, ByteView px, ByteView pal, Texture& t) {
+    const size_t frame_bytes = size_t(w) * size_t(ht) * (bpp8 ? 8 : 4) / 8;
+    const size_t colors = std::min<size_t>(pal.size() / 4, 256);
+    if (w <= 0 || ht <= 0 || px.size() != frame_bytes || colors == 0) return false;
+    std::array<std::array<uint8_t, 4>, 256> palette{};
+    for (size_t c = 0; c < colors; ++c) palette[c] = {pal[c * 4], pal[c * 4 + 1], pal[c * 4 + 2], pal[c * 4 + 3]};
+    if (bpp8 && colors == 256) {
+        // Paleta CSM1 do GS, como em decode_texture.
+        for (size_t base = 0; base < 256; base += 32) {
+            for (size_t k = 0; k < 8; ++k) std::swap(palette[base + 8 + k], palette[base + 16 + k]);
+        }
+    }
+    t.width = w;
+    t.height = ht;
+    t.frames = 1;
+    t.has_alpha = false;
+    t.rgba.resize(size_t(w) * size_t(ht) * 4);
+    for (int p = 0; p < w * ht; ++p) {
+        int index;
+        if (bpp8) {
+            index = px[size_t(p)];
+        } else {
+            const uint8_t byte = px[size_t(p) / 2];
+            index = (p & 1) ? (byte >> 4) : (byte & 0x0F);
+        }
+        const auto& c = size_t(index) < colors ? palette[size_t(index)] : palette[0];
+        uint8_t* dst = &t.rgba[size_t(p) * 4];
+        std::memcpy(dst, c.data(), 4);
         if (dst[3] < 0x7d) t.has_alpha = true;
     }
     return true;

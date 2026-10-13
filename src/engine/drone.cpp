@@ -260,7 +260,7 @@ float DroneInit_TakeXHits(uint32_t weapon, float hits) {
 void DroneInit_Collision(Drone_tag* drone) {
     obj_tag* obj = drone->obj;
     cel_tag* cel = obj->cel;
-    if (bots_on() || drone->enter_script != 0 || drone->zero_g != 0 || drone->klass == 0x13 || drone->type == 0x17) {
+    if (bots_on() || drone->death_script != 0 || drone->zero_g != 0 || drone->klass == 0x13 || drone->type == 0x17) {
         return;
     }
     drone->flags |= 0x80000000u;
@@ -514,7 +514,7 @@ obj_tag* NDrone2_DefaultInit(DIVars_tag* vars) {
     }
     d->unknown_f4 = d->unknown_ec + Rand_FRand(0.0f);
 
-    // Canais, grupo e script de entrada.
+    // Canais, grupo e o script da morte especial (parâmetro 13).
     d->channel_a = static_cast<uint8_t>(vars->params[3]);
     d->channel_b = static_cast<uint8_t>(vars->params[6]);
     d->param12 = static_cast<uint8_t>(vars->params[12]);
@@ -524,11 +524,11 @@ obj_tag* NDrone2_DefaultInit(DIVars_tag* vars) {
     d->channel_state = static_cast<uint16_t>(vars->params[8]);
     d->group_id = vars->params[4];
     d->param7 = vars->params[7];
-    d->enter_script = vars->params[13];
-    if (d->enter_script != 0) {
+    d->death_script = vars->params[13];
+    if (d->death_script != 0) {
         d->script_rot = obj->rot;
         d->script_pos = obj->pos;
-        if (d->enter_script != 0x600021f) d->flags |= 0x10;
+        if (d->death_script != 0x600021f) d->flags |= 0x10;
     }
 
     // Modo e capitão.
@@ -989,6 +989,33 @@ uint32_t NDrone2_ControlSTANDARD(DCVars_tag* dcv) {
     DroneFunc_HandleExplosives(dcv);
     return 1;
 }
+
+// [decomp] 0x0014b058 NDrone2_ControlDTYPE_Zoe
+// O controle da Zoe (07000008; DroneTypeSettings +8): com o canal 1 ligado, liga o canal 0x9b (e guarda o quadro); com
+// 0x9b ligado, o jogador a mais de 10 m dela fracassa a missão (DroneFunc_SetMissionFailReason 0xf: o canal 99 e o
+// rótulo da falha); depois o controle padrão. O original não devolve nada (fica o v0 do NDrone2_ControlSTANDARD).
+uint32_t NDrone2_ControlDTYPE_Zoe(DCVars_tag* dcv) {
+    if (switch_channels[1] != 0) {
+        switch_channels[0x9b] = 1;
+        switch_channels_time[0x9b] = GameState.frame;
+    }
+    if (switch_channels[0x9b] != 0 && glb_players[0] != nullptr &&
+        10.0f < Vec_Dist3D(&dcv->obj->pos, &glb_players[0]->pos)) {
+        DroneFunc_SetMissionFailReason(dcv->drone, 0xf);
+    }
+    return NDrone2_ControlSTANDARD(dcv);
+}
+
+// [decomp] 0x0014b0f8 NDrone2_ControlDTYPE_Ninja
+// Os ninjas: os olhos (NDrone2_CreateNinjaEyes, ainda stub) e o controle padrão.
+uint32_t NDrone2_ControlDTYPE_Ninja(DCVars_tag* dcv) {
+    NDrone2_CreateNinjaEyes(dcv->obj);
+    return NDrone2_ControlSTANDARD(dcv);
+}
+
+// [decomp] 0x0014b128 NDrone2_ControlDTYPE_Astronaut
+// Os astronautas (0700001b): só o controle padrão.
+uint32_t NDrone2_ControlDTYPE_Astronaut(DCVars_tag* dcv) { return NDrone2_ControlSTANDARD(dcv); }
 
 // [decomp] 0x0014aff8 NDrone2_PostDroneControl
 // Personagem ativo sem vida e ainda não morto: marca "morreu agora" (0x400).

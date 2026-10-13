@@ -6,7 +6,9 @@
 // pread, opendir), os volumes ópticos montados, o relógio monotônico e a espera, a memória virtual (mmap, mprotect) com a
 // janela da arena de 64 bits (a imagem do executável e as regiões livres depois dela: mach_vm_region no macOS,
 // /proc/self/maps no Linux), a trava da arena, o console e o fim do processo. O que pede a janela (a caixa de erro do
-// NSAlert, o caractere de uma tecla no layout do usuário) fica para quando houver janela: aqui o stderr e 0.
+// NSAlert, o caractere de uma tecla no layout do usuário, o estado do teclado) vem do os_macos.mm no programa de janela
+// do macOS (NF_MACOS_APP); no Linux e na build headless, o stderr, 0 e nenhuma tecla. A pasta dos arquivos do jogador
+// (user_files_dir) é ~/Library/Application Support/<app>/ no macOS e a do executável no Linux.
 //
 // A arena chama image_end, vm_largest_free, vm_reserve_at e vm_commit de dentro do operator new (a primeira alocação do
 // programa, antes dos construtores estáticos): essas funções não alocam (nada de std::string, std::vector ou fopen).
@@ -43,6 +45,7 @@
 #include <mntent.h>
 #endif
 
+#include "platform/crash_report.h"
 #include "platform/ptr32.h"
 
 namespace nf::os {
@@ -137,6 +140,10 @@ std::wstring exe_path() {
 #endif
 }
 
+// O pacote .app do executável (o exe_path já vem sem links simbólicos). Só as contas do caminho: no Linux um executável
+// nunca fica num lugar assim, e dá vazio.
+std::wstring bundle_dir() { return bundle_of_exe(exe_path()); }
+
 std::wstring current_dir() {
     char buf[4096];
     if (getcwd(buf, sizeof(buf)) == nullptr) return {};
@@ -161,6 +168,24 @@ std::wstring local_data_dir() {
     const char* home = std::getenv("HOME");
     if (home == nullptr || *home == 0) return {};
     return from_utf8(std::string(home) + "/.local/share");
+#endif
+}
+
+std::wstring user_files_dir(const wchar_t* app) {
+#if defined(__APPLE__)
+    // ~/Library/Application Support/<app>/ (o executável fica dentro do pacote .app: ali não se grava). A pasta de
+    // cima existe em toda conta; a do jogo é criada aqui.
+    const std::wstring base = local_data_dir();
+    if (base.empty()) return {};
+    std::wstring dir = base + L'/' + app;
+    mkdir(narrow(dir).c_str(), 0755);
+    return dir + L'/';
+#else
+    // Linux: ao lado do executável, como no Windows.
+    (void)app;
+    std::wstring dir = exe_path();
+    const size_t slash = dir.find_last_of(L'/');
+    return slash == std::wstring::npos ? std::wstring() : dir.substr(0, slash + 1);
 #endif
 }
 
@@ -306,18 +331,28 @@ QuietDriveErrors::~QuietDriveErrors() = default;
 
 // ---------------------------------------------------------------- leitores de CD/DVD
 
-// Os volumes montados com o sistema de arquivos de um CD/DVD (ISO 9660 ou UDF), como raízes com a barra no fim.
+// Os volumes montados com o sistema de arquivos de um CD/DVD (ISO 9660 ou UDF), como raízes com a barra no fim. No
+// macOS também os volumes locais de /Volumes com um disco de PS2 na raiz (SYSTEM.CNF): uma imagem montada pelo Finder ou
+// pelo Utilitário de Disco (.iso, .cdr, .dmg) e um disco externo com os arquivos extraídos aparecem como o leitor do
+// Windows. Só a tabela de montagem (getmntinfo com MNT_NOWAIT, sem tocar nos volumes) e só os locais: um volume de rede
+// que caiu travaria o stat do SYSTEM.CNF.
 std::vector<std::wstring> optical_drives() {
     std::vector<std::wstring> out;
 #if defined(__APPLE__)
     struct statfs* mounts = nullptr;
     const int n = getmntinfo(&mounts, MNT_NOWAIT);
+    std::vector<std::wstring> local;
     for (int i = 0; i < n; ++i) {
+        std::wstring root = from_utf8(mounts[i].f_mntonname);
+        if (root.empty() || root.back() != L'/') root += L'/';
         if (std::strcmp(mounts[i].f_fstypename, "cd9660") == 0 || std::strcmp(mounts[i].f_fstypename, "udf") == 0) {
-            std::wstring root = from_utf8(mounts[i].f_mntonname);
-            if (root.empty() || root.back() != L'/') root += L'/';
             out.push_back(root);
+        } else if ((mounts[i].f_flags & MNT_LOCAL) != 0 && std::strncmp(mounts[i].f_mntonname, "/Volumes/", 9) == 0) {
+            local.push_back(root);
         }
+    }
+    for (const std::wstring& root : roots_with(local, L"SYSTEM.CNF")) {
+        if (std::find(out.begin(), out.end(), root) == out.end()) out.push_back(root);
     }
 #elif defined(__linux__)
     FILE* f = setmntent("/proc/mounts", "r");
@@ -345,13 +380,15 @@ bool is_optical_drive(const std::wstring& root) {
 
 // ---------------------------------------------------------------- teclado
 
-// O layout do teclado do usuário vem com a janela (UCKeyTranslate no macOS, etapa 3c): por enquanto nenhum caractere,
-// como no backend nulo (a tabela de teclas usa os nomes dela).
+// No programa de janela do macOS (NF_MACOS_APP: a build sem NF_HEADLESS) o caractere de uma tecla no layout do usuário
+// (UCKeyTranslate) e o estado do teclado do sistema vêm de os_macos.mm, com a caixa de erro do NSAlert. Aqui (o Linux e
+// a build headless) nenhum caractere, como no backend nulo (a tabela de teclas usa os nomes dela), e nenhuma tecla segura
+// (o Shift da partida não traz a tela de entrada).
+#if !defined(NF_MACOS_APP)
 uint32_t key_char(int) { return 0; }
 
-// O estado do teclado do sistema também vem com a janela (CGEventSourceKeyState no macOS, etapa 3c): por enquanto
-// nenhuma tecla segura, como no backend nulo (o Shift da partida não traz a tela de entrada).
 bool key_held(int) { return false; }
+#endif
 
 // ---------------------------------------------------------------- relógio
 
@@ -605,15 +642,19 @@ void console_write_w(const std::wstring& text) { console_write(to_utf8(text)); }
 // Um programa de console aqui sempre tem a saída do terminal que o abriu.
 void attach_parent_console() {}
 
-// A caixa de erro do sistema pede a janela (NSAlert, etapa 3c): por enquanto o stderr.
+// A caixa de erro: no programa de janela do macOS o NSAlert (os_macos.mm); aqui o stderr.
+#if !defined(NF_MACOS_APP)
 void show_error(const std::wstring& title, const std::wstring& text) {
     std::fprintf(stderr, "%s: %s\n", to_utf8(title).c_str(), to_utf8(text).c_str());
 }
 
 void show_error_narrow(const char* title, const char* text) { std::fprintf(stderr, "%s: %s\n", title, text); }
+#endif
 
 void exit_process(int code) {
     std::fflush(nullptr);
+    // O registro do programa de janela do macOS recebe o que ainda está no caminho (platform/crash_report.h).
+    nf::crash_report_flush();
     _exit(code);
 }
 

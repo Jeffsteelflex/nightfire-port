@@ -5367,10 +5367,10 @@ uint32_t die_now(DCVars_tag* dcv) {
 }  // namespace
 
 // [decomp] 0x00147188 DroneFunc_RecoverTime
-// Quanto tempo (quadros) o personagem fica atordoado pelo acerto: pela arma do projétil (dardo 0x35
-// meio segundo... 0x44 dois minutos; outras armas e acertos sem projétil, um minuto), menos pela
-// resistência (stats[5]: 200 - resistência por cento). Peculiaridade mantida: o original não devolve o
-// valor (os chamadores leem o registrador); aqui ele é devolvido.
+// Quanto tempo (quadros) o personagem fica atordoado pelo acerto: pela arma do projétil (FRAME_RATE_INT
+// vezes os segundos: 0x35 trinta, 0x43 um minuto, 0x44 dois minutos, 0x4a/0x4c dez; outras armas e acertos sem
+// projétil, um minuto), menos pela resistência (stats[5]: 200 - resistência por cento). Peculiaridade mantida: o
+// original não devolve o valor (os chamadores leem o registrador); aqui ele é devolvido.
 uint32_t DroneFunc_RecoverTime(DCVars_tag* dcv, HITDATA_tag* hit) {
     Drone_tag* d = dcv->drone;
     float t = float(FRAME_RATE_INT) * 60.0f;
@@ -5560,7 +5560,7 @@ uint32_t NDrone2_DSTATE_Knocked_Out(DCVars_tag* dcv, Drone_tag*, obj_tag*, MsgOb
 }
 
 // [decomp] 0x00163c68 NDrone2_DSTATE_SpecialDeath_Anim
-// Morte com script de entrada (parâmetro 13): perto do lugar e da direção do script, toca-o (fim em 0x47,
+// Morte com o script da morte (parâmetro 13): perto do lugar e da direção do script, toca-o (fim em 0x47,
 // 0xf para o tipo 5) escorregando para o lugar; senão a morte comum (0x44). O script 0600021f (07000007)
 // só vale longe do jogador e toca um som no fim.
 uint32_t NDrone2_DSTATE_SpecialDeath_Anim(DCVars_tag* dcv, Drone_tag* drone, obj_tag* obj, MsgObject* msg) {
@@ -5569,19 +5569,19 @@ uint32_t NDrone2_DSTATE_SpecialDeath_Anim(DCVars_tag* dcv, Drone_tag* drone, obj
             obj->flags |= 0x20;
             Drone_AlertStatusSet(3, dcv);
             bool try_script = true;
-            if (drone->enter_script == 0x600021f) {
+            if (drone->death_script == 0x600021f) {
                 obj_tag* player = NDrone2_Player();
                 try_script = player != nullptr && 2.0f <= Vec_Dist3D(&dcv->obj->pos, &player->pos);
                 if (player == nullptr) ++g_drone_combat_guards;  // port: o original leria o endereço 0
             }
             if (try_script && Vec_Dist2D(&dcv->obj->pos, &dcv->drone->script_pos) < 1.0f &&
                 std::fabs(Vec_AngleDifference(dcv->drone->script_rot.y, dcv->obj->rot.y)) < kHalfPi &&
-                dcv->drone->enter_script != 0) {
+                dcv->drone->death_script != 0) {
                 DroneFunc_OnInitDeath(dcv);
                 DroneFunc_SetDeathChannel(drone);
                 drone->flags &= 0x7fffffff;
                 dcv->drone->move_angles = dcv->drone->script_rot;
-                DroneAnim_SetScript(dcv->drone->enter_script, 0x40, 0, 0, 0, 5, 0, dcv);
+                DroneAnim_SetScript(dcv->drone->death_script, 0x40, 0, 0, 0, 5, 0, dcv);
                 drone->scripted_move = 1;
                 drone->end_state = dcv->drone->type == 5 ? 0xf : 0x47;
                 drone->end_msg = 5;
@@ -5592,8 +5592,8 @@ uint32_t NDrone2_DSTATE_SpecialDeath_Anim(DCVars_tag* dcv, Drone_tag* drone, obj
                 set_timer1(dcv->drone, frame_plus(60.0f));
                 return 1;
             }
-            if (drone->enter_script == 0x600021f) drone->param12 = 0;
-            drone->enter_script = 0;
+            if (drone->death_script == 0x600021f) drone->param12 = 0;
+            drone->death_script = 0;
             return set_state(dcv, 0x44);
         }
         case 3:
@@ -5601,7 +5601,7 @@ uint32_t NDrone2_DSTATE_SpecialDeath_Anim(DCVars_tag* dcv, Drone_tag* drone, obj
             if (drone->firing == 0 || drone->subclass == 4 || drone->subclass == 9) DroneWeap_DropWeapon(dcv);
             return 1;
         case 5:
-            if (drone->enter_script == 0x600021f && glb_players[0] != nullptr) {
+            if (drone->death_script == 0x600021f && glb_players[0] != nullptr) {
                 Sound_Play3D(0x148, &glb_players[0]->pos, 100.0f, -1.0f, -1.0f, 0, 0, 0);
             }
             if (dcv->drone->type == 5) return set_state(dcv, 0xf);
@@ -6016,8 +6016,8 @@ uint32_t NDrone2_DSTATE_Surrender_Anim(DCVars_tag* dcv, Drone_tag* drone, obj_ta
             dcv->drone->timer1_data = 1;
             dcv->drone->timer1_on = 1;
             PlrStat_LogEnemySurrender(0);
-            if (drone->enter_script == 0x600021f) {
-                drone->enter_script = 0;
+            if (drone->death_script == 0x600021f) {
+                drone->death_script = 0;
                 drone->param12 = 0;
             }
             return 1;
@@ -7630,7 +7630,7 @@ uint32_t NDrone2_DSTATE_HostageKiller(DCVars_tag* dcv, Drone_tag*, obj_tag*, Msg
 // [decomp] 0x0015c940 NDrone2_DSTATE_HostageKillerAttack
 // 9: com o refém vivo, encara-o (NDrone2_SetupHostageExecute) e 1 s depois (mensagem 10) começa a
 // execução (0x58), que termina na mensagem 5 como em 8. Sem refém vivo, ataca (sem a flag 0x10 se veio
-// do estado 1 ou não tem script de entrada).
+// do estado 1 ou não tem o script da morte, parâmetro 13).
 uint32_t NDrone2_DSTATE_HostageKillerAttack(DCVars_tag* dcv, Drone_tag*, obj_tag*, MsgObject* msg) {
     uint32_t ret = 0;
     switch (msg->msg) {
@@ -7646,7 +7646,7 @@ uint32_t NDrone2_DSTATE_HostageKillerAttack(DCVars_tag* dcv, Drone_tag*, obj_tag
                 DroneAnim_CallAnim(0.0f, 9, 0, 0, 0, 0, dcv);
                 return 1;
             }
-            if (dcv->sm->state == 1 || d->enter_script == 0) d->flags &= ~0x10u;
+            if (dcv->sm->state == 1 || d->death_script == 0) d->flags &= ~0x10u;
             return set_state(dcv, 0x56);
         }
         case 3:
@@ -7657,7 +7657,7 @@ uint32_t NDrone2_DSTATE_HostageKillerAttack(DCVars_tag* dcv, Drone_tag*, obj_tag
         case 10: {
             Drone_tag* d = dcv->drone;
             if (d->unknown_2b0 != nullptr) {
-                if (d->enter_script == 0) d->flags &= ~0x10u;
+                if (d->death_script == 0) d->flags &= ~0x10u;
                 DroneAnim_CallAnim(0.0f, 0x58, 0, 0, 5, 0, dcv);
             }
             return 1;

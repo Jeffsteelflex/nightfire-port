@@ -23,6 +23,8 @@
 #include "driving/eagl_loader.h"
 #include "driving/eagl_state.h"
 #include "driving/mat_car.h"
+#include "driving/carp_runtime.h"
+#include "driving/mat_bond.h"
 #include "driving/mat_car_verify.h"
 #include "driving/shps.h"
 
@@ -45,17 +47,24 @@ struct CarDraw {
     std::string method;
     int passes = kPassBase;  // máscara de CarPass (as passadas que o microprograma chuta)
     bool fallback = false;   // um método fora da família (ver CarModel::load): só a passada base, com luz da família
+    int family = 0;          // 0 a família MatCar (vértices em vertices()), 1 a MatBond do mundo (bond_vertices();
+                             // passadas: bit 0 a textura, bit 1 o ambiente, pass[0]/pass[1])
     int part = 0;            // o índice do modelo (a peça)
     uint32_t first_index = 0, index_count = 0;
     float props[4] = {};
-    eagl::GsRegs pass[3];
-    int texture[3] = {-1, -1, -1};  // pelo TBP0 de cada passada
+    eagl::GsRegs pass[kCarMaxPasses];
+    int texture[kCarMaxPasses] = {-1, -1, -1, -1};  // pelo TBP0 de cada passada
+    const CarMethodLayout* layout = nullptr;  // o leiaute da família (nulo no substituto e na MatBond): o que cada
+                                              // passada calcula (car_pass_stq, car_pass_alpha) e o vidro
+    float switch_data[4] = {}, switch_param[4] = {};  // as luzes (MatCarTextureSwitchPacked)
 };
 
 struct CarPart {
     std::string name;  // "vanquish::{as  0000}::Model[0].00"
+    uint32_t address = 0;  // o endereço (p32) do __Model (o que as referências resolvidas do CARP apontam)
     int groups = 0, geoprims = 0;
     uint32_t first_vertex = 0, vertex_count = 0;
+    uint32_t first_bond_vertex = 0, bond_vertex_count = 0;
     float bbox_min[3] = {0, 0, 0}, bbox_max[3] = {0, 0, 0};  // no espaço do modelo (sem a matriz da peça)
 };
 
@@ -93,12 +102,31 @@ public:
     // da missão ("MIS01.VIV"); `name` = o carro ("vanquish").
     bool load(const std::string& root, const std::string& viv, const std::string& name, std::string& error);
     bool load(const nf::DiscSource& disc, const std::string& viv, const std::string& name, std::string& error);
+    // O mesmo com o CARP e as texturas pelo caminho no arquivo da missão (`crp_key`, `ssh_keys`; o common.ssh e o
+    // ext.ssh vêm sempre); `name` é o nome das propriedades de luz ("{vanquish}" do CarRender default.tun).
+    bool load_carp(const nf::DiscSource& disc, const std::string& viv, const std::string& crp_key,
+                   const std::vector<std::string>& ssh_keys, const std::string& name, std::string& error);
     // Antes do load: cada lote da família também roda no interpretador da VU1 e é comparado (mat_car_verify.h).
     void set_verify(bool on) { verify_ = on; }
     const CarVerifyStats& verify_stats() const { return verify_stats_; }
+    // A família MatBond (mat_bond.h) conferida à parte.
+    const CarVerifyStats& bond_verify_stats() const { return bond_verify_stats_; }
+    // Antes do load: o CARP é desserializado e resolvido como o RCARPFile::Resolve faz (carp_runtime.h): os símbolos
+    // "CARP", "EAGL" e "CHAR", depois as referências por etiqueta, antes do Resolve do modelo. As pistas precisam disso
+    // (as instâncias do mundo apontam os artigos e os LODs); o carro do protótipo não (lê o CARP sem mexer).
+    void set_resolve_carp(bool on) { resolve_carp_ = on; }
+    // O CARP na memória (depois do load com set_resolve_carp: desserializado e resolvido) e os símbolos que ficaram
+    // nulos por espaço de nomes.
+    UGroup* carp_root() const;
+    const std::map<std::string, int>& carp_misses() const { return carp_misses_; }
+    // A peça cujo __Model fica no endereço (p32) `model`; -1 se nenhuma.
+    int part_of_model(uint32_t model) const;
 
     const std::vector<CarGpuVertex>& vertices() const { return vertices_; }
     const std::vector<uint32_t>& indices() const { return indices_; }
+    // Os vértices e índices da família MatBond (os desenhos com family = 1).
+    const std::vector<BondVertexWork>& bond_vertices() const { return bond_vertices_; }
+    const std::vector<uint32_t>& bond_indices() const { return bond_indices_; }
     const std::vector<CarDraw>& draws() const { return draws_; }
     const std::vector<CarTexture>& textures() const { return textures_; }
     const std::vector<CarPart>& parts() const { return parts_; }
@@ -124,6 +152,8 @@ private:
     std::unique_ptr<Impl> impl_;
     std::vector<CarGpuVertex> vertices_;
     std::vector<uint32_t> indices_;
+    std::vector<BondVertexWork> bond_vertices_;
+    std::vector<uint32_t> bond_indices_;
     std::vector<CarDraw> draws_;
     std::vector<CarTexture> textures_;
     std::vector<CarPart> parts_;
@@ -135,6 +165,10 @@ private:
     CarConstants constants_;
     bool verify_ = false;
     CarVerifyStats verify_stats_;
+    CarVerifyStats bond_verify_stats_;
+    bool resolve_carp_ = false;
+    std::map<std::string, int> carp_misses_;
+    std::map<uint32_t, int> part_by_model_;
 };
 
 // As propriedades de luz de um carro pela tabela de ajuste (as linhas "chave{carro}=valor"); `out` tem 7 COORD4: os

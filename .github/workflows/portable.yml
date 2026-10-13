@@ -1,10 +1,19 @@
-# A build headless fora do Windows (etapa 3a do macOS; docs/port.md, "macOS: compilação e CI"): o código neutro, o
-# nf_tests e as ferramentas de conferência com o backend POSIX do sistema operacional (a arena e a pilha do jogo de
-# verdade) e os nulos no resto. Nenhum dado do jogo entra aqui (nem segredos, nem artefatos tirados do disco): o cache
-# guarda só os objetos compilados do código (ccache).
+# As builds fora do Windows (etapas 3a, 3c e 3d do macOS; docs/port.md, "macOS: compilação e CI", "macOS: os backends",
+# "macOS: o renderizador Metal" e "macOS: o desenho vetorial"): no Linux a build headless (o código neutro, o nf_tests e as
+# ferramentas de conferência com o backend POSIX do sistema operacional, a arena e a pilha do jogo de verdade, os nulos no
+# resto; e o laço do nightfire e o teste de conformidade do renderizador só compilados, nf_app_check e nf_render_check);
+# no macOS a build inteira, com os backends do macOS (a janela, a entrada, os controles, o som, as imagens, o renderizador
+# Metal, o desenho vetorial) e o nightfire, a comparação do desenho vetorial com as referências do Direct2D, o teste de
+# conformidade do Metal contra as imagens do Direct3D 11 (as imagens dos dois vão como artefato: são sintéticas) e um
+# teste de fumaça da janela quando o runner tem a sessão gráfica. Desde a etapa 4 (docs/port.md, "macOS: o pacote e a
+# instalação") o macOS compila universal (arm64 e x86_64; a metade x86_64 roda o nf_tests, a conformidade e a tela de
+# entrada pelo Rosetta) e monta o zip para os jogadores: o "Nightfire PC.app" assinado ad hoc, o guia (README.txt) e o
+# LICENSES.txt, que sobe como o artefato nightfire-pc-macos (nunca como release). Nenhum dado do jogo entra aqui (nem
+# segredos, nem artefatos tirados do disco): o cache guarda só os objetos compilados do código (ccache).
 #
-# Quando roda: um push no ramo ci/portable, ou à mão (workflow_dispatch, depois que este arquivo estiver no main). Nunca
-# a cada push no main. Um push novo no mesmo ramo cancela a rodada em andamento.
+# Quando roda: um push no ramo ci/portable ou num ramo ci/portable-<nome> (um por frente de trabalho em paralelo: as
+# rodadas de ramos diferentes não se cancelam), ou à mão (workflow_dispatch, depois que este arquivo estiver no main).
+# Nunca a cada push no main. Um push novo no mesmo ramo cancela a rodada em andamento.
 #
 # Os minutos: no repositório privado o Linux conta 1x e o macOS 10x (e o plano gratuito tem poucos minutos de macOS).
 # Por isso o Linux vem primeiro (GCC e clang: a maior parte dos problemas de portabilidade aparece ali), e o macOS só
@@ -15,7 +24,7 @@ name: portable
 
 on:
   push:
-    branches: ['ci/portable']
+    branches: ['ci/portable', 'ci/portable-*']
   workflow_dispatch:
     inputs:
       macos:
@@ -87,13 +96,17 @@ jobs:
         run: python3 tools/check_platform.py
 
   macos:
-    name: macOS 14 arm64 (Apple clang)
+    name: macOS 14 (Apple clang, universal arm64 + x86_64, backends do macOS, o pacote)
     needs: linux
     if: github.event_name != 'workflow_dispatch' || inputs.macos
     runs-on: macos-14
-    timeout-minutes: 40
+    # Curto de propósito: cada minuto de macOS conta 10 (uma rodada inteira leva uns 3 minutos).
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # O histórico e as etiquetas: a versão do pacote vem do git describe (vX.Y mais os commits depois dela).
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -108,6 +121,15 @@ jobs:
           xcrun clang++ --version | head -n 1
           cmake --version | head -n 1
           ninja --version
+          ccache --version | head -n 1
+          # O Rosetta 2: a metade x86_64 do binário universal roda por ele neste mesmo runner (um runner Intel seria outro
+          # job, com outra compilação).
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            echo "Rosetta: presente"
+          else
+            sudo softwareupdate --install-rosetta --agree-to-license
+            arch -x86_64 /usr/bin/true && echo "Rosetta: instalado"
+          fi
       - name: Metal no runner
         run: |
           xcrun clang -fobjc-arc -framework Foundation -framework Metal tools/ci/metal_probe.m -o "$RUNNER_TEMP/metal_probe"
@@ -115,30 +137,182 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
-          key: ccache-macos-${{ github.sha }}
-          restore-keys: ccache-macos-
+          key: ccache-macos-universal-${{ github.sha }}
+          restore-keys: ccache-macos-universal-
       - name: Configurar
+        # Sem NF_HEADLESS: os backends do macOS (*_macos.mm), o renderizador Metal (*_metal.mm), o pacote "Nightfire
+        # PC.app" e tudo o mais, universal (o CMakeLists.txt pede arm64 e x86_64 por padrão no macOS).
         run: >-
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNF_HEADLESS=ON
-          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache
       - name: Compilar
         run: |
           cmake --build build --parallel "$(sysctl -n hw.ncpu)" -- -k 0
           ccache --show-stats | head -n 12
+          lipo -info "build/Nightfire PC.app/Contents/MacOS/Nightfire PC" build/nf_tests
       - uses: actions/cache/save@v4
         if: always()
         with:
           path: ~/.ccache
-          key: ccache-macos-${{ github.sha }}
-      - name: nf_tests
+          key: ccache-macos-universal-${{ github.sha }}
+      - name: nf_tests (arm64)
         run: |
           set +e
           ./build/nf_tests 2>&1 | tee nf_tests.txt
           rc=${PIPESTATUS[0]}
           if [ "$rc" -ne 0 ]; then python tools/ci/symbolize.py nf_tests.txt build/nf_tests; fi
           exit "$rc"
+      - name: nf_tests (x86_64 pelo Rosetta)
+        if: always()
+        run: |
+          set +e
+          arch -x86_64 ./build/nf_tests 2>&1 | tee nf_tests_x86_64.txt
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then python tools/ci/symbolize.py nf_tests_x86_64.txt build/nf_tests; fi
+          exit "$rc"
       - name: Separação da plataforma
         run: python tools/check_platform.py
+      - name: O desenho vetorial (CoreGraphics e CoreText contra as referências do Direct2D)
+        # Os casos sintéticos de tests/vector_cases.h desenhados pelo backend do macOS (render/ui_vector_cg.mm) e
+        # comparados com as imagens que o Direct2D desenhou no Windows (tests/data/vector): a diferença média, as caixas
+        # da tinta de cada texto e de cada SVG, as larguras do measure e o tempo de CPU de uma tela cheia. As imagens do
+        # macOS e as diferenças vão como artefato (sintéticas: nada do jogo).
+        run: |
+          set +e
+          ./build/nf_vector_check --hd-ui hd_ui --compare tests/data/vector --out "$RUNNER_TEMP/vetor" --bench --strict 2>&1 | tee vetor.txt
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -gt 1 ]; then python tools/ci/symbolize.py vetor.txt build/nf_vector_check; fi
+          exit "$rc"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desenho-vetorial-macos
+          path: ${{ runner.temp }}/vetor
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Conformidade do renderizador Metal (cenas sintéticas contra as do Direct3D 11)
+        # tests/render_conformance.cpp: cada cena desenhada pelo Metal (fora da tela, e uma numa janela de verdade com o
+        # drawable) e comparada com a referência do Direct3D 11 em tests/data/render (PSNR, erro máximo e médio). As
+        # imagens do Metal, as diferenças e o relatório vão como artefato. Com a validação da API do Metal ligada (um uso
+        # errado para o programa com a mensagem). Depois a metade x86_64 pelo Rosetta (a mesma GPU, sem a validação).
+        if: always()
+        env:
+          MTL_DEBUG_LAYER: '1'
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/render" "$RUNNER_TEMP/render/x86_64"
+          ./build/nf_render_check --out "$RUNNER_TEMP/render" --compare tests/data/render --janela 2>&1 | tee render.txt
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -gt 1 ]; then python tools/ci/symbolize.py render.txt build/nf_render_check; exit "$rc"; fi
+          MTL_DEBUG_LAYER=0 arch -x86_64 ./build/nf_render_check --out "$RUNNER_TEMP/render/x86_64" --compare tests/data/render 2>&1 | tee render_x86_64.txt
+          rc2=${PIPESTATUS[0]}
+          if [ "$rc2" -gt 1 ]; then python tools/ci/symbolize.py render_x86_64.txt build/nf_render_check; fi
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          exit "$rc2"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: render-metal
+          path: ${{ runner.temp }}/render
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: A janela e o nightfire (fumaça, sem dados do jogo)
+        # O nf_window_smoke abre a janela pelo laço do NSApplication, bombeia os eventos, passa pela tela cheia e fecha;
+        # sem a sessão gráfica (o WindowServer) ele sai com 77 e o resto é pulado. Depois o nightfire de verdade (o
+        # executável de dentro do "Nightfire PC.app"), sem disco: a tela de entrada numa captura (pelo Metal; o .txt diz o
+        # estado da tela e o monitor), nas duas arquiteturas, e a lista dos adaptadores.
+        run: |
+          set +e
+          limited() {  # limited <segundos> <comando...>: o comando morre se passar do tempo (os minutos de macOS)
+            local t=$1; shift
+            "$@" & local pid=$!
+            for ((i = 0; i < t * 10; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+            if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid"; echo "passou de ${t} s: $*"; return 124; fi
+            wait "$pid"
+          }
+          EXE="build/Nightfire PC.app/Contents/MacOS/Nightfire PC"
+          limited 60 ./build/nf_window_smoke 2>&1 | tee smoke.txt
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -eq 77 ]; then echo "sem sessão gráfica: a janela não foi testada"; exit 0; fi
+          if [ "$rc" -ne 0 ]; then python tools/ci/symbolize.py smoke.txt build/nf_window_smoke; exit "$rc"; fi
+          mkdir -p "$RUNNER_TEMP/pacote"
+          for a in arm64 x86_64; do
+            limited 60 arch -$a "$EXE" --setup --config "$RUNNER_TEMP/l.ini" --save-dir "$RUNNER_TEMP/saves" --wait 0.5 \
+              --screenshot "$RUNNER_TEMP/pacote/launcher_build_$a.png" 2>&1 | tee app_$a.txt
+            rc=${PIPESTATUS[0]}
+            if [ "$rc" -ne 0 ]; then python tools/ci/symbolize.py app_$a.txt "$EXE"; exit "$rc"; fi
+            ls -l "$RUNNER_TEMP/pacote/launcher_build_$a.png"
+          done
+          cat "$RUNNER_TEMP/pacote/launcher_build_arm64.png.txt"
+          # As duas metades desenham o 2D vetorial na CPU (o CoreGraphics de cada arquitetura): a diferença, se houver.
+          cmp "$RUNNER_TEMP/pacote/launcher_build_arm64.png" "$RUNNER_TEMP/pacote/launcher_build_x86_64.png" \
+            && echo "a tela de entrada: arm64 e x86_64 iguais" \
+            || python tools/pngdiff.py "$RUNNER_TEMP/pacote/launcher_build_arm64.png" "$RUNNER_TEMP/pacote/launcher_build_x86_64.png"
+          limited 60 "$EXE" --list-adapters --adapter integrated
+      - name: O pacote e o zip (assinatura ad hoc, o guia; nada do jogo)
+        # tools/make_release_mac.py: o "Nightfire PC.app" universal com o executável sem a tabela de depuração (o dSYM à
+        # parte), assinado ad hoc e conferido, o README.txt do Mac e o LICENSES.txt, a regra do zip do Windows (nada do
+        # disco, nenhum nome de conta, nenhuma pasta de usuário) e o ditto. Depois o zip é aberto noutra pasta e o
+        # aplicativo de dentro dele roda pelo LaunchServices (open, como um duplo clique, a pasta atual "/": o hd_ui só
+        # vem de Contents/Resources) e pelo Rosetta, e o nightfire.log é conferido. O zip sobe como artefato da CI (nunca
+        # como release).
+        run: |
+          set +e
+          limited() {
+            local t=$1; shift
+            "$@" & local pid=$!
+            for ((i = 0; i < t * 10; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+            if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid"; echo "passou de ${t} s: $*"; return 124; fi
+            wait "$pid"
+          }
+          python tools/make_release_mac.py --app "build/Nightfire PC.app" --out "$RUNNER_TEMP/release" --dsym "$RUNNER_TEMP/dsym" || exit 1
+          ZIP=$(ls "$RUNNER_TEMP"/release/Nightfire-PC-mac-*.zip)
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          rm -rf "$RUNNER_TEMP/unzip" && mkdir -p "$RUNNER_TEMP/unzip"
+          ditto -x -k "$ZIP" "$RUNNER_TEMP/unzip"
+          APP="$RUNNER_TEMP/unzip/Nightfire PC/Nightfire PC.app"
+          ls -la "$RUNNER_TEMP/unzip/Nightfire PC"
+          codesign --verify --deep --strict --verbose=2 "$APP" || exit 1
+          lipo -archs "$APP/Contents/MacOS/Nightfire PC"
+          iconutil -c iconset "$APP/Contents/Resources/nightfire.icns" -o "$RUNNER_TEMP/icon.iconset" && ls "$RUNNER_TEMP/icon.iconset"
+          LOGDIR="$HOME/Library/Application Support/Nightfire PC"
+          # Como um duplo clique: o LaunchServices abre o aplicativo (a saída vai para o /dev/null; o registro fica).
+          open -W -n "$APP" --args --setup --config "$RUNNER_TEMP/l.ini" --save-dir "$RUNNER_TEMP/saves" --wait 0.5 \
+            --screenshot "$RUNNER_TEMP/pacote/launcher_zip_open.png" &
+          pid=$!
+          for ((i = 0; i < 600; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+          if kill -0 "$pid" 2>/dev/null; then echo "o aplicativo não terminou em 60 s"; pkill -9 -f "Nightfire PC"; exit 1; fi
+          echo "---- nightfire.log (open)"
+          cat "$LOGDIR/nightfire.log"
+          grep -q "^Nightfire PC " "$LOGDIR/nightfire.log" || { echo "o registro não tem o cabeçalho"; exit 1; }
+          grep -q "^---- end (exit code 0)" "$LOGDIR/nightfire.log" || { echo "o registro não fechou"; exit 1; }
+          # O de dentro do zip pelo Rosetta (a metade x86_64 assinada).
+          limited 60 arch -x86_64 "$APP/Contents/MacOS/Nightfire PC" --setup --config "$RUNNER_TEMP/l.ini" \
+            --save-dir "$RUNNER_TEMP/saves" --wait 0.5 --screenshot "$RUNNER_TEMP/pacote/launcher_zip_x86_64.png" || exit 1
+          echo "---- nightfire.log (x86_64)"
+          head -n 12 "$LOGDIR/nightfire.log"
+          ls -l "$LOGDIR"
+          for f in launcher_zip_open launcher_zip_x86_64; do
+            cmp "$RUNNER_TEMP/pacote/launcher_build_arm64.png" "$RUNNER_TEMP/pacote/$f.png" \
+              && echo "$f: igual à da build" || echo "$f: DIFERENTE da da build"
+          done
+          ls -l "$ZIP"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightfire-pc-macos
+          path: ${{ env.ZIP }}
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightfire-pc-macos-dsym-e-capturas
+          path: |
+            ${{ runner.temp }}/dsym
+            ${{ runner.temp }}/pacote
+          retention-days: 14
+          if-no-files-found: ignore
       - name: Autotestes das ferramentas Python (sem dados do jogo)
         run: |
           python tools/vudis.py --test
@@ -149,3 +323,4 @@ jobs:
           python tools/movies.py test
           python tools/sound.py test
           python tools/pcsx2_pine.py test
+          python tools/cxbx_names.py test

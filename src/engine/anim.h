@@ -361,7 +361,7 @@ extern uint32_t g_anim_face_guards;
 // Chamadas pelo módulo e ainda não portadas (stubs em modules_stubs.cpp).
 void SFXPreCache(uint32_t sound, int32_t frames);  // platform/psi_sound.h
 void Sound_SetAlertness(uint32_t handle, float level);
-void View_DrawGlist(celglist_tag* glist, _VECTOR* pos, _VECTOR* rot, _VECTOR* scale, uint32_t created);
+void View_DrawGlist(celglist_tag* glist, _VECTOR* pos, _VECTOR* rot, _VECTOR* scale, uint32_t created);  // view.cpp
 
 // ---- conjuntos ----
 void AnimSetDeleteAll(obj_tag* obj);

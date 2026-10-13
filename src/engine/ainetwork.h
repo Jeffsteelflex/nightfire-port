@@ -521,6 +521,8 @@ int16_t NDrone2_NearestNode(CelPos_tag* pos, AIPath_tag* path, obj_tag* obj);
 bool NDrone2_DistanceToEmitter(CelPos_tag* pos, AIPath_tag* path, uint16_t* node, AIEmitter_tag* em, obj_tag* obj,
                                float* dist);
 obj_tag* NDrone2_Player();
+// Por tick (Drone_InitComms): NPCGlobals.player_target segue os pés do jogador (AINetwork_BuildAITarget).
+void NDrone2_NavNodeCache();
 uint32_t NDrone2_DroneNearPos(_VECTOR* pos, float radius, obj_tag* except);
 
 // ---- visão (drone_vision.cpp; declarada aqui porque a rede não inclui drone.h) ----

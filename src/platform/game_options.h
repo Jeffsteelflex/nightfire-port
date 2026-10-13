@@ -17,7 +17,10 @@
 //  1. Na partida (psiInput_Init, de Input_Init no bootup_bootup) as chaves que o .ini tem valem por cima dos padrões
 //     do PS2 (o estilo, a inversão e a vibração sempre, como antes: o ControlsConfig tem padrões próprios).
 //  2. Um codinome do cartão lido (LS_LoadPlrSettings, LS_LoadGlobalSettings) põe as opções dele, como no jogo, e o
-//     .ini não muda (game_options_rebase).
+//     .ini não muda (game_options_rebase). Exceção do PC: os volumes da música e dos efeitos são da máquina (as caixas
+//     de som e os fones são do computador, não do codinome): quando o .ini os conhece, eles valem também por cima dos
+//     do codinome (game_options_codename_loaded). Antes, abaixar o volume nas opções e escolher um codinome gravado
+//     voltava o volume ao do codinome (relato do usuário, 2026-10-12).
 //  3. Os perfis padrão ("New Codename", "Play without saving", "Default": Menu_MapDefaultCodename; e as legendas que
 //     Menu_WillRunMiniMission desliga na versão americana) pegam as opções que o .ini tem por cima das de
 //     def_codename (game_options_default_profile): no PC o .ini faz o papel do perfil padrão que o PS2 perde ao
@@ -87,6 +90,9 @@ void save_game_options(Settings& s, const GameOptionsIni& g);
 void game_options_apply_ini();
 // 2. O estado atual vira a referência, sem tocar o .ini (um codinome lido, as legendas do --level).
 void game_options_rebase();
+// 2. Depois de um codinome lido (LS_LoadGlobalSettings): os volumes que o .ini conhece por cima dos do codinome, e o
+//    rebase.
+void game_options_codename_loaded();
 // 3. Um perfil padrão aplicado (Menu_MapDefaultCodename `what`: 1 as opções do jogador e as legendas, 8 os volumes;
 //    kGameOptionsSubtitles só as legendas, Menu_WillRunMiniMission): as que o .ini tem por cima, e o rebase.
 constexpr uint32_t kGameOptionsSubtitles = 0x100;

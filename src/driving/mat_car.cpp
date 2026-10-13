@@ -23,6 +23,15 @@ const CarMethodLayout kLayouts[] = {
     // Sem o passo 1: a normal vem antes do STQ, e a passada 2 chuta o SpecMapState (0x106) em vez do EnvMapState.
     {"MatCarDash", kPassBase | kPassSpec, false, 44, 0, 1, 5, 9, 0x0a, 0x11, 0, 0x1f, 0x22, 0x7a, 0x4e, 0xa6, 0xd2,
      0x11b, 0x147, 0x148, 0xfe, 0x106},
+    // O vidro: o "tar" é o Texture (a passada 2), o "state" o GlassDmgState (o PRIM do teste faixa/lista em 0xfe), o
+    // DmgTexture em 0x23 e a ModelView em 0x1f; os SplitReg em 0x2a (os parâmetros do método: Parameters, MyMatrix,
+    // WorldMatrix, LightingProperties, Texture, SpecularMap, ReflectionMap2, ModelView, DmgTexture, SplitReg1-3,
+    // Coordinates, Normals, STQ, DmgVec, DmgNrm, State 0xf5, GlassDmgState 0xfd, EnvMapState 0x105).
+    {"MatCarGlassPacked", kPassBase | kPassSpec | kPassRefl | kPassGlassRefl, true, 40, 0, 1, 5, 9, 0x0a, 0x11, 0x18,
+     0x2a, 0x2d, 0x7d, 0x55, 0xa5, 0xcd, 0x11a, 0x142, 0x143, 0xfd, 0x105, kCarGlass, 0x23, 0x1f},
+    // As luzes: o SwitchData em 0x11 empurra o resto um qword (SplitReg 0x12); o SwitchParam em 0xf1, depois do DmgNrm.
+    {"MatCarTextureSwitchPacked", kPassBase, true, 44, 0, 1, 5, 9, 0x0a, 0, 0, 0x12, 0x15, 0x41, 0x6d, 0x99, 0xc5,
+     0x107, 0x133, 0x134, 0xfb, 0, kCarSwitch, 0, 0, 0x11, 0xf1},
 };
 
 float bits(uint32_t u) {
@@ -48,6 +57,41 @@ const CarMethodLayout* car_method_layout(const char* name) {
     for (const CarMethodLayout& l : kLayouts)
         if (std::strcmp(l.name, name) == 0) return &l;
     return nullptr;
+}
+
+int car_pass_stq(const CarMethodLayout& l, int pass) {
+    if (l.kind == kCarGlass) return pass <= 1 ? 0 : pass - 1;
+    return pass;
+}
+
+int car_pass_alpha(const CarMethodLayout& l, int pass) {
+    if (l.kind == kCarGlass) return pass == 0 ? 1 : 2;
+    return 0;
+}
+
+void car_switch_colour(const float sw[4], const float param[4], int32_t col[4]) {
+    // MatCarTextureSwitchPacked 0xf1-0x112 (o microprograma): vf08 = (s.z, s.z, s.z, s.y) (ADDz.xyz e ADDy.w sobre zero),
+    // x 255 (MULi), x k.x (MULx); vf07.w = 1 - s.w (SUB.w de vf00); a cor ITOF0 x (1 - s.w) no ACC (MULAw) + vf08 x s.w
+    // (MADDw), MINIi 255 e FTOI0, as quatro componentes.
+    float target[4] = {sw[2], sw[2], sw[2], sw[1]};
+    for (float& t : target) t = (t * 255.0f) * param[0];
+    const float keep = 1.0f - sw[3];
+    for (int c = 0; c < 4; ++c) {
+        const float v = float(col[c]) * keep + target[c] * sw[3];
+        col[c] = ftoi(std::min(v, 255.0f), 0);
+    }
+}
+
+bool car_glass_backface(const float mv[4][4], const float pos[3], const float n[3]) {
+    // MatCarGlassPacked 0x17d-0x1a9 (o microprograma): MULAx/MADDAy/MADDz da normal, a posição com o MADDw da linha 3,
+    // o MUL componente a componente e a soma no z (z + x, + y, + w = 0, - 0); o FMAND do sinal do z.
+    float nc[3], pc[3];
+    for (int c = 0; c < 3; ++c) {
+        nc[c] = mv[0][c] * n[0] + mv[1][c] * n[1] + mv[2][c] * n[2];
+        pc[c] = mv[0][c] * pos[0] + mv[1][c] * pos[1] + mv[2][c] * pos[2] + mv[3][c];
+    }
+    const float d = (nc[2] * pc[2] + nc[0] * pc[0]) + nc[1] * pc[1];
+    return !std::signbit(d);
 }
 
 void CarConstants::write(VuMemory& m) const {
@@ -77,21 +121,39 @@ bool car_decode_batch(const VuMemory& m, uint32_t top, const CarMethodLayout& l,
             b.world[r][c] = m.f(t + l.world + r, c);
         }
     for (int c = 0; c < 4; ++c) b.props[c] = m.f(t + l.props, c);
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c) b.modelview[r][c] = l.modelview ? m.f(t + l.modelview + r, c) : 0.0f;
+    for (int c = 0; c < 4; ++c) {
+        b.switch_data[c] = l.switch_data ? m.f(t + l.switch_data, c) : 0.0f;
+        b.switch_param[c] = l.switch_param ? m.f(t + l.switch_param, c) : 0.0f;
+    }
     auto packet = [&](int at, int qw, eagl::GsRegs& regs) {
         uint32_t buf[16 * 4];
         for (int i = 0; i < qw * 4; ++i) buf[i] = m.u(t + at + i / 4, i % 4);
         eagl::gs_read_packet(reinterpret_cast<const uint8_t*>(buf), qw, regs);
     };
-    for (int p = 0; p < 3; ++p) b.pass[p] = eagl::GsRegs();
-    packet(l.state, 8, b.pass[0]);
-    packet(l.tar, 7, b.pass[0]);
-    if (l.passes & kPassSpec) {
-        packet(l.env_state, 8, b.pass[1]);
-        packet(l.tar_spec, 7, b.pass[1]);
-    }
-    if (l.passes & kPassRefl) {
+    for (int p = 0; p < kCarMaxPasses; ++p) b.pass[p] = eagl::GsRegs();
+    if (l.kind == kCarGlass) {
+        // O GlassDmgState com o DmgTexture e depois com o Texture; o EnvMapState com o especular e com o reflexo.
+        packet(l.state, 8, b.pass[0]);
+        packet(l.tar_dmg, 7, b.pass[0]);
+        packet(l.state, 8, b.pass[1]);
+        packet(l.tar, 7, b.pass[1]);
         packet(l.env_state, 8, b.pass[2]);
-        packet(l.tar_refl, 7, b.pass[2]);
+        packet(l.tar_spec, 7, b.pass[2]);
+        packet(l.env_state, 8, b.pass[3]);
+        packet(l.tar_refl, 7, b.pass[3]);
+    } else {
+        packet(l.state, 8, b.pass[0]);
+        packet(l.tar, 7, b.pass[0]);
+        if (l.passes & kPassSpec) {
+            packet(l.env_state, 8, b.pass[1]);
+            packet(l.tar_spec, 7, b.pass[1]);
+        }
+        if (l.passes & kPassRefl) {
+            packet(l.env_state, 8, b.pass[2]);
+            packet(l.tar_refl, 7, b.pass[2]);
+        }
     }
     b.strip = (m.u(t + l.state + 1, 0) & 7) != 3;
     for (int i = 0; i < 12; ++i) b.split[i] = int(m.u(t + l.split + i / 4, i % 4) & 0xFFFF);
@@ -127,21 +189,24 @@ CarVertexWork car_convert(const CarMethodLayout& l, const CarVertexIn& v) {
     return o;
 }
 
-void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVertexOut> out[3]) {
+void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVertexOut> out[kCarMaxPasses]) {
     const int n = b.count;
     const int passes = b.layout ? b.layout->passes : kPassBase;
-    for (int p = 0; p < 3; ++p) out[p].assign(size_t((passes >> p) & 1 ? n : 0), CarVertexOut{});
+    const bool glass = b.layout && b.layout->kind == kCarGlass;
+    for (int p = 0; p < kCarMaxPasses; ++p) out[p].assign(size_t((passes >> p) & 1 ? n : 0), CarVertexOut{});
 
     // Passos 0-2: a cor de partida (127, 127, 127, 128) = vf00 + 127, a conversão e o dano.
     struct Work {
         float pos[3], stq[3], n[3], alpha_f;
         int32_t col[4];
+        uint32_t zone_w;  // a palavra w crua da zona de dano (o alfa do vidro)
     };
     std::vector<Work> w(static_cast<size_t>(n));
     for (int i = 0; i < n; ++i) {
         const CarVertexWork v = b.layout ? car_convert(*b.layout, b.v[size_t(i)]) : CarVertexWork{};
         Work& o = w[size_t(i)];
         const float* z = k.damage[v.zone & 15];
+        std::memcpy(&o.zone_w, &z[3], 4);
         for (int c = 0; c < 3; ++c) o.stq[c] = v.stq[c];
         for (int c = 0; c < 3; ++c) o.pos[c] = v.pos[c] + v.dmgvec[c] * z[0];
         for (int c = 0; c < 3; ++c) o.n[c] = v.normal[c] + v.dmgnrm[c] * z[0];
@@ -201,6 +266,10 @@ void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVert
         }
     }
 
+    // As luzes: o passo do SwitchData.
+    if (b.layout && b.layout->kind == kCarSwitch)
+        for (int i = 0; i < n; ++i) car_switch_colour(b.switch_data, b.switch_param, w[size_t(i)].col);
+
     // Passo 5: a transformação, a névoa e a primeira passada.
     std::vector<bool> adc(size_t(n) + 2, false);
     for (int s : b.split) {
@@ -224,12 +293,28 @@ void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVert
         v.stq[1] = o.stq[1] * q;
         v.stq[2] = o.stq[2] * q;  // o z do STQ é 1 nos métodos "Packed" (o passo 1) e o do arquivo no Dash
         for (int c = 0; c < 4; ++c) v.rgba[c] = o.col[c];
+        if (glass) v.rgba[3] = int32_t(o.zone_w);  // o alfa do vidro: o w da zona (SQI.w vf18)
         for (int c = 0; c < 3; ++c) v.xyzf[c] = ftoi(scr[c], 4);
         v.xyzf[3] = ftoi(f, 4);
         v.adc = adc[size_t(i)];
-        if (v.adc) v.xyzf[3] = ((v.xyzf[3] & 0xFFFF) & 0xBFFE) | 0x8000;
+        // O vidro: a face de trás grava 0x8000 no w (ISW.w) antes do AND dos SplitReg.
+        if (glass && car_glass_backface(b.modelview, o.pos, o.n)) {
+            v.xyzf[3] = 0x8000;
+            v.adc = true;
+        }
+        if (adc[size_t(i)]) v.xyzf[3] = ((v.xyzf[3] & 0xFFFF) & 0xBFFE) | 0x8000;
     }
-    if (!(passes & kPassSpec)) return;
+    // O alfa das passadas seguintes do vidro: int(127 - w) (ITOF0.w, MULi -1, ADDi 127, FTOI0.w).
+    std::vector<int32_t> inv_w(size_t(n), 128);
+    if (glass)
+        for (int i = 0; i < n; ++i) inv_w[size_t(i)] = ftoi(float(int32_t(w[size_t(i)].zone_w)) * -1.0f + 127.0f, 0);
+    // No vidro a passada 1 é o Texture (a base com o outro alfa); o especular e o reflexo vêm em 2 e 3.
+    const int ps = glass ? 2 : 1, pr = glass ? 3 : 2;
+    if (glass) {
+        out[1] = out[0];
+        for (int i = 0; i < n; ++i) out[1][size_t(i)].rgba[3] = inv_w[size_t(i)];
+    }
+    if (!((passes >> ps) & 1)) return;
 
     // Passo 6: o especular (mapa esférico das normais).
     float E[3][4];
@@ -240,15 +325,16 @@ void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVert
                       k.refl_info2[2];
     for (int i = 0; i < n; ++i) {
         const Work& o = w[size_t(i)];
-        CarVertexOut& v = out[1][size_t(i)];
+        CarVertexOut& v = out[ps][size_t(i)];
         v = out[0][size_t(i)];
         v.stq[0] = (E[0][0] * o.n[0] + E[1][0] * o.n[1] + E[2][0] * o.n[2]) + 0.5f;
         v.stq[1] = (E[0][1] * o.n[0] + E[1][1] * o.n[1] + E[2][1] * o.n[2]) + 0.5f;
         v.stq[2] = 1.0f;
         for (int c = 0; c < 3; ++c) v.rgba[c] = ftoi(b.props[2] * o.alpha_f, 0);
+        if (glass) v.rgba[3] = inv_w[size_t(i)];
     }
 
-    if (!(passes & kPassRefl)) return;
+    if (!((passes >> pr) & 1)) return;
 
     // Passo 7: o reflexo.
     float Wy[3][4];
@@ -256,8 +342,9 @@ void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVert
         for (int c = 0; c < 4; ++c) Wy[i][c] = b.world[i][c] * k.refl_info2[1];
     for (int i = 0; i < n; ++i) {
         const Work& o = w[size_t(i)];
-        CarVertexOut& v = out[2][size_t(i)];
+        CarVertexOut& v = out[pr][size_t(i)];
         v = out[0][size_t(i)];
+        if (glass) v.rgba[3] = inv_w[size_t(i)];
         float vv[3];
         for (int c = 0; c < 3; ++c) vv[c] = o.pos[c] * k.refl_info2[0] + o.n[c];
         float a[3];
@@ -270,7 +357,7 @@ void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVert
     }
 }
 
-void car_triangles(const CarBatch& b, std::vector<uint16_t>& tris) {
+void car_triangles(const CarBatch& b, std::vector<uint16_t>& tris, bool closing_first) {
     const int n = b.count;
     std::vector<bool> adc(size_t(n) + 2, false);
     for (int s : b.split) {
@@ -278,20 +365,23 @@ void car_triangles(const CarBatch& b, std::vector<uint16_t>& tris) {
         if (v < n) adc[size_t(v)] = true;
         if (v + 1 < n) adc[size_t(v) + 1] = true;
     }
+    auto put = [&](int v) {
+        if (closing_first) {
+            tris.push_back(uint16_t(v));
+            tris.push_back(uint16_t(v - 2));
+            tris.push_back(uint16_t(v - 1));
+        } else {
+            tris.push_back(uint16_t(v - 2));
+            tris.push_back(uint16_t(v - 1));
+            tris.push_back(uint16_t(v));
+        }
+    };
     if (b.strip) {
         for (int v = 2; v < n; ++v)
-            if (!adc[size_t(v)]) {
-                tris.push_back(uint16_t(v - 2));
-                tris.push_back(uint16_t(v - 1));
-                tris.push_back(uint16_t(v));
-            }
+            if (!adc[size_t(v)]) put(v);
     } else {
         for (int v = 2; v < n; v += 3)
-            if (!adc[size_t(v)]) {
-                tris.push_back(uint16_t(v - 2));
-                tris.push_back(uint16_t(v - 1));
-                tris.push_back(uint16_t(v));
-            }
+            if (!adc[size_t(v)]) put(v);
     }
 }
 

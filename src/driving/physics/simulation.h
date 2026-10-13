@@ -6,11 +6,10 @@
 // simulação. Os campos ficam numa estrutura do port (não no leiaute do PS2: nada lê a Simulation por endereço aqui);
 // o deslocamento do PS2 está no comentário de cada um.
 //
-// O que o passo do PS2 faz e o porte não (contado em physics_pending): a colisão entre objetos
-// (RigidBody::CollideWithObject, que chama ResolveCollision), com os prédios (CollideWithWorld, que chama
-// GenerateImpulse; as duas respostas já portadas, em collision.h), os
-// corpos simples (SimpleRigidBody::UpdatePosition, DetectCollisionsSRB), os objetos rastreados e a visibilidade; e no
-// ESimFrameUpdate, o resto do jogo (missão, gatilhos, atores, câmera, a grade dinâmica).
+// A colisão entre objetos (RigidBody::CollideWithObject) e com os prédios (CollideWithWorld) está em collide.h. O que o
+// passo do PS2 faz e o porte não (contado em physics_pending): os corpos simples (SimpleRigidBody::UpdatePosition,
+// DetectCollisionsSRB), os objetos rastreados e a visibilidade; e no ESimFrameUpdate, o resto do jogo (missão,
+// gatilhos, atores, câmera, a grade dinâmica).
 
 #include <cstdint>
 

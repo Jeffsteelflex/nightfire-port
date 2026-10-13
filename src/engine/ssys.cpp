@@ -341,7 +341,9 @@ void Lock_ReLock(obj_tag* by, obj_tag* lock) {
 
 // [decomp] 0x001b0548 Locks_Init
 // Depois de cada carga (GF_LOCKS_INIT): anda o sorteio GameState.frame x 10 (& 0x1ff) vezes e sorteia os 51 códigos
-// (algarismos de '0' a '8'), nenhum revelado.
+// (algarismos de '0' a '8'), nenhum revelado. Bug do original, mantido: o resto é por 9 (Rand_Random() % 9), então o 9
+// nunca sai num código (o teclado tem o 9; o jogo só fica com 9^4 códigos possíveis em vez de 10^4). Inofensivo, e
+// trocar por % 10 mudaria os códigos sorteados de cada fase.
 void Locks_Init() {
     const uint32_t skip = (GameState.frame * 10) & 0x1ff;
     for (uint32_t i = 0; i < skip; ++i) Rand_Random();

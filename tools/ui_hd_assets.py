@@ -19,10 +19,11 @@ docs/port.md. Cada SVG cobre o retângulo da chave dele no hd_ui/map.json:
   r_i..R, desenhada nas coordenadas da tela do PS2 (viewBox = o retângulo do sprite na tela), para que as
   sete se encaixem como no jogo. Cinza claro: a cor (verde, amarelo, vermelho) e o alfa vêm do sprite.
 - menus (docs/port.md, "Inventário dos menus"): o painel 0x03000070 (moldura, faixa das abas, vidro e
-  barra de ajuda, em coordenadas de texel: psi_2d_nine_slice corta nos trechos retos), a silhueta
-  0x030000db, as peças de 0x03000042 (botão, rádio, setas, caixas de marcar, destaque, volume), o 007 e o
-  canto do resultado (0x03000140, 0x0300014c) e os símbolos de botão dos textos nos conjuntos do PS2 e do
-  Xbox ("prompts" no map.json; as letras são traços próprios, o Direct2D não desenha <text> de SVG).
+  barra de ajuda, em coordenadas de texel: psi_2d_nine_slice corta nos trechos retos), as peças de
+  0x03000042 (botão, rádio, setas, caixas de marcar, destaque, volume), o 007 e o canto do resultado
+  (0x03000140, 0x0300014c) e os símbolos de botão dos textos nos conjuntos do PS2 e do Xbox ("prompts" no
+  map.json; as letras são traços próprios, o Direct2D não desenha <text> de SVG). A imagem do painel da
+  pausa (0x030000db) não tem substituta: no jogo ela é animada (o fundo da pausa, platform/psi_woman.h).
 """
 import math
 import os
@@ -213,10 +214,11 @@ def bullets_svg():
 
 # ================================================================ menus (docs/port.md, "Inventário dos menus")
 #
-# Desenhos próprios para as peças dos menus: o painel (0x03000070, em nove pedaços quando esticado), a
-# silhueta da pausa (0x030000db), as peças de 0x03000042 (botão, rádio, setas, caixas de marcar, destaque,
-# barra de volume), o 007 e o canto do resultado (0x03000140, 0x0300014c) e os símbolos de botão dos
-# textos ("~A"...: o conjunto do PS2 e o do Xbox; as teclas do teclado são desenhadas pelo renderizador).
+# Desenhos próprios para as peças dos menus: o painel (0x03000070, em nove pedaços quando esticado), as peças
+# de 0x03000042 (botão, rádio, setas, caixas de marcar, destaque, barra de volume), o 007 e o canto do
+# resultado (0x03000140, 0x0300014c) e os símbolos de botão dos textos ("~A"...: o conjunto do PS2 e o do
+# Xbox; as teclas do teclado são desenhadas pelo renderizador). A imagem do painel da pausa (0x030000db) fica
+# sem substituta: o jogo a reescreve a cada quadro (o fundo animado, platform/psi_woman.h).
 
 def hexc(rgb):
     return "#%02x%02x%02x" % rgb
@@ -309,47 +311,6 @@ def panel_svg():
                     PANEL_OUT[4] - 1.6, PANEL_OUT[5] - 1.6, PANEL_OUT[6] - 1.6, PANEL_OUT[7] - 1.6)
     body += '<path d="%s" fill="none" stroke="#ffd8a8" stroke-opacity="0.22" stroke-width="0.8"/>\n' % inner
     return svg((0, 0, 511, 255), body, defs)
-
-
-# ---------------------------------------------------------------- a silhueta da pausa (0x030000db, 128 x 128)
-
-# Luzes desfocadas de festa (centro, raio, cor), à mão, no lugar das da textura; o sprite é aditivo (0x48)
-# com alfa 0x50: o preto não soma nada.
-BOKEH = [
-    ((9, 12), 9.5, (236, 96, 206)), ((28, 8), 8.5, (170, 140, 240)), ((47, 5), 6.5, (240, 196, 150)),
-    ((65, 6), 6.5, (240, 120, 90)), ((84, 3), 5.5, (250, 228, 96)), ((107, 10), 9.5, (186, 240, 92)),
-    ((88, 19), 10, (64, 236, 200)), ((24, 27), 8.5, (240, 86, 160)), ((39, 23), 5.5, (250, 220, 64)),
-    ((50, 23), 7, (226, 84, 200)), ((58, 31), 8.5, (120, 226, 110)), ((14, 48), 10.5, (40, 170, 112)),
-    ((32, 51), 7.5, (60, 200, 84)), ((46, 52), 8.5, (220, 230, 120)), ((60, 62), 10, (112, 92, 40)),
-    ((14, 66), 9.5, (44, 92, 200)), ((36, 64), 8, (86, 64, 230)), ((78, 80), 10.5, (130, 40, 200)),
-    ((20, 85), 9.5, (226, 40, 200)), ((52, 78), 8.5, (200, 30, 120)), ((68, 93), 9.5, (30, 100, 130)),
-    ((40, 97), 8.5, (220, 255, 222)), ((55, 104), 7.5, (230, 240, 160)), ((20, 106), 10.5, (140, 22, 62)),
-]
-
-
-def silhouette_svg():
-    """A imagem do canto direito da pausa: luzes coloridas de festa desfocadas e a silhueta de um homem de
-    smoking erguendo uma taça de martini (desenho próprio, sem traçar a textura)."""
-    defs = ""
-    body = ""
-    for i, ((cx, cy), r, rgb) in enumerate(BOKEH):
-        r *= 1.25
-        defs += rad("k%d" % i, cx, cy, r, (0, hexc(rgb), 0.8), (0.4, hexc(rgb), 0.62), (0.75, hexc(rgb), 0.25),
-                    (1, hexc(rgb), 0))
-        body += '<circle cx="%g" cy="%g" r="%g" fill="url(#k%d)"/>\n' % (cx, cy, r, i)
-    # A silhueta: cabeça, pescoço, ombros, o tronco até embaixo e o braço erguendo a taça.
-    fig = ("M104,44 C106,41 109,40.5 112,41 L118,42 C123,44 125.5,50 125.5,58 L125.5,127 L93,127 "
-           "C94,112 96,98 97,86 C97.5,76 98,68 100,60 C100.5,54 101.5,48 104,44 Z")
-    body += '<ellipse cx="112.5" cy="32" rx="7.2" ry="8.6" fill="#ffffff"/>\n'
-    body += '<path d="M108,38 L116,38 L117,43 L107,43 Z" fill="#ffffff"/>\n'
-    body += '<path d="%s" fill="#ffffff"/>\n' % fig
-    body += ('<path d="M106,54 C99,53 92,50 86,45 L81.5,40" fill="none" stroke="#ffffff" stroke-width="6" '
-             'stroke-linecap="round" stroke-linejoin="round"/>\n')
-    # A taça: o cone, a haste e o pé, na mão.
-    body += '<path d="M66,13 L86,13 L76,26 Z" fill="#ffffff"/>\n'
-    body += '<line x1="76" y1="25" x2="78.5" y2="38" stroke="#ffffff" stroke-width="1.6"/>\n'
-    body += '<line x1="74.5" y1="38.5" x2="82.5" y2="37.5" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>\n'
-    return svg((0, 0, 127, 127), body, defs)
 
 
 # ---------------------------------------------------------------- 0x03000042 (64 x 64): botões e setas
@@ -647,7 +608,6 @@ def menu_files():
     """Os SVG dos menus e dos símbolos de botão (nome -> conteúdo)."""
     files = {
         "menu_panel.svg": panel_svg(),
-        "menu_silhouette.svg": silhouette_svg(),
         "menu_button.svg": menu_button_svg(),
         "menu_radio.svg": menu_radio_svg(),
         "menu_arrow_up.svg": triangle_svg("up"),

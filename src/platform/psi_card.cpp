@@ -1465,9 +1465,8 @@ void set_card(PcCard* c) { g_card = c; }
 PcCard& card() { return the_card(); }
 
 std::wstring default_save_dir() {
-    std::wstring dir = os::exe_path();
-    const size_t slash = dir.find_last_of(L"\\/");
-    dir = slash == std::wstring::npos ? std::wstring() : dir.substr(0, slash + 1);
+    // saves ao lado do executável no Windows; no macOS em ~/Library/Application Support/Nightfire PC (platform/os.h).
+    const std::wstring dir = os::user_files_dir(L"Nightfire PC");
     return dir + L"saves";
 }
 

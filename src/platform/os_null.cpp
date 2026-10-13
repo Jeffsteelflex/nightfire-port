@@ -84,6 +84,7 @@ std::wstring from_utf8(const std::string& s) {
 // ---------------------------------------------------------------- caminhos
 
 std::wstring exe_path() { return {}; }  // sem o sistema: desconhecido (o laço não roda sem um backend de verdade)
+std::wstring bundle_dir() { return {}; }
 
 std::wstring current_dir() {
     std::error_code ec;
@@ -100,6 +101,14 @@ std::wstring local_data_dir() {
     std::wstring v;
     if (get_env(L"LOCALAPPDATA", &v)) return v;
     return {};
+}
+
+// A pasta do executável, como no Windows (aqui o executável é desconhecido: vazia, e os nomes ficam relativos).
+std::wstring user_files_dir(const wchar_t*) {
+    std::wstring dir = exe_path();
+    const size_t slash = dir.find_last_of(L"\\/");
+    dir = slash == std::wstring::npos ? std::wstring() : dir.substr(0, slash + 1);
+    return dir;
 }
 
 bool get_env(const wchar_t* name, std::wstring* value) {

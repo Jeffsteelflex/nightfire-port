@@ -1,5 +1,6 @@
 // Auxiliares dos personagens da IA usados pelos estados, pela visão, pelo movimento e pelo dano:
-// pedidos de animação (DroneAnim_CallAnim), alerta, mensagens, cabeça e ossos, e a falha da missão.
+// pedidos de animação (DroneAnim_CallAnim), alerta, mensagens (também às redondezas de um objeto:
+// Drone_MessageObjVicinity), cabeça e ossos, a falha da missão e quem cai do mapa (Drone_FellOutMap).
 // Ver drone.h.
 //
 // Divergência intencional: Drone_Message com um objeto que não é personagem usaria um DCVars sem
@@ -13,7 +14,10 @@
 #include "engine/drone.h"
 #include "engine/drone_stubs.h"
 #include "engine/gamestate.h"
+#include "engine/modules.h"
 #include "engine/object.h"
+#include "engine/resetmap.h"
+#include "engine/vecmath.h"
 
 // [decomp] 0x0013dfc8 DroneAnim_CanDoAnimState
 // O personagem tem animação para o estado (a DAnim base dele mais a variante): na subclasse dele ou,
@@ -129,6 +133,36 @@ uint32_t Drone_Message(obj_tag* obj, uint32_t msg, uint32_t data, uint32_t delay
     if (Drone_DCVfromOBJ(obj, &dcv) == 0) return 1;  // port: o original usaria lixo da pilha
     Drone_SM_SendMsgSelf(msg, data, delay, 0, &dcv);
     return 1;
+}
+
+// [decomp] 0x0013a438 Drone_MessageObjVicinity
+// Manda a mensagem a cada personagem (tipo 2 ou 0x11) a até `radius` metros de obj (Drone_Message). Com a mensagem
+// 0x18 (a granada de clarão, Bullet_CollisionHandler) só a quem vê obj pelo osso 5 (NDrone2_CanSeeObject, máscara
+// 0x500): os estados StunGrenade*. O original monta um DCVars na pilha só para ler o objeto; nada mais o usa.
+void Drone_MessageObjVicinity(uint32_t msg, obj_tag* obj, float radius, uint32_t data, uint32_t delay) {
+    if (Drone_bDisableSystem != 0) return;
+    for (LLNODE_tag* n = Drone_List()->first; n != nullptr; n = n->next) {
+        Drone_tag* d = reinterpret_cast<Drone_tag*>(n);
+        obj_tag* o = d->obj;
+        if (o == nullptr || (o->type != 2 && o->type != 0x11)) continue;
+        if (radius < Vec_Dist3D(&o->pos, &obj->pos)) continue;
+        if (msg == 0x18 && NDrone2_CanSeeObject(d, obj, 5, 0x500) == 0) continue;
+        Drone_Message(o, msg, data, delay);
+    }
+}
+
+// [decomp] 0x0013a878 Drone_FellOutMap
+// Um personagem saiu de todas as salas (control_handle_cel_change): fora do multijogador, desligado
+// (NDrone2_Enable(0)) e marcado para remoção; com os bots, BOT_fellOutMap.
+void Drone_FellOutMap(obj_tag* obj) {
+    uint32_t bots;
+    std::memcpy(&bots, MPSettings + 0x184, 4);
+    if (bots != 0) {
+        BOT_fellOutMap(obj);
+        return;
+    }
+    if (obj->data != nullptr) NDrone2_Enable(0, static_cast<Drone_tag*>(obj->data));
+    obj->life |= 1;
 }
 
 // [decomp] 0x00178768 NDrone2_ObjectIsArmed

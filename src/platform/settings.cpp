@@ -204,9 +204,8 @@ Settings& settings() {
 }
 
 std::wstring default_settings_path() {
-    std::wstring dir = os::exe_path();
-    const size_t slash = dir.find_last_of(L"\\/");
-    dir = slash == std::wstring::npos ? std::wstring() : dir.substr(0, slash + 1);
+    // Ao lado do executável no Windows; no macOS em ~/Library/Application Support/Nightfire PC (platform/os.h).
+    const std::wstring dir = os::user_files_dir(L"Nightfire PC");
     return dir + L"nightfire.ini";
 }
 

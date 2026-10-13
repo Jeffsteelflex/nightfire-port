@@ -47,7 +47,6 @@ void psiRestoreScreenPos() {
     PS2ScreenYPos = 0;
 }
 
-void psiDecompressWoman() { pending_call("psiDecompressWoman"); }
 void psiLaunchDriving(uint8_t*, uint32_t) { pending_call("psiLaunchDriving"); }
 
 // [decomp] 0x00109520 psiPreGame_Run

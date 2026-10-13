@@ -4,6 +4,7 @@
 //   endereço (hex)   tipo   namespace (A::B, ou vazio)   nome   comentário
 // Tipos: F = função (cria a função se o Ghidra não a achou e dá o nome no namespace),
 //        C = só um comentário de cabeçalho (nome sugerido com pouca confiança; não renomeia),
+//        A = acrescenta uma linha ao comentário de cabeçalho que já existe (não renomeia; tools/cxbx_names.py),
 //        D = rótulo de dado (tabelas virtuais, type_info).
 // Os nomes entram como SourceType.IMPORTED; o comentário de cabeçalho guarda o nome completo do SYM e a confiança.
 //@category Nightfire
@@ -63,6 +64,16 @@ public class ApplySymbolTable extends GhidraScript {
                         String old = getPlateComment(a);
                         if (old == null || old.isEmpty()) {
                             setPlateComment(a, comment);
+                            comments++;
+                        }
+                    } else if (kind.equals("A")) {
+                        // acrescenta uma linha ao comentário de cabeçalho (sem repetir), sem mexer no nome
+                        String old = getPlateComment(a);
+                        if (old == null || old.isEmpty()) {
+                            setPlateComment(a, comment);
+                            comments++;
+                        } else if (!old.contains(comment)) {
+                            setPlateComment(a, old + "\n" + comment);
                             comments++;
                         }
                     } else if (kind.equals("D")) {

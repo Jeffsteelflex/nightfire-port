@@ -6,6 +6,7 @@
 #include <cstring>
 #include <memory>
 
+#include "driving/physics/collide.h"
 #include "driving/physics/vu0_physics.h"
 #include "driving/physics/world.h"
 #include "platform/ps2_float.h"
@@ -85,17 +86,20 @@ void SimulateGame(Simulation& sim) {
     for (int slot = 0; slot < kRigidBodySlots; ++slot) {
         if (!sim.owners[slot]) continue;
         RigidBody* rb = GetRigidBody(sim, slot);
-        if (rb->state != 3 && rb->state != 0) physics_pending("RigidBody::CollideWithObject");
+        if (rb->state != 3 && rb->state != 0) CollideWithObject(rb, slot);
     }
-    // WCollisionMgr +0x30 = 1 durante a colisão com o mundo (o gerente não foi portado).
+    // WCollisionMgr +0x30 = 1 durante a colisão com o mundo, 0 na do chão, 1 nos Simulate dos objetos.
+    WorldCollision* w = world();
+    if (w) w->set_vu0_path(1);
     for (int slot = 0; slot < kRigidBodySlots; ++slot) {
         if (!sim.owners[slot]) continue;
         RigidBody* rb = GetRigidBody(sim, slot);
         if (rb->state == 3) continue;
         RigidBodyInfo* info = rb->info;
         if (info->flags[0] != 0 && info->flags[3] == 0) info->flags[0] = 0;
-        if (rb->state == 2) physics_pending("RigidBody::CollideWithWorld");
+        if (rb->state == 2) CollideWithWorld(rb);
     }
+    if (w) w->set_vu0_path(0);
     for (int slot = 0; slot < kRigidBodySlots; ++slot) {
         if (!sim.owners[slot]) continue;
         RigidBody* rb = GetRigidBody(sim, slot);
@@ -119,6 +123,11 @@ void SimulateGame(Simulation& sim) {
     for (int slot = 0; slot < kSimpleBodySlots; ++slot)
         if (sim.simple_owners[slot]) physics_pending("SimpleRigidBody::UpdatePosition");
     physics_pending("Simulation::DetectCollisionsSRB");
+    // Os Simulate dos objetos (a entrada +0x2c da tabela virtual), pelo mapa da Simulation +0xe68. Port: os donos dos
+    // corpos rígidos na ordem das vagas (o mapa do PS2 é uma árvore; com um objeto só a ordem não importa).
+    if (w) w->set_vu0_path(1);
+    for (int slot = 0; slot < kRigidBodySlots; ++slot)
+        if (sim.owners[slot]) sim.owners[slot]->simulate();
     physics_pending("Simulation::UpdateTrackedInstanceVisibility");
 }
 

@@ -61,6 +61,7 @@ public:
     // Só do port: cópias de um endereço nulo (uma referência que o carregador não resolveu) viram zeros e são contadas;
     // o que passaria do fim do buffer não é escrito (overflow()).
     int null_sources() const { return null_sources_; }
+    void note_null_source() { ++null_sources_; }
     void clear_errors() {
         null_sources_ = 0;
         overflowed_ = false;

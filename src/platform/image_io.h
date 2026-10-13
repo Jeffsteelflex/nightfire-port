@@ -1,7 +1,7 @@
 #pragma once
 // Imagens em arquivo (só do port; docs/port.md, "Plataforma: interfaces e backends"): as capturas em PNG, os recortes do
 // inventário do 2D, as substitutas PNG da camada HD. Este cabeçalho não traz nada do sistema; o backend do Windows é o
-// WIC (image_io_wic.cpp, windowscodecs); no macOS será o ImageIO (etapa 3).
+// WIC (image_io_wic.cpp, windowscodecs); no macOS o ImageIO (image_io_macos.cpp, etapa 3c).
 
 #include <cstdint>
 #include <string>

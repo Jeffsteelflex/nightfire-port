@@ -55,12 +55,16 @@ void walk() {
     backtrace_symbols_fd(frames, n, STDERR_FILENO);
 }
 
+// O que espera a saída chegar ao registro do programa de janela do macOS (crash_report_set_flush); nulo: nada.
+void (*volatile g_flush)() = nullptr;
+
 void on_signal(int sig, siginfo_t* info, void*) {
     char line[160];
     std::snprintf(line, sizeof(line), "\nFALHA: sinal %d (%s) em %p\n", sig, signal_name(sig),
                   info != nullptr ? info->si_addr : nullptr);
     write_text(line);
     walk();
+    crash_report_flush();
     // A ação padrão do sinal (o fim do processo com ele), como sem o relatório.
     struct sigaction dfl {};
     dfl.sa_handler = SIG_DFL;
@@ -98,6 +102,7 @@ void crash_report_exception(void* system_exception) {
                   info != nullptr ? signal_name(info->si_signo) : "?", info != nullptr ? info->si_addr : nullptr);
     write_text(line);
     walk();
+    crash_report_flush();
 }
 
 void crash_report_here(const char* why) {
@@ -106,6 +111,14 @@ void crash_report_here(const char* why) {
     write_text(why);
     write_text("\n");
     walk();
+    crash_report_flush();
+}
+
+void crash_report_set_flush(void (*flush)()) { g_flush = flush; }
+
+void crash_report_flush() {
+    void (*flush)() = g_flush;
+    if (flush != nullptr) flush();
 }
 
 }  // namespace nf

@@ -1205,6 +1205,27 @@ void Renderer::Impl::set_texture(int slot, const Texture& t) {
     textures_[size_t(slot)] = std::move(srv);
 }
 
+// O nível 0 da textura que já está no slot (UpdateSubresource) e os mipmaps gerados de novo; sem ela, ou com outro
+// tamanho, uma textura nova. A substituta HD do slot sai (o desenho fixo dela não acompanha a textura do jogo).
+void Renderer::Impl::update_texture(int slot, const Texture& t) {
+    if (slot < 0 || t.width <= 0 || t.height <= 0 || t.rgba.size() < size_t(t.width) * size_t(t.height) * 4) return;
+    if (slot < int(hd_textures_.size())) hd_textures_[size_t(slot)].Reset();
+    Com<ID3D11Texture2D> tex;
+    if (slot < int(textures_.size()) && textures_[size_t(slot)] != nullptr) {
+        Com<ID3D11Resource> res;
+        textures_[size_t(slot)]->GetResource(&res);
+        D3D11_TEXTURE2D_DESC td{};
+        if (SUCCEEDED(res.As(&tex))) tex->GetDesc(&td);
+        if (tex == nullptr || td.Width != UINT(t.width) || td.Height != UINT(t.height)) tex.Reset();
+    }
+    if (tex == nullptr) {
+        set_texture(slot, t);
+        return;
+    }
+    ctx_->UpdateSubresource(tex.Get(), 0, nullptr, t.rgba.data(), UINT(t.width * 4), 0);
+    ctx_->GenerateMips(textures_[size_t(slot)].Get());
+}
+
 void Renderer::Impl::set_ui_image(uint32_t key, const uint8_t* rgba, int width, int height) {
     if (rgba == nullptr || width <= 0 || height <= 0) return;
     D3D11_TEXTURE2D_DESC td{};
@@ -2250,6 +2271,7 @@ Renderer::~Renderer() = default;
 void Renderer::resize(int width, int height) { impl_->resize(width, height); }
 void Renderer::reset_resources() { impl_->reset_resources(); }
 void Renderer::set_texture(int slot, const Texture& texture) { impl_->set_texture(slot, texture); }
+void Renderer::update_texture(int slot, const Texture& texture) { impl_->update_texture(slot, texture); }
 bool Renderer::set_texture_dds(int slot, const std::wstring& path) { return impl_->set_texture_dds(slot, path); }
 void Renderer::set_ui_image(uint32_t key, const uint8_t* rgba, int width, int height) {
     impl_->set_ui_image(key, rgba, width, height);

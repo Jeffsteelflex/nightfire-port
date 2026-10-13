@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  O Info.plist do pacote "Nightfire PC.app" (etapa 4 do macOS; docs/port.md, "macOS: o pacote e a instalação"). O
+  CMakeLists.txt preenche os campos marcados (configure_file, só as marcas com arroba). O identificador é neutro, sem
+  nome de conta.
+  Os controles (GameController) não pedem permissão num programa fora da sandbox: não há chave de uso para eles.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>@NF_MAC_EXECUTABLE@</string>
+	<key>CFBundleIconFile</key>
+	<string>nightfire.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.nightfirepc.port</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Nightfire PC</string>
+	<key>CFBundleDisplayName</key>
+	<string>Nightfire PC</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@NF_MAC_VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@NF_MAC_VERSION@</string>
+	<key>NFPortBuild</key>
+	<string>@NF_GIT_HASH@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>@CMAKE_OSX_DEPLOYMENT_TARGET@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.action-games</string>
+	<key>LSSupportsGameMode</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Unofficial fan project. 007 and Nightfire are trademarks of their owners. No game data is included.</string>
+</dict>
+</plist>

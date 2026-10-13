@@ -28,6 +28,11 @@ uint32_t GetLevelToLoadFromMovieCode(uint32_t movie);
 void ResetMap_LevelToLoad(uint32_t level, int8_t warm, int8_t no_movie);
 // Fase inicial do boot: a do GameState ou, sem ela, o menu principal (07000048).
 void Reset_MapLoadSettings();
+// O ajuste da fase (ResetMap_Load, a cada carga): a mira e o giro do jogador e a mira automática sempre; por grupo de
+// fases (GameState.level_file), o dano e a armadura dos personagens, a precisão e o ritmo dos tiros deles
+// (DroneFiring), os capitães e o dano que o jogador recebe (Plr_DMod_*). Fases fora do switch ficam com os valores
+// da carga anterior.
+void ReadTuningVars();
 
 // Globais de outros módulos que ResetMap_GameInit zera ou ajusta (os módulos ainda não foram
 // portados; os tamanhos são os dos símbolos).

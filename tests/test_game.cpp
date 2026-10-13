@@ -1,5 +1,6 @@
 // Testes do laço do jogo: GameFlow_Main, ResetMap_LevelToLoad, GS_IsPaused, o tratador de objetos
-// (control_movement_object_handler), Collide_Update, Lights_CalcAmbientLight e Trigger_Calc.
+// (control_movement_object_handler), Collide_Update, Lights_CalcAmbientLight, Trigger_Calc e o ajuste das fases
+// (ReadTuningVars).
 
 #include <cmath>
 #include <cstring>
@@ -8,12 +9,15 @@
 #include "engine/build.h"
 #include "engine/collide.h"
 #include "engine/door.h"
+#include "engine/drone.h"
 #include "engine/game.h"
 #include "engine/gameflow.h"
 #include "engine/lights.h"
 #include "engine/memory.h"
 #include "engine/object.h"
 #include "engine/parsemap.h"
+#include "engine/player.h"
+#include "engine/player_weapon.h"
 #include "engine/resetmap.h"
 #include "engine/trigger.h"
 #include "engine/view.h"
@@ -253,4 +257,82 @@ TEST(trigger_calc_level_links) {
     CHECK(switch_channels[0x6f] == 0);
     switch_channels[0xa4] = 0;
     unhook();
+}
+
+TEST(read_tuning_vars_per_level_group) {
+    // ReadTuningVars (0x001d3a80). A comparação valor a valor com o código do ELF, fase a fase, é do nf_loader_check
+    // ("ajuste das fases"); aqui as propriedades. Os valores fora do switch são marcados para ver quem os grava.
+    const float mark = 123.0f;
+    auto poison = [&] {
+        Plr_AimSpeed_X = Autoaim_Range = Autoaim_HardMul = ContinueHealthBoostHard = mark;
+        Plr_DMod_Easy = Plr_DMod_Normal = Plr_DMod_Hard = Plr_DMod_Multi = Plr_DMod_Head = mark;
+        DroneDamage_Head = DroneDamage_Easy = DroneArmour_Helmet = DroneCaptain_Mod_Health = mark;
+        DroneFiring.accuracy_easy = DroneFiring.accuracy_normal = DroneFiring.accuracy_hard = mark;
+        DroneFiring.too_close_distance = mark;
+    };
+    // Os globais que ReadTuningVars grava, guardados e devolvidos no fim (outros testes contam com os do .data).
+    float* const vars[] = {
+        &Plr_AimSpeed_X, &Plr_AimSpeed_Y, &Plr_AimTurnSpeed_X, &Plr_AimTurnSpeed_Y, &Plr_ScopeSpeed_X,
+        &Plr_ScopeSpeed_X_Mul, &Plr_ScopeSpeed_X_Steps, &Plr_ScopeSpeed_Y, &Plr_ScopeSpeed_Y_Mul,
+        &Plr_ScopeSpeed_Y_Steps, &Plr_NoAimTurnSpeed_X, &Plr_NoAimTurnSpeed_X_Mul, &Plr_NoAimTurnSpeed_X_Steps,
+        &Plr_NoAimTurnSpeed_Y, &Plr_NoAimTurnSpeed_Y_Mul, &Plr_NoAimTurnSpeed_Y_Steps, &ContinueHealthBoostEasy,
+        &ContinueHealthBoostMedium, &ContinueHealthBoostHard, &Autoaim_Angle_H, &Autoaim_Angle_V, &Autoaim_Range,
+        &Autoaim_LockOnMul, &Autoaim_EasyMul, &Autoaim_NormalMul, &Autoaim_HardMul, &Plr_DMod_Easy, &Plr_DMod_Normal,
+        &Plr_DMod_Hard, &Plr_DMod_Multi, &Plr_DMod_Head, &Plr_DMod_LowerLimb, &Plr_DMod_UpperLimb, &DroneDamage_Easy,
+        &DroneDamage_Normal, &DroneDamage_Hard, &DroneDamage_Head, &DroneDamage_Legs, &DroneDamage_Arms,
+        &DroneDamage_Torso, &DroneArmour_Helmet, &DroneArmour_Combat, &DroneArmour_Jacket, &DroneArmour_Vest,
+        &DroneCaptain_Mod_BulletDamage, &DroneCaptain_Mod_BulletAccuracy, &DroneCaptain_Mod_Health};
+    float saved_vars[sizeof(vars) / sizeof(vars[0])];
+    for (size_t i = 0; i < sizeof(vars) / sizeof(vars[0]); ++i) saved_vars[i] = *vars[i];
+    const DroneFiringSettings saved_firing = DroneFiring;
+    const uint32_t saved = GameState.level_file;
+    // Sem condição (qualquer fase, até a de menu): a mira do jogador e a automática (alcance 25, nada no 00 Agent).
+    poison();
+    GameState.level_file = 0x7000048;
+    ReadTuningVars();
+    CHECK(Plr_AimSpeed_X == 0.1275f && Autoaim_Range == 25.0f && Autoaim_HardMul == 0.0f);
+    CHECK(ContinueHealthBoostHard == 50.0f);
+    // Fora do switch (o menu principal, as cenas 0700000e-10, as de teste): o resto fica como estava.
+    for (uint32_t level : {0x7000048u, 0x700000eu, 0x7000010u, 0x7000017u, 0x7000041u, 0x7000500u, 0x9000001u}) {
+        poison();
+        GameState.level_file = level;
+        ReadTuningVars();
+        CHECK(Plr_DMod_Normal == mark && DroneDamage_Head == mark && DroneFiring.accuracy_normal == mark);
+    }
+    // Toda fase da campanha a pé: o tiro na cabeça x 10, o capacete 1, o dano recebido crescendo com a dificuldade (o
+    // do 00 Agent pelo menos 1) e a precisão dos personagens também; nada do multijogador.
+    const uint32_t campaign[] = {0x7000001, 0x7000002, 0x7000003, 0x7000004, 0x7000005, 0x7000006, 0x7000007,
+                                 0x7000008, 0x7000009, 0x700000a, 0x700000b, 0x700000c, 0x700000d, 0x7000011,
+                                 0x7000012, 0x7000013, 0x7000014, 0x7000015, 0x7000016, 0x700001b, 0x700004a};
+    for (uint32_t level : campaign) {
+        poison();
+        GameState.level_file = level;
+        ReadTuningVars();
+        CHECK(DroneDamage_Head == 10.0f && DroneArmour_Helmet == 1.0f && DroneCaptain_Mod_Health == 2.0f);
+        CHECK(Plr_DMod_Easy <= Plr_DMod_Normal && Plr_DMod_Normal <= Plr_DMod_Hard && 1.0f <= Plr_DMod_Hard);
+        CHECK(DroneFiring.accuracy_easy <= DroneFiring.accuracy_normal &&
+              DroneFiring.accuracy_normal <= DroneFiring.accuracy_hard);
+        CHECK(DroneFiring.too_close_distance == 3.0f && Plr_DMod_Multi == mark && Plr_DMod_Head == mark);
+    }
+    // 07000012 (a segunda torre): o jogador recebe 0,5/0,6/1,0 do dano, os personagens acertam 0,7/0,8/1,0 (estudo do
+    // nightfire-cxbx, docs/cxbx.md, conferido na desmontagem) e os quatro do grupo dão o mesmo.
+    for (uint32_t level : {0x7000011u, 0x7000012u, 0x7000013u, 0x700004au}) {
+        poison();
+        GameState.level_file = level;
+        ReadTuningVars();
+        CHECK(Plr_DMod_Easy == 0.5f && Plr_DMod_Normal == 0.6f && Plr_DMod_Hard == 1.0f);
+        CHECK(DroneFiring.accuracy_easy == 0.7f && DroneFiring.accuracy_normal == 0.8f &&
+              DroneFiring.accuracy_hard == 1.0f);
+    }
+    // O multijogador: o dano por parte do corpo, não o por dificuldade; o capacete vale meio.
+    for (uint32_t level : {0x7000021u, 0x7000029u, 0x700004bu, 0x700004cu}) {
+        poison();
+        GameState.level_file = level;
+        ReadTuningVars();
+        CHECK(Plr_DMod_Multi == 4.0f && Plr_DMod_Head == 4.0f && Plr_DMod_Normal == mark);
+        CHECK(DroneArmour_Helmet == 0.5f && DroneFiring.too_close_distance == 4.0f);
+    }
+    GameState.level_file = saved;
+    for (size_t i = 0; i < sizeof(vars) / sizeof(vars[0]); ++i) *vars[i] = saved_vars[i];
+    DroneFiring = saved_firing;
 }

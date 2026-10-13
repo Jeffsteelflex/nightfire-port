@@ -2153,7 +2153,8 @@ void Player_WeaponFiring(obj_tag* obj, int8_t force) {
 // [decomp] 0x001a4bf0 Player_WeaponInitBullet
 // O disparo: um raio dos olhos ao ponto de mira acha onde a bala vai (BLData::muzzle, para o
 // clarão); as balas saem dos olhos (ou entre eles e o cano) nessa direção, "bullets" por disparo.
-// Armas que lançam objetos (0x20000) só trocam de arma; a 0x53 controla a metralhadora montada; o
+// O detonador (flag 0x20000) não atira: os projéteis vivos da mesma classe deste jogador recebem -10 no pavio
+// (explodem) e a mão volta à arma da classe (ou à melhor, sem munição); a 0x53 controla a metralhadora montada; o
 // taser sem alvo ao alcance devolve a carga.
 void Player_WeaponInitBullet(obj_tag* obj, weapon_definition_tag* def) {
     BLData* b = bloke(obj);

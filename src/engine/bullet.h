@@ -127,11 +127,13 @@ uint32_t Sound_IsFinnished(uint32_t handle);  // portada (engine/sound.h)
 void Sound_SetPosition(uint32_t handle, _VECTOR* pos);
 void PositionBeam(obj_tag* beam, _VECTOR* from, _VECTOR* to);
 void GT_Disable(obj_tag* obj);
-obj_tag* Occlude_Create(_VECTOR* pos, int16_t ticks, uint16_t kind);
+obj_tag* Occlude_Create(_VECTOR* pos, int16_t ticks, uint16_t kind);  // portada (bullet.cpp)
+void Occlude_Update(obj_tag* obj);                                   // portada (bullet.cpp; control_funcs 0x2a)
 obj_tag* Emitter_Create(uint32_t def, _VECTOR* pos, _VECTOR* dir, float a, uint32_t b, uint32_t c, uint32_t d,
                         float e);
 void Player_SetFlashBang(BLData* b, float ticks, uint8_t level);
-void Drone_MessageObjVicinity(uint32_t msg, obj_tag* obj, float radius, uint32_t a, uint32_t b);
+// Portada (drone_func.cpp).
+void Drone_MessageObjVicinity(uint32_t msg, obj_tag* obj, float radius, uint32_t data, uint32_t delay);
 void Camera_Shake(_VECTOR* pos, float amount);
 void Player_SetGrapplePoint(BLData* b, _VECTOR* pos, obj_tag* obj);
 // Copter_GetBody e CopterList: engine/copter.h.

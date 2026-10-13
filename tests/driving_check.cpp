@@ -1,6 +1,6 @@
 // nf_driving_check: a física das missões de carro conferida contra o DRIVING.ELF (docs/driving.md, seção 11).
 //
-//   nf_driving_check <raiz dos dados> [--casos N] [--quadros N] [--semente N]
+//   nf_driving_check <raiz dos dados> [--casos N] [--quadros N] [--semente N] [--consultas N]
 //
 // 1. Lê os três microprogramas da VU0 do .vutext do DRIVING.ELF e confere que o interpretador (platform/vu_interp.h)
 //    conhece todas as instruções deles e dos render methods do EAGL (out/driving/files/MISC.VIV/data/render/*.o, se
@@ -40,6 +40,12 @@
 #include "platform/vu_interp.h"
 
 #include "driving_check_ee.h"
+#include "driving_check_camera.h"
+#include "driving_check_input.h"
+#include "driving_check_sched.h"
+#include "driving_check_car.h"
+#include "driving_check_collide.h"
+#include "driving_check_world.h"
 #include "platform/fmath.h"
 
 namespace {
@@ -603,16 +609,20 @@ void check_coverage(const std::vector<VuProgram>& progs, const std::string& root
 int main_body(int argc, char** argv) {
     nf::install_crash_report();
     if (argc < 2) {
-        std::printf("uso: nf_driving_check <raiz dos dados> [--casos N] [--quadros N] [--semente N]\n");
+        std::printf("uso: nf_driving_check <raiz dos dados> [--casos N] [--quadros N] [--semente N] [--consultas N] "
+                    "[--so camera|agenda|entrada]\n");
         return 1;
     }
     const std::string root = argv[1];
-    int cases = 4000, frames = 600;
+    int cases = 4000, frames = 600, queries = 0;
     uint32_t seed = 20261011;
+    std::string only;  // --so camera: só a parte 8; --so agenda: só a parte 9; --so entrada: só a parte 10
     for (int i = 2; i + 1 < argc; ++i) {
         if (std::strcmp(argv[i], "--casos") == 0) cases = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--quadros") == 0) frames = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--semente") == 0) seed = uint32_t(std::strtoul(argv[++i], nullptr, 0));
+        else if (std::strcmp(argv[i], "--consultas") == 0) queries = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--so") == 0) only = argv[++i];
     }
     // O disco do jogador (a pasta, uma imagem .iso, uma unidade); os objetos extraídos de out/ ficam na pasta dele.
     std::string disc_error;
@@ -628,6 +638,22 @@ int main_body(int argc, char** argv) {
         std::printf("o .vutext tem %zu programas (esperados 3)\n", progs.size());
         return 1;
     }
+    if (only == "entrada") {
+        const int f = drvcheck::run_input_checks(elf, *disc, frames * 4, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "agenda") {
+        const int f = drvcheck::run_sched_checks(elf, cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "camera") {
+        const int f = drvcheck::run_camera_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                  frames * 2, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
     {
         const std::wstring folder = disc->folder();
         std::string base;
@@ -637,8 +663,28 @@ int main_body(int argc, char** argv) {
     check_microcode(progs[1], cases, seed);
     check_whole_step(progs[1], frames);
     const int ee_failures = drvcheck::run_ee_checks(elf, progs[1].code, cases, seed);
+    // O chão das pistas: `--consultas N` por pista (o padrão, um quarto dos casos).
+    const int world_failures =
+        drvcheck::run_world_checks(elf, *disc, queries > 0 ? queries : std::max(50, cases / 4), seed);
+    // O carro sobre o chão de Paris: tantos casos quanto as consultas por pista.
+    const int car_failures = drvcheck::run_car_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                      queries > 0 ? queries : std::max(50, cases / 4), seed);
+    // Os choques (a colisão com os prédios de Paris e entre dois corpos): tantos casos quanto as consultas por pista.
+    const int collide_failures =
+        drvcheck::run_collide_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                     queries > 0 ? queries : std::max(50, cases / 4), seed);
+    // A câmera do jogador: as tabelas do camera.ini, o construtor e `--quadros` x 2 quadros por carro.
+    const int camera_failures = drvcheck::run_camera_checks(elf, *disc, progs[1].code.data(),
+                                                            uint32_t(progs[1].code.size()), frames * 2, seed);
+    // O escalonador: `--casos` operações sorteadas.
+    const int sched_failures = drvcheck::run_sched_checks(elf, cases, seed);
+    // A entrada: os .def do controle e `--quadros` x 4 quadros de controle por tabela.
+    const int input_failures = drvcheck::run_input_checks(elf, *disc, frames * 4, seed);
     std::printf("\nfim\n");
-    return ee_failures ? 2 : 0;
+    return ee_failures || world_failures || car_failures || collide_failures || camera_failures || sched_failures ||
+                   input_failures
+               ? 2
+               : 0;
 }
 
 int main(int argc, char** argv) {

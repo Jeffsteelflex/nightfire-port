@@ -37,7 +37,7 @@ IOP, SPU2, CD) with a PC implementation.
 
 | Path | Contents |
 |------|----------|
-| `src/core` | binary reading helpers, `xxh3` (XXH3-64, used by PCSX2 texture names) |
+| `src/core` | binary reading helpers, `xxh3` (XXH3-64, used by PCSX2 texture names), `svg` (the port's SVG reader, neutral: paths M-Z absolute/relative with arcs and quadratics as cubics, basic shapes, transforms, paint, opacity, gradients in both unit systems, clip paths, viewBox; what the macOS vector drawing paints in place of `ID2D1SvgDocument`; `Document::ignored` lists what it does not know) |
 | `src/data` | ELF reader (sections, segments, symbols), `FILES.BIN` index, level packs, map items (blocks, textures, geometry with per-batch GS state, placement, `gs_blend_equation`, `gs_alpha_coverage_candidate`), `pack_images` (2D images of a pack decoded by hash without loading it: the weapon wheel's icons from 07000048), `texture_pack` (PCSX2 replacement pack index and hashes), `mips_interp` (minimal R5900 interpreter for the ELF's static constructors; with `attach_vu0` it also runs COP2 (lqc2/sqc2, qmfc2/ctc2, macro-mode VU0 ops, vcallms through `ps2::VuMachine`) and the quadword MMI, which `nf_driving_check` uses to run DRIVING.ELF's physics) |
 | `src/game` | `boot` (installs `FileList` and the static-constructor tables), `static_init` (runs `__do_global_ctors`, copies `weapon_data`/`ammo_data`), `hud_tables` (the HUD's and the mission's static tables from the ELF), `menu_tables` (the credits and the debug
 page's lists, run from the ELF's own code; the check of the "Secret Unlocks" codes against the ELF), `LevelScene` (independent reader, now only used by `nf_level_check`), object-type classification, initial camera (`suggest_view`) |
@@ -62,8 +62,8 @@ page's subpages (damage and AI-firing tweaks, "Previews", the level list); `load
 saved profile (`LS_*`, IFF blocks, `BIN_PushBits/PullBits`); `sound` the EE sound module (`Sound_*`, the map's sound
 triggers) and `music` (`Music_Event`, `UpdateMusicalEvents`, the per-level `UpdateMFX_*`, the music triggers);
 structs in `menu.h`); runtime structs in `map_types.h`, `gamestate.h`, `object.h`, `view.h`, `player.h` (`BLData`, `PLRWEAPON_tag`), `player_weapon.h` (`weapon_definition_tag`), `anim.h` (`ANIMOBJ_tag`), `bullet.h` (`BU_tag`, `CASING_tag`), `script.h` (`SCRIPTINFO`, `SSTREAM`, `SCRIPTPLAYER_tag`, `SWITCH_tag`, `FUSEBOX_tag`); not-yet-ported callees declared in `modules.h`/`view.h` and stubbed in `modules_stubs.cpp` |
-| `src/platform` | the platform interfaces, with no system headers or types (see "Platform interfaces and backends" in the conventions): `os.h` (paths, files, optical drives, clock and frame-cap wait, virtual memory, console, error box, command line), `keys.h` (key codes), `window.h`, `entry.h`, `file_dialog.h`, `gamepad.h`, `audio_device.h`, `movie_decoder.h`, `image_io.h`, `crash_report.h`, `compiler.h` and `crt_compat.h` (MSVC-only constructs), with the Windows backends `*_win32.cpp`, `gamepad_xinput.cpp`, `audio_device_xaudio2.cpp`, `movie_decoder_mf.cpp`, `image_io_wic.cpp` and the null ones `os_null.cpp`, `backends_null.cpp`, `crash_report_null.cpp` (`NF_HEADLESS`); the POSIX ones of the macOS/Linux headless build (stage 3a, see "macOS and Linux headless build" in the conventions): `os_posix.cpp`, `arena_posix.cpp` (the game stack in a pthread), `crash_report_posix.cpp` (sigaction + backtrace); `psi*` (PC implementation of the engine's platform interface: clock, heap, `psi_file` over `FILES.BIN`, `psi_gfx` load-time resources, `psi_draw` per-frame draw record incl. `psiDrawParticleList` sprites, loose world-space triangles
-(`psi_draw_triangles`), the lights, the fog pass and the screen fades (`psiFadeView`), `psi_loading` the load screen's blobs and hooks, `psi_shard` glass breakable data and shards, `psi_2d` the 2D draw record (`psiDrawSprites`, `psi_2d_viewport`), `psi_input` keyboard, mouse and pad merged into player 0's actions, `psi_pad` the virtual PS2 pad (libpad slots, styles, rumble), `gamepad` the pads behind `nf::PadSource` (XInput in `gamepad_xinput.cpp`), `input_bindings` the rebindable commands and `[controls]`/`[bindings]`); `vu1` (CPU reference of the VU1 routines and the fog: vertex lighting, env-map ST, GS Z, fog factor); `pending.*` counts stub calls; `psi_card` the memory card (the game's `MemCard_*` state machine and `psi*`
+| `src/platform` | the platform interfaces, with no system headers or types (see "Platform interfaces and backends" in the conventions): `os.h` (paths, files, optical drives, clock and frame-cap wait, virtual memory, console, error box, command line), `keys.h` (key codes), `window.h`, `entry.h`, `file_dialog.h`, `gamepad.h`, `audio_device.h`, `movie_decoder.h`, `image_io.h`, `crash_report.h`, `compiler.h` and `crt_compat.h` (MSVC-only constructs), with the Windows backends `*_win32.cpp`, `gamepad_xinput.cpp`, `audio_device_xaudio2.cpp`, `movie_decoder_mf.cpp`, `image_io_wic.cpp` and the null ones `os_null.cpp`, `backends_null.cpp`, `crash_report_null.cpp` (`NF_HEADLESS`); the POSIX ones of the macOS/Linux headless build (stage 3a, see "macOS and Linux headless build" in the conventions): `os_posix.cpp`, `arena_posix.cpp` (the game stack in a pthread), `crash_report_posix.cpp` (sigaction + backtrace); the macOS ones of the window build (stage 3c, see "macOS backends" in the conventions): `os_macos.mm` (the key layout, the key state, `NSAlert`, the main-thread bridge of `main_thread_macos.h`), `window_macos.mm` (also `display_modes.h`, the monitor modes for non-Windows renderers), `entry_macos.mm`, `gamepad_macos.mm`, `audio_device_macos.cpp`, `image_io_macos.cpp`, `file_dialog_macos.mm`, `movie_decoder_macos.cpp`, and the neutral `mac_keys.h` (the kVK table and the wheel converter, tested everywhere); `app_log_macos.{h,mm}` the `.app`'s `nightfire.log` (stage 4, see "macOS package and install") with the neutral `app_log.h` (the home-folder masking, tested everywhere); `psi*` (PC implementation of the engine's platform interface: clock, heap, `psi_file` over `FILES.BIN`, `psi_gfx` load-time resources, `psi_draw` per-frame draw record incl. `psiDrawParticleList` sprites, loose world-space triangles
+(`psi_draw_triangles`), the lights, the fog pass and the screen fades (`psiFadeView`), `psi_loading` the load screen's blobs and hooks, `psi_shard` glass breakable data and shards, `psi_woman` the animated pause background (`PS2SetUpWoman`, `psiDecompressWoman`), `psi_2d` the 2D draw record (`psiDrawSprites`, `psi_2d_viewport`), `psi_input` keyboard, mouse and pad merged into player 0's actions, `psi_pad` the virtual PS2 pad (libpad slots, styles, rumble), `gamepad` the pads behind `nf::PadSource` (XInput in `gamepad_xinput.cpp`), `input_bindings` the rebindable commands and `[controls]`/`[bindings]`); `vu1` (CPU reference of the VU1 routines and the fog: vertex lighting, env-map ST, GS Z, fog factor); `pending.*` counts stub calls; `psi_card` the memory card (the game's `MemCard_*` state machine and `psi*`
 save/load/enumerate/delete over `nf::PcCard`: a folder, `saves\` or `--save-dir`, or in memory); `psi_sound` the
 EE side of the sound driver (`SFX*`: command batches, `SFXUpdate`, volumes and mode), `sfx_iop` the IOP sound driver
 `SFX.IRX` ported (banks, items, voices, 3D, streams, music markers), `spu2` the SPU2 in software (PS-ADPCM, 48 voices,
@@ -74,24 +74,26 @@ one, GPU-free) and `bench_stats` (the `--bench` frame-time statistics); game-agn
 | `src/driving` | the DRIVING.ELF port (namespace `drv`, library `nf_drv`, conventions in `drv.h`): `physics/` (`rigid_body` the RigidBody/RigidBodyInfo layouts and functions, `vu0_physics` the VU0_physics microprogram hand-ported plus the EE side that loads and collects it, `collision` GenerateImpulse and ResolveCollision with ModifyLevers/ScaleObjObjForces, `simulation` SimulateGame and ESimFrameUpdate's physics, `world` the ground interface and `FlatGround`), `real/vu0_math` (EA REAL matrix and quaternion routines); docs/driving.md section 11. The render (docs/driving.md section 10): `bigf` (BIGF + RefPack), `shps` (SHPS to RGBA), `carp` (the CARP UGroup tree, the `in` instances and the `vd` per-view draw lists), `eagl_loader` (`EAGL::DynamicLoader`), `eagl_model` (`EAGL::Model`, `GeoPrim::Construct/Draw`, the DMA buffer), `eagl_state` (`GeoPrimState`, `RStateManager`, `EAGL::TAR`), `vif` (DMA chain + VIF1 into a 16 KB VU memory), `mat_car` (the MatCar render-method family read from the VU1 microprogram: layouts, CPU reference), `mat_car_verify` (the original microprogram in `ps2::VuMachine` vs the reference), `render_method` (the census of the 115 methods), `car_model` (a car loaded, its batches, parts and instances); `src/driving_app` is `nf_driving` (D3D11 viewer, captures, `--check`, `--census`, `--verify`) |
 | `src/render` | the renderer: `renderer.h` is a facade with no Direct3D types (`Renderer` over `Renderer::Impl`, `GpuImage`/`GpuImageRef` opaque textures), the Direct3D 11 backend is `renderer_d3d11.{h,cpp}` (resources by `Tex` slot / mesh id, draws a `DrawItem` list of rigid and GPU-skinned meshes, particle sprites, loose triangles (shards) and screen-space 2D quads, with the GS state, tweak, VU1 lighting and env map of each draw, plus the fog pass); `runtime_gfx` is the psi_gfx backend and turns the `psi_draw` frame record (camera 0, or 4 during a scripted scene) + provisional objects into the draw list (`frame_markers`, GPU-free in `nf_frame_interp`: where the fog pass and the list-2 depth clear go); `ui_hd*` the optional HD 2D layer (`ui_hd` GPU-free logic in `nf_ui_hd`, `ui_hd_draw_d2d` Direct2D/DirectWrite (PNG through `platform/image_io.h`), `ui_hd_game` what it reads from the game, `ui_hd_app` the nightfire.exe glue); the renderer's PC options: the 3D scene in its own target at a render
 scale and/or with MSAA, then the 2D at window size; texture filter, VSync, DXGI exclusive fullscreen; `frame_interp` (`nf_frame_interp`, GPU-free and tested) the tick interpolation: the last two tick records, draw matching, cuts, the matrix/palette/camera maths, the instant mouse look, the frame-cap timing and `plan_tick` (the tick scheduler with the weapon wheel's slow motion); `movie_layer_d3d11` the movie frame drawn first in the frame (black target, the image in the PS2 screen, Catmull-Rom); `gpu_adapters.h` the adapter enumeration (`--list-adapters`,
-`[video] adapter`; DXGI in `gpu_adapters_dxgi`) and the GPU timestamp queries of `--bench` live in `renderer`; `remix_d3d9` the optional Direct3D 9 fixed-function path for RTX Remix (`--renderer d3d9ff`, a prototype, Windows only: a neutral interface and factory, the class in the .cpp; docs/remix.md); `setup_app` the launcher's loop in nightfire.exe (the file picker of `platform/file_dialog.h`, the DVD drives, the personal copy's thread, the monitor's modes; PLAY returns the launcher's settings) |
-| `src/driving` | the driving missions' port (`DRIVING.ELF`, EA's engine; docs/driving.md): library `nf_drv` (its `.cpp` files are globbed), namespace `drv`, no dependency on `src/engine`; ported functions marked `// [driving] 0x<address> <Name>` (DRIVING.SYM / `out/ghidra_driving` names); the PS2 is the truth, the Xbox build only explains; tests in `tests/test_driving_*.cpp` (globbed into `nf_tests`); conventions in `src/driving/drv.h` |
+`[video] adapter`; DXGI in `gpu_adapters_dxgi`) and the GPU timestamp queries of `--bench` live in `renderer`; `remix_d3d9` the optional Direct3D 9 fixed-function path for RTX Remix (`--renderer d3d9ff`, a prototype, Windows only: a neutral interface and factory, the class in the .cpp; docs/remix.md); `renderer_metal.mm` the macOS backend of the facade (Metal, stage 3d-A: the D3D11 shaders in MSL, see "Metal renderer" in the conventions; `gpu_adapters_metal.{h,mm}` the `MTLDevice` list) and `ui_vector.h` the vector-drawing interface it composites (the Modern menus and the HD layer's text/keys/SVG off Windows, rasterized on the CPU into a premultiplied BGRA `UiRaster` with a `version`), its macOS backend `ui_vector_cg.mm` (CoreGraphics + CoreText, stage 3d-B: layers with a kept prefix snapshot, the port's SVG reader; see "Vector drawing off Windows") and the GPU-free maths both follow in `ui_vector_util` (library `nf_vector` with `core/svg`: pixel snapping, aliased clips, D2D gradients, direct integer fills, the HD text block and key, GS RGBA, list and command hashes); `renderer_null.cpp` the renderer that draws nothing (the Linux compile check `nf_app_check`); `setup_app` the launcher's loop in nightfire.exe (the file picker of `platform/file_dialog.h`, the DVD drives, the personal copy's thread, the monitor's modes; PLAY returns the launcher's settings) |
+| `src/driving` | the driving missions' port (`DRIVING.ELF`, EA's engine; docs/driving.md): library `nf_drv` (its `.cpp` files are globbed), namespace `drv`, no dependency on `src/engine`; ported functions marked `// [driving] 0x<address> <Name>` (DRIVING.SYM / `out/ghidra_driving` names); the PS2 is the truth, the Xbox build only explains; tests in `tests/test_driving_*.cpp` (globbed into `nf_tests`); conventions in `src/driving/drv.h`. Phase 1 (docs/driving.md section 13): `carp_runtime` (the CARP resolved like `RCARPFile::Resolve`: `UGroup` lookups, `CARP::ResolveSymbolicReferences`, the 20 tag resolvers), `track` (a track's instances, articles, passes and LOD; `WRender`), `mat_bond` (the world's MatBond render-method family), `physics/world_collision` (the ground: `WCollisionMgr`, `WGrid`, `WWorldPos` over the track's `CDat`; `TrackWorld`), `game/bond_car` (`PBondCar` with the PS2 layout: `ProcessPhysics`, `AddWheelForces`, `CalculateRPM`, `GetControllerInput`, the car's construction, the collision virtuals), `game/attributes` (the `.atr` attribute collections, `CarPhysics`); phase 1, second half (section 14): `physics/collide` (`RigidBody::CollideWithWorld`, `CollideWithObject`, `ResolveWorldOBBCollision`, `CalculateAndApplyWorldDamage`; `collide_events()` the ECollision/mission/stimulus hooks), `physics/collider` (`WCollider`, the region cache of barriers), `physics/obb` (`OBB`), `physics/world_barriers.cpp` (barriers, collision objects, `GetWorldNormal` with the ground faces along a segment), `camera/dafi` (EA's INI reader `DAFI_*` and `IniFiles`), `camera/camera_ini` (`RCameraIniLoader::LoadFile`: the camera tables of `data/render/camera.ini`, PS2 layouts), `camera/player_camera` (`RPlayerCamera`: the director, `UpdateCamera`, the Heli chase mode, the camera's collision, the shake, `Noise1`), `game/scheduler` (`Scheduler`/`Schedule`, the game's tasks of `RunTheGame`), `game/input` (`PS2PadDevice`, `InputToAction` from the `.def` files, `IOModule::SendGameMessages`) |
 | `src/ui` | the Modern menu style (port-only, `nf_ui_modern`, GPU-free and tested): `modern_ui` (tokens, the 1920x1080 virtual canvas, motion curves and tweens, the draw list), `modern_kit` (the components), `modern_input` (the navigation input of the game-menu screens), `modern_options`
 (the Modern PC options screen), `modern_pause` (the Modern pause), `modern_end` (mission failed, results and the controller-disconnected warning),
 `modern_front` (the Modern front end), `modern_dossier` (the Modern dossier, a view of the front end), `modern_wheel` (the weapon wheel's drawing over the game), `modern_setup` (the pre-game launcher: when it shows, its rows and values, `store_launcher_settings`); drawn by `src/render/ui_modern_draw_d2d` (Direct2D/DirectWrite) and wired to `nightfire.exe` by `src/render/ui_modern_app` |
-| `hd_ui/` | the HD 2D layer's `map.json` (font mapping, image replacements) and its SVG assets (`svg/`, generated by `tools/ui_hd_assets.py`); `hd_ui/fonts/` is the user's font folder and is git-ignored; `hd_ui/fonts_ofl/rajdhani` (OFL) and `hd_ui/design/tokens.json` belong to the Modern menu style |
-| `src/app` | `app_main.cpp`: `nightfire.exe`'s loop modeled on the PS2 `main` + `GameFlow_Main` (`nf_app_main`, platform-neutral; started by `platform/entry_win32.cpp`; the old `src/main.cpp`: "main.cpp" below means this file) |
-| `tests/` | `nf_tests` (unit tests, no game data; `test_platform.cpp` the platform separation check; `test_ptr32.cpp` the 64-bit pointer scheme; `test_determinism.cpp` XXH3 digests of what must repeat bit for bit on every platform (Windows reference values); `test_disc.cpp` the disc sources, a hand-built ISO, the personal copy and the launcher's disc rows; `test_launcher.cpp` the launcher: when it shows, rows, values, PLAY storing; `test_mpeg2.cpp` the port's MPEG-2 decoder with its own test encoder), `nf_disc_check` (two disc sources compared file by file, `disc_check.cpp`), `nf_movie_check` (the port's MPEG-2 decoder against the system's, frame by frame, on the 22 movies; `movie_check.cpp`), `nf_level_check` and `nf_loader_check` (regressions on real data; `nf_loader_check <data> --miras` measures the guns' sight lines, `tests/sights_measure.cpp`), `nf_driving_check` (DRIVING.ELF's physics: the original VU0 microcode in the interpreter vs the hand port, the whole step both ways, the original EE code in the MIPS interpreter vs the C++ port; `driving_check.cpp`, `driving_check_ee.cpp`) |
-| `tools/` | Python tools (`check_platform.py` the platform separation check with the rules of `platform_rules.txt`; `make_release.py` the release zip, with `tools/release/README.txt` and `LICENSES.txt`; formats, exporters, analysis; `vudis.py` disassembles the VU0/VU1 microcode, `scripts.py` decodes the scene scripts, `morph.py` the faces' morph targets and face sequences, `movies.py` lists and demuxes the PSS movies; `driving_sym.py` reads `DRIVING/DRIVING.SYM` and matches it to `DRIVING.ELF`, `driving_data.py` lists and extracts the `DRIVING/` BIGF archives, `xbox.py` reads the Xbox disc image (XDVDFS: `.xiso` or a full image) and XBE headers, writes an equivalent PE32 for Ghidra (`pe`: flat layout, kernel thunk and XDK section labels) and disassembles NV2A vertex programs of Xbox EAGL render methods (`vsh`): the user's NTSC-U Xbox copy in `xbox/`, git-ignored, a reading reference for the driving code only; `xbox_match.py` matches `Driving.xbe` functions to `DRIVING.ELF` ones (strings, constants, call graph, vtables, globals); `vudis.py DRIVING.ELF --prog=N` and `--eagl <obj> <method>` read the driving VU0 programs and the EAGL VU1 render methods) and Ghidra scripts (`ghidra_driving.sh`: the separate `out/ghidra_driving` project for `DRIVING.ELF` and `BASE.ELF`; `ghidra_xbox.sh`: the `out/ghidra_xbox` project for the Xbox PE; `ApplySymbolTable.java` applies a name table; `ExportMatchFeatures.java` exports the matcher's per-function facts; `XboxVtables.java` finds MSVC vtables and creates their functions) |
+| `hd_ui/` | the HD 2D layer's `map.json` (font mapping with `family` for Windows and `family_macos` for macOS, image replacements) and its SVG assets (`svg/`, generated by `tools/ui_hd_assets.py`); `hd_ui/fonts/` is the user's font folder and is git-ignored; `hd_ui/fonts_ofl/rajdhani` (OFL) and `hd_ui/design/tokens.json` belong to the Modern menu style |
+| `src/app` | `app_main.cpp`: `nightfire.exe`'s loop modeled on the PS2 `main` + `GameFlow_Main` (`nf_app_main`, platform-neutral; started by `platform/entry_win32.cpp` or `entry_macos.mm`; the old `src/main.cpp`: "main.cpp" below means this file); `xmath_compat.h` the part of DirectXMath the loop uses, off Windows (nf_tests compares it with the SDK's on Windows); `macos/` the macOS bundle's `Info.plist.in` and `nightfire.icns` (stage 4, see "macOS package and install" in the conventions) |
+| `tests/` | `nf_tests` (unit tests, no game data; `test_platform.cpp` the platform separation check; `test_ptr32.cpp` the 64-bit pointer scheme; `test_determinism.cpp` XXH3 digests of what must repeat bit for bit on every platform (Windows reference values); `test_disc.cpp` the disc sources, a hand-built ISO, the personal copy and the launcher's disc rows; `test_launcher.cpp` the launcher: when it shows, rows, values, PLAY storing; `test_mpeg2.cpp` the port's MPEG-2 decoder with its own test encoder; `test_macos.cpp` stage 3c: the macOS key table and wheel, `xmath_compat.h` against DirectXMath, the player-files folder, `/Volumes`, the PNG round trip, the macOS audio and pads), `nf_window_smoke` (macOS only, `window_smoke.cpp`: the real window for a second), `nf_render_check` (the renderer conformance test, `render_conformance.cpp`: 32 synthetic scenes through the `Renderer` facade offscreen (2 of them the vector drawing, at 960x540); on Windows D3D11 writes the references in `tests/data/render` (synthetic PNGs, committed), on macOS Metal is compared to them with per-scene PSNR limits; `--janela` also draws in a real window; on Linux compiled only), `nf_disc_check` (two disc sources compared file by file, `disc_check.cpp`), `nf_movie_check` (the port's MPEG-2 decoder against the system's, frame by frame, on the 22 movies; `movie_check.cpp`), `nf_level_check` and `nf_loader_check` (regressions on real data; `nf_loader_check <data> --miras` measures the guns' sight lines, `tests/sights_measure.cpp`), `nf_driving_check` (DRIVING.ELF's physics: the original VU0 microcode in the interpreter vs the hand port, the whole step both ways, the original EE code in the MIPS interpreter vs the C++ port; `driving_check.cpp`, `driving_check_ee.cpp`), `nf_vector_check` (Windows and macOS: the vector-drawing comparison; `vector_cases.{h,cpp}` the synthetic cases (also used by `nf_render_check`'s `modern_pausa` and `hd_lote` scenes), `vector_canvas_d2d.cpp` today's Direct2D behind the macOS interface (the references in `tests/data/vector`), `vector_check.cpp`), `test_svg.cpp` and `test_ui_vector.cpp` |
+| `tools/` | Python tools (`check_platform.py` the platform separation check with the rules of `platform_rules.txt`; `make_release.py` the release zip, with `tools/release/README.txt` and `LICENSES.txt`; `make_release_mac.py` the Mac zip (on a Mac, i.e. the CI: the signed universal `.app`, `tools/release/README-mac.txt` and `LICENSES-mac.txt`, the same `check_tree` rule and `hd_ui` list); `mac_icon.py` draws `src/app/macos/nightfire.icns` (the port's own 007 art, standard library only); formats, exporters, analysis; `vudis.py` disassembles the VU0/VU1 microcode, `scripts.py` decodes the scene scripts, `morph.py` the faces' morph targets and face sequences, `movies.py` lists and demuxes the PSS movies; `driving_sym.py` reads `DRIVING/DRIVING.SYM` and matches it to `DRIVING.ELF`, `driving_data.py` lists and extracts the `DRIVING/` BIGF archives, `xbox.py` reads the Xbox disc image (XDVDFS: `.xiso` or a full image) and XBE headers, writes an equivalent PE32 for Ghidra (`pe`: flat layout, kernel thunk and XDK section labels) and disassembles NV2A vertex programs of Xbox EAGL render methods (`vsh`): the user's NTSC-U Xbox copy in `xbox/`, git-ignored, a reading reference for the driving code only; `xbox_match.py` matches `Driving.xbe` functions to `DRIVING.ELF` ones (strings, constants, call graph, vtables, globals; `--cxbx` adds the name pairs of `cxbx_names.py`); `cxbx_names.py` imports the nightfire-cxbx (NightfireResearch) names of `Driving.xbe` and `DRIVING.ELF` into our Ghidra projects through our pairs (docs/cxbx.md); `vudis.py DRIVING.ELF --prog=N` and `--eagl <obj> <method>` read the driving VU0 programs and the EAGL VU1 render methods) and Ghidra scripts (`ghidra_driving.sh`: the separate `out/ghidra_driving` project for `DRIVING.ELF` and `BASE.ELF`; `ghidra_xbox.sh`: the `out/ghidra_xbox` project for the Xbox PE; `ApplySymbolTable.java` applies a name table (F name, C comment if none, A appended comment line, D label); `ExportMatchFeatures.java` exports the matcher's per-function facts; `XboxVtables.java` finds MSVC vtables and creates their functions); `png_shrink.py` recompresses PNGs losslessly (the synthetic references) |
 | `tools/ci/` | CI helpers: `metal_probe.m` (does the macOS runner have a working Metal device), `symbolize.py` (a POSIX crash stack through addr2line/atos) |
-| `.github/workflows/portable.yml` | the CI of the macOS/Linux headless build (see "macOS and Linux headless build" in the conventions) |
+| `.github/workflows/portable.yml` | the CI of the Linux headless build and the macOS window build (see "macOS and Linux headless build" and "macOS backends" in the conventions); since stage 4 the macOS build is universal (the x86_64 half tested through Rosetta) and the Mac zip is the `nightfire-pc-macos` artifact (see "macOS package and install") |
 | `tools/viewer/` | three.js web viewer for exported `.glb` files |
 | `docs/formats.md` | every file format decoded so far |
 | `docs/engine.md` | ACTION.ELF architecture: boot, main loop, GameFlow, frame pipeline, code layers |
 | `docs/port.md` | `nightfire.exe` usage and renderer architecture |
 | `docs/design.md` | the Modern menu style's design system (tokens, type, grid, components, motion, prompts) |
 | `docs/remix.md` | the RTX Remix study (what Remix hooks and needs, with dated links) and the `d3d9ff` prototype |
-| `docs/driving.md` | the `DRIVING.ELF` study (the driving missions): `DRIVING.SYM`, architecture, the hand-off through `BASE.ELF`, the data formats, size, porting plan and risks; section 9: the Xbox version as a reading reference (function match, physics and render side by side); section 10: the render prototype; section 11: the physics prototype |
+| `docs/mods.md` | the plan for community mods (not started: principles, what already exists, four phases; after the playable Mac) |
+| `docs/driving.md` | the `DRIVING.ELF` study (the driving missions): `DRIVING.SYM`, architecture, the hand-off through `BASE.ELF`, the data formats, size, porting plan and risks; section 9: the Xbox version as a reading reference (function match, physics and render side by side); section 10: the render prototype; section 11: the physics prototype; section 12: what nightfire-cxbx changes |
+| `docs/cxbx.md` | the study of nightfire-cxbx (NightfireResearch, the Xbox port that runs the original x86): what to take from it and in what order (names, structures, the driving engine's physics, world, CARP, Scheduler and render inputs, the on-foot divergences found), with their files and the credit; what they gain from us |
 | `docs/setup.md` | environment setup and how to run each tool |
 
 ## Environment (this machine)
@@ -108,7 +110,7 @@ scale and/or with MSAA, then the 2D at window size; texture filter, VSync, DXGI 
   device needs its own copy of the game files at the repo root and the Windows toolchain to build or run anything; a
   cloud session can only read and edit code and docs.
 - CI (user, 2026-10-12): there is no Mac; GitHub Actions on the private repository (`origin`, Actions enabled) compiles
-  and tests the macOS/Linux headless build (`.github/workflows/portable.yml`): push to the branch `ci/portable` to run
+  and tests the Linux headless build and the macOS window build (`.github/workflows/portable.yml`): push to the branch `ci/portable` to run
   it (never every push to main). The GitHub CLI's active account here is a work account: prefix `gh` calls on the
   private repo with `GH_TOKEN=$(gh auth token --hostname github.com --user <owner>)` (the owner is the user part of
   origin's URL); never print the token. macOS minutes cost 10x and are limited on the free plan: get Linux green first.
@@ -132,8 +134,20 @@ powershell.exe -NoProfile -Command "& cmd.exe /c '\"C:\Projects\Nightifire Port\
 ./build/Release/nf_tests.exe              # unit tests; optional name filter as first argument
 python tools/check_platform.py            # no system header, API or MSVC-only construct outside the backend files (also nf_tests "platform")
 powershell.exe -NoProfile -Command "& cmd.exe /c '\"C:\Projects\Nightifire Port\build.bat\" Release headless'"   # the neutral code + nf_tests with the null backends, no Windows API (build/headless/Release)
-# macOS (Apple clang) or Linux (GCC/clang), 64-bit headless with the POSIX backends; this machine cannot build it, the CI does:
+# Linux (GCC/clang): 64-bit headless with the POSIX backends (+ nf_app_check: the nightfire loop compiled, not linked); the CI does it:
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNF_HEADLESS=ON && cmake --build build && ./build/nf_tests
+# macOS (Apple clang): the window build (the macOS backends, nightfire with the Metal renderer), universal (arm64 + x86_64; -DCMAKE_OSX_ARCHITECTURES=arm64 for one); the CI does it:
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build && ./build/nf_tests && ./build/nf_window_smoke
+arch -x86_64 ./build/nf_tests             # macOS: the x86_64 half through Rosetta (the CI runs it, the conformance and the launcher too)
+"./build/Nightfire PC.app/Contents/MacOS/Nightfire PC" --setup --config /tmp/l.ini --wait 0.5 --screenshot /tmp/launcher.png   # macOS: the launcher without a disc (the game is the bundle since stage 4)
+python3 tools/make_release_mac.py --app "build/Nightfire PC.app" --out /tmp/release --dsym /tmp/dsym   # macOS: the Mac zip (strip -S, ad hoc codesign, README-mac/LICENSES-mac, check_tree); the CI uploads it as the nightfire-pc-macos artifact
+python tools/mac_icon.py                  # redraws src/app/macos/nightfire.icns (--png <dir> to look at it, --check)
+./build/nf_render_check --out /tmp/render --compare tests/data/render --janela   # macOS: Metal vs the D3D11 references (synthetic scenes; MTL_DEBUG_LAYER=1 in the CI)
+./build/Release/nf_render_check.exe --out tests/data/render   # Windows: regenerate the D3D11 references (only when a scene or the D3D11 output changes on purpose)
+./build/Release/nf_render_check.exe --out out/render --compare tests/data/render --adapter integrated   # the same D3D11 on another GPU (the cross-vendor baseline)
+./build/Release/nf_vector_check.exe --hd-ui hd_ui --write tests/data/vector   # Windows: today's Direct2D draws the vector cases = the references (then python tools/png_shrink.py tests/data/vector/*.png)
+./build/nf_vector_check --hd-ui hd_ui --compare tests/data/vector --out /tmp/vetor --strict --bench   # macOS (the CI): CoreGraphics vs the references, CPU time of the Modern pause (on Windows: 0 everywhere)
+./build/Release/nf_vector_check.exe --hd-ui hd_ui --svg-parser out/svgp   # Windows: the port's SVG reader painted with Direct2D primitives vs Direct2D's own SVG reader
 git push origin HEAD:refs/heads/ci/portable   # runs .github/workflows/portable.yml: Linux GCC + clang, then (if green) macOS 14 arm64
 ./build/Release/nf_level_check.exe .      # loads all 35 levels from the real data; must report 0 unresolved
 ./build/Release/nf_loader_check.exe .     # loads all 36 packs with the ported original loader; must report 0 differences
@@ -165,7 +179,7 @@ python tools/make_release.py --version 0.2       # the release zip from build/Re
 ./build/Release/nightfire.exe --level 07000005 --fixed-video-hz 60 --input "none:1.5 3:0.1 none:2.5" --wait 4 --screenshot out/shots/gadget.png  # 1-5 pick the n-th gadget: 3 = the grapple (`arma 80`; 1 taser 74, 2 laser 78, 4 camera 84, 5 nothing)
 ./build/Release/nightfire.exe --level 07000012 --open-menu-page 40000060 --menu-tab controls --input "none:1 down:0.1 none:0.4" --wait 2 --screenshot out/shots/ctlmouse.png  # Modern CONTROLS: the mouse rows, the cm per turn in the description's meter
 ./build/Release/nightfire.exe --level 07000012 --at 22.49,1.09,19.155,-1.68 --input "none:0.5 C:0.1" --wait 5 --fixed-video-hz 60 --screenshot out/shots/torso.png  # torso aiming: report `mira_ia ... erro_cano 0.5` (6.3 with --no-torso-aim)
-./build/Release/nightfire.exe --config out/aa.ini --level 07000012 --at 22.49,1.09,19.155,-1.68 --input "none:4.5 pad_rt:0.1 none:0.3 pad_rt:0.1 none:0.3 pad_rt:0.1 none:0.3 pad_rt:0.1 none:0.3 pad_rt:0.1" --wait 7 --fixed-video-hz 60 --screenshot out/shots/aa.png  # auto-aim: out/aa.ini "[game] auto_aim = on|off": `estatisticas tiros 5 acertos 2|0`
+./build/Release/nightfire.exe --config out/aa.ini --level 07000012 --at 22.49,1.09,19.155,-1.68 --input "none:4.5 pad_rt:0.1 none:0.3 pad_rt:0.1 none:0.3 pad_rt:0.1 none:0.3 pad_rt:0.1 none:0.3 pad_rt:0.1" --wait 7 --fixed-video-hz 60 --screenshot out/shots/aa.png  # auto-aim: out/aa.ini "[game] auto_aim = on|off": `estatisticas tiros 5 acertos 1|0`
 ./build/Release/nightfire.exe --level 07000008 --at 160.24,43.10,-117.14,1.571 --input "none:0.5 2:0.1 none:1.9 lmb:3" --wait 4 --fixed-video-hz 60 --screenshot out/shots/laser.png  # the watch laser's beam on the laser lock, the watch hands (report `laser ... relogio 3`)
 ./build/Release/nightfire.exe --level 07000003 --at 1.95,6.43,-20.5,0.0 --input "none:0.3 mlook=0,-700:0.25 none:0.4 lmb:0.1 none:0.3 lmb:0.1 none:0.3 lmb:0.1 none:0.1 D:0.9 mlook=-1300,0:0.3" --wait 3.2 --fixed-video-hz 60 --screenshot out/shots/lantern.png --frames-dump out/shots/lantern --frames 40  # a rigid-body lantern shot and swinging (`corpos_rigidos ... tiros 3`; NF_LIST_RB=1 lists them)
 ./build/Release/nightfire.exe --level 07000016 --at 2.27,-2.0,-94.70,0.0 --input "none:1.0 mlook=0,500:0.4 W:2.5" --wait 4 --fixed-video-hz 60 --screenshot out/shots/water.png  # underwater: `agua ... submerso 1 ar 88.6 ondulacao ...`
@@ -178,17 +192,20 @@ python tools/make_release.py --version 0.2       # the release zip from build/Re
 ./build/Release/nightfire.exe --level 0700000a --at 10.67,1.28,17.79,-1.686 --wait 9 --fixed-video-hz 60 --screenshot out/shots/camera.png  # a security camera spots the player: alarm 0x1e -> 0x12, the ceiling turret deploys and fires
 ./build/Release/nightfire.exe --level 07000014 --at 47.45,1.1,35.6,0 --input "none:0.5 E:0.1" --wait 1.5 --fixed-video-hz 60 --screenshot out/shots/monitor.png  # E on a monitor: camera 0 at the security camera, HUD pane 16 (E again: the next camera)
 ./build/Release/nightfire.exe --level 07000006 --at 6.40,41.01,-43.95,-1.23 --channel 3d --channel 3e --channel 3f --channel 40 --wait 6 --fixed-video-hz 60 --screenshot out/shots/searchlight.png  # searchlights lit by their story channels (--channel), one follows the player: alarm 0x37
-./build/Release/nightfire.exe --level 07000015 --at 13.49,41.4,73.68,-2.338 --input "none:0.5 mlook=0,277:1 none:0.3 lmb:0.1 none:2" --wait 2.25 --fixed-video-hz 60 --screenshot out/shots/mine.png  # a crossbow bolt sets off a laser mine (health 100 -> 32.9)
+./build/Release/nightfire.exe --level 07000015 --at 13.49,41.4,73.68,-2.338 --input "none:0.5 mlook=0,277:1 none:0.3 lmb:0.1 none:2" --wait 2.25 --fixed-video-hz 60 --screenshot out/shots/mine.png  # a crossbow bolt sets off a laser mine (health 100 -> 59.8)
 ./build/Release/nf_loader_check.exe . 0700000c --campanha   # the campaign line with every provisional create and the stubs called
-./build/Release/nf_driving_check.exe . --casos 4000 --quadros 600   # driving physics vs DRIVING.ELF: must report 0 diferentes everywhere
+./build/Release/nf_driving_check.exe . --casos 4000 --quadros 600   # driving physics vs DRIVING.ELF (also part 5, the ground of the 8 tracks, part 6, the car on Paris's ground, part 7, CollideWithWorld/CollideWithObject on 4 tracks, part 8, the player camera: LoadFile, the constructor, UpdateCamera frame by frame in Paris, part 9, the Scheduler, and part 10, the input (the .def tables and SendGameMessages); --consultas N; --so camera runs only part 8, --so agenda only part 9, --so entrada only part 10; NF_COLLIDE_DEBUG=1 prints part 7's failures): must report 0 diferentes everywhere
+./build/Release/nf_driving.exe --data . --track paris_mis01 --car vanquish --drive   # the Vanquish driven in Paris (W/S/A/D, space; Esc quits); --car-pos -327.7,20,-17.7,0.3155 starts on a street
+./build/Release/nf_driving.exe --data . --track paris_mis01 --car vanquish --drive --car-pos -327.7,20,-17.7,0.3155 --drive-input "none:1 W:2 W+A:1.2" --width 1920 --height 1080 --screenshot out/shots/drv/curva.png  # a scripted drive and a capture (+ .txt); --bench-frames N: the whole frame's cost
 ./build/Release/nf_driving.exe --data . --viv MIS01.VIV --model vanquish --yaw 0.6 --width 1920 --height 1080 --screenshot out/shots/drv/vanquish.png  # a driving car drawn offscreen (+ .txt report); without --screenshot: a window, the car turning
-./build/Release/nf_driving.exe --data . --check --verify   # every car .crp of every archive (63) loads; each MatCar batch also runs the original VU1 microprogram in the interpreter: cor_dif/xyz_dif near 0, adc_a_mais 0
+./build/Release/nf_driving.exe --data . --check --verify   # every car .crp of every archive (63) and the 8 tracks (with their collision world) load; each MatCar batch also runs the original VU1 microprogram in the interpreter: cor_dif/xyz_dif near 0, adc_a_mais 0
 ./build/Release/nf_driving.exe --data . --census          # the 115 render methods by microprogram and family
 python tools/pcsx2_pine.py status                # PCSX2's PINE (port 28011) during a driving mission; record <tsv> --frames N; test
 ./build/Release/nightfire.exe --level 07000012 --at 20.5,1.09,19.155,3.1416 --input "none:0.5 W:2" --wait 3 --screenshot out/shots/wall.png  # the gun against a wall (list 2 after the depth clear)
 ./build/Release/nightfire.exe --level 0700000c --debug-shading --no-fog --screenshot out/shots/y.png  # old flat shading, no lights/fog
 ./build/Release/nightfire.exe --level 07000012 --input "none:1 enter:0.2" --wait 2 --screenshot out/shots/pause.png      # pause menu
-./build/Release/nightfire.exe --level 07000012 --input "none:10 space:0.3" --wait 12.5 --screenshot out/shots/fim.png   # death -> end-mission menu
+./build/Release/nightfire.exe --menu-style original --level 07000012 --input "none:1 enter:0.2" --wait 4 --screenshot out/shots/fundo.png  # the Original pause's animated background: `fundo_pausa quadro 88` (--wait 2: 28; also with --hd-ui)
+./build/Release/nightfire.exe --level 07000012 --input "none:17 space:0.3" --wait 19.5 --screenshot out/shots/fim.png   # death (~15.3 s) -> end-mission menu
 ./build/Release/nightfire.exe --level 07000012 --win 1 --shot-level 07000048 --wait 2 --screenshot out/shots/res.png    # results screen
 ./build/Release/nightfire.exe --level 07000001 --hd-ui --width 3840 --height 2160 --screenshot out/shots/hd.png  # HD 2D layer (F4)
 ./build/Release/nightfire.exe --level 07000012 --open-menu-page 40000060 --menu-tab video --hd-ui --prompts keyboard --width 3840 --height 2160 --wait 1.5 --screenshot out/shots/k.png  # HD menus, key caps
@@ -375,12 +392,14 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   libraries, nf_tests and the console check tools against the null backends (`os_null.cpp`, `backends_null.cpp`,
   `crash_report_null.cpp`): no Windows backend and no Windows library; its nf_tests imports only the C/C++ runtime and
   the KERNEL32 functions the runtime itself uses.
-- **macOS and Linux headless build** (stage 3a of macOS; docs/port.md "macOS: compilação e CI"): off Windows CMake only
-  accepts `-DNF_HEADLESS=ON`, 64-bit (it turns `NF_ARCH64` on itself: P32, the arena, its `operator new`,
+- **macOS and Linux headless build** (stage 3a of macOS; docs/port.md "macOS: compilação e CI"): off Windows CMake
+  builds 64-bit only; Linux only `-DNF_HEADLESS=ON`, macOS also without it (the window build of stage 3c, next bullet).
+  The headless build (it turns `NF_ARCH64` on itself: P32, the arena, its `operator new`,
   `NF_P32_CHECK`), with the POSIX backends `os_posix.cpp` (paths, files with `open`/`pread`, mounted ISO 9660/UDF volumes,
   `clock_gettime`, `mmap`/`mprotect`, the arena window: `mach_vm_region` on macOS, `/proc/self/maps` on Linux, read
   without allocating since it runs inside the first `operator new`; `os_unfair_lock` / a yielding spin lock;
-  `key_char`/`key_held` 0/false and `show_error` to stderr until the window of stage 3c), `arena_posix.cpp`
+  `key_char`/`key_held` 0/false and `show_error` to stderr, except in the macOS window build, `NF_MACOS_APP`, where
+  `os_macos.mm` gives them), `arena_posix.cpp`
   (`call_on_stack` = a pthread with `pthread_attr_setstack` on the arena's stack, joined; a `sigaltstack` per thread) and
   `crash_report_posix.cpp` (`sigaction` for SEGV/BUS/ILL/FPE/ABRT, `backtrace_symbols_fd`, the image base for
   `tools/ci/symbolize.py`), plus `backends_null.cpp` for pads, audio, movies, images and the file picker.
@@ -403,6 +422,134 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   nf_tests print the window and the arena); see "Environment" for the account and the minutes. If a change alters a
   digest of `tests/test_determinism.cpp` on purpose, rerun `nf_tests determinism` on Windows and update its references.
   Never run two nf_tests at once on one machine (the disc tests share temp folder names).
+- **macOS backends** (stage 3c; docs/port.md "macOS: os backends"): the macOS build without `NF_HEADLESS` compiles the
+  backends (`*_macos.mm` Objective-C++ with ARC, `*_macos.cpp` over C APIs; `enable_language(OBJCXX)`, macOS 11
+  minimum, the frameworks on `nf_platform`) and `nightfire` with the Metal renderer (stage 3d-A, "Metal renderer" below;
+  before it, `render/renderer_null.cpp`, which drew nothing). Threads: AppKit wants the window and events on the main thread and the game runs on the arena's stack (a
+  pthread off Windows), so `entry_macos.mm` keeps the main thread in `[NSApp run]` and runs `nf_app_main` on another
+  thread (through `nf::run_main`); whatever touches AppKit goes to the main thread with `nf::macos::run_on_main`
+  (`platform/main_thread_macos.h`: `dispatch_sync` on the main queue; without the event loop, i.e. nf_tests and the
+  console tools, it runs in place and `can_use_appkit()` is false); events land on the main thread and become a locked
+  state (`WindowShared`) that `Window::pump()` copies into the `Window` fields on the game thread, so those fields only
+  change there. Without a GUI session (`CGSessionCopyCurrentDictionary`) the program runs without AppKit and `Window`
+  throws. Window: `NSWindow` + `NSView` with a `CAMetalLayer` (`native_handle()` is the view; sizes in pixels =
+  points x `backingScaleFactor`); borderless fullscreen like Windows (presentation options hide the menu bar and the
+  Dock; the green button, Ctrl+Cmd+F and Option+Return do it; `Exclusive` is the same, the renderer accepts it); keys
+  from the `keyCode` through `platform/mac_keys.h` (positional, static_asserted against Carbon's `kVK_*`; modifiers by
+  the device side bits plus the generic VK; a local monitor re-sends the key-ups macOS drops while Command is held);
+  `os::key_char` from `UCKeyTranslate` cached on the main thread (TIS calls must be there on macOS 14); `os::key_held`
+  from `CGEventSource*`; the mouse captured with `CGAssociateMouseAndMouseCursorPosition(false)` and the `NSEvent`
+  deltas (they carry the system acceleration; raw HID would be `IOHIDManager`); the wheel through `nf::mac::MacWheel`
+  (lines = notches, 40 points per notch on precise devices, no trackpad momentum, natural scrolling undone). Pads:
+  GameController's extended profile mapped to the XInput `PadState` (stable indices, read on the main thread; no
+  vibration yet: Core Haptics). Audio: the default output `AudioUnit` with a lock-free ring of 16 chunks and the
+  XAudio2 rules (`played_frames` counts consumed data; no device = mute). Images: ImageIO writing the exact RGBA/BGRA
+  bytes and reading straight from the decoded `CGImage` (drawn only for odd formats). File picker: `NSOpenPanel` with
+  `beginWithCompletionHandler` (images `.iso`/`.cdr`/`.img` and folders). Discs: `os::optical_drives` adds local
+  `/Volumes` mounts with a `SYSTEM.CNF` (from the mount table, never touching network volumes); `.cdr` counts as an
+  image off Windows (`disc_image_extension`); the personal copy is Windows-only (`personal_copy_supported`). Player
+  files: `os::user_files_dir(app)` (the exe folder on Windows, as always; `~/Library/Application Support/<app>/` on
+  macOS) holds `nightfire.ini` and `saves/`. Rules for new code: AppKit only through `run_on_main` (or on the main
+  thread in an event handler); Objective-C blocks capture C++ objects by copy, so capture pointers, never a reference
+  to a non-copyable struct; a backend header shared with C++ files has no Objective-C; non-Windows renderers take the
+  monitor modes from `platform/display_modes.h`; a new macOS backend file is named `*_macos.mm`/`.cpp`/`.h`
+  (`tools/check_platform.py` reads `.mm` too). The Linux job compiles `src/app` and the neutral `src/render` files
+  (`nf_app_check`) so GCC/clang catch their errors before the macOS run (they caught three `P32 ? literal` in the
+  `NF_MENU_DUMP` code). The macOS CI job also runs `nf_window_smoke` and the launcher capture (skipped with exit 77
+  without a GUI session; GitHub's macos-14 runners have one).
+- **Metal renderer** (stage 3d-A of macOS; `render/renderer_metal.mm`, header comment; docs/port.md "macOS: o
+  renderizador Metal" has the D3D11 → Metal map, the divergences and the conformance numbers): the macOS
+  `Renderer::Impl`, with `renderer_d3d11.cpp` as the specification: the same shaders in MSL (compiled at start with
+  `newLibraryWithSource`, `fastMathEnabled = NO`; engine matrices go in as they are and MSL reads them by columns, so
+  `mul(v, M)` is `M * v`; HLSL `round` is `rint`), the same `resolve_state`/`gs_blend_equation`/
+  `gs_alpha_coverage_candidate` (copied into the backend: no Windows file changed), the same draw order and PC options.
+  Device: the `[video] adapter` `MTLDevice` by `registryID` (or its `MTLCopyAllDevices` index), else
+  `MTLCreateSystemDefaultDevice`, else the first listed (the CI has no default device). The frame is always drawn in an
+  own BGRA8 target (the D3D11 back buffer's role); `present()` copies it to the `CAMetalLayer` drawable (layer device,
+  format, `framebufferOnly`, `displaySyncEnabled` = VSync set on the main thread through `run_on_main`; `nextDrawable`
+  is not asked while the window's `occlusionState` says it is hidden, checked every 30 frames). One command buffer per
+  frame (committed at `present()`, or when `save_png` must read); a render encoder stays open while the attachments do
+  not change: the fog pass (an encoder without the depth, which it reads as `depth2d`/`depth2d_ms` + `[[sample_id]]`),
+  the list-2 depth clear (a new encoder with `depthAttachment.loadAction = Clear`, 0 = far), the MSAA resolve (an empty
+  encoder with `MultisampleResolve`) and the 2D target switch encoders. Pipelines cached by (program, GS blend, coverage,
+  samples, depth, format); depth states by (function, write). Textures private, uploaded through an upload command
+  buffer (staging buffer + `copyFromBuffer`, `generateMipmapsForTexture`) committed before the frame's; per-frame data
+  (sprites, shards, 2D quads, skin palettes, the vector rasters) in 4 MB shared chunks returned when the GPU finishes.
+  Vector 2D (Modern menus, HD text/keys/SVG) goes through `render/ui_vector.h`: `UiVectorCanvas::draw_modern/draw_hd`
+  give premultiplied BGRA rasters composited (ONE, ONE_MINUS_SRC_ALPHA) where Direct2D draws, `asset()` gives RGBA8
+  replacement textures (cached by (index, w, h), mips for PNG); `draw_hd`'s `UiHdOp::index` is the position in the
+  batch's `texts`/`keys` (the renderer passes all of them). Divergences: last-bit rounding, edge rasterization, the
+  MSAA/alpha-to-coverage pattern, aniso and BC decoding per vendor; `--bench` GPU time is the per-frame total
+  (`GPUStartTime`/`GPUEndTime`), the `GpuPhase` split stays 0; no tearing flag; exclusive fullscreen = borderless;
+  offscreen always holds three frames in flight. Rules for new renderer code: any D3D11 change must land in both
+  backends with the same maths (and `tests/data/render` regenerated on Windows when it changes the D3D11 output on
+  purpose); `@autoreleasepool` around every facade entry that calls Metal (the game thread has none); a scissor rect is
+  clamped to the attachment; a pipeline's sample count and depth format match the open encoder. Conformance
+  (`nf_render_check`, `tests/render_conformance.cpp`): 30 synthetic scenes (the 30th, `textura_trocada`, is
+  `update_texture` outside and inside a frame, 2026-10-13: Metal 53.75 dB, the Radeon 54.0, limit 47); on the CI's "Apple
+  Paravirtual device" every scene is 35.8-66 dB PSNR against the RTX 5090's D3D11, the same envelope as the Radeon
+  iGPU's D3D11 (36.3-67 dB); limits 6 dB under the lower of the two; `--janela` draws the drawable path (identical to
+  offscreen). Plus two vector scenes in a 960x540 renderer (`--hd-ui <dir>`, default `hd_ui`): `modern_pausa` (blur + `draw_modern`) and `hd_lote`
+  (a `UiHdBatch` of texts, keys and SVG replacements, with Rajdhani as the HD fonts so the same font is drawn on both
+  systems); see "Vector drawing off Windows".
+- **Vector drawing off Windows** (stage 3d-B; `render/ui_vector.h`, `ui_vector_cg.mm`, `ui_vector_util.h`, `core/svg.h`,
+  header comments; docs/port.md "macOS: o desenho vetorial"): on macOS the Modern menus and the HD 2D layer are drawn by
+  `UiVectorCanvas` (`create_ui_vector_canvas()`; only `ui_vector_cg.mm` defines it there, the provisional null factory
+  is gone), which rasterizes on the CPU into a premultiplied BGRA `UiRaster` (only the drawn rectangle, window pixels)
+  that the Metal renderer composes with `ONE, ONE_MINUS_SRC_ALPHA` where Direct2D draws on Windows; HD replacements come
+  back as RGBA with straight colour and GS alpha, like the Direct2D ones; `draw_hd` reads `UiHdOp::index` into the whole
+  batch's `texts`/`keys`. The spec is `ui_modern_draw_d2d.cpp`/`ui_hd_draw_d2d.cpp` (unchanged): the same pixel rules
+  (`ui_vec_snap_*`, aliased clips), gradients interpolated straight in sRGB values like D2D's (the probe in the
+  references shows it), text with `kCTKernAttributeName` after every character and the alignment compensation, the
+  baseline snapped to the pixel, caps centred by `CTFontGetCapHeight`, the HD block placement and compression
+  (`ui_hd_place_lines`), the 1-PS2-pixel outline as a stroked glyph path, additive text as a colour-only add. Fonts: the
+  repo's Rajdhani through `CTFontManagerCreateFontDescriptorsFromURL` (nothing installed; the `measure` widths equal
+  Windows' to 0.00%), the weight from OS/2 and DirectWrite's matching rule (`match_face`), Menlo for the mono strip; the
+  HD layer reads `family_macos` from `map.json` (the repo's: DIN Alternate, DIN Condensed; Windows still reads only
+  `family`), missing italics slanted by the font matrix (0.24, measured from DirectWrite's simulation). SVGs go through
+  the port's reader (`core/svg.h`). Caching: the menus send the same lists every frame and the front one changes every
+  frame (the focus glow flickers), so up to 4 layers keep their image (an identical list returns it; a `UiRaster` that
+  already holds that `version` is not even copied) and a snapshot of the bitmap after the unchanged command prefix
+  (per-command hashes, a point with no open clip), so only the tail is redrawn; CTLines are cached per text; the HD
+  batches have a 16-entry cache; window-sized fills, the vignette and gradient bands are painted straight into the
+  bitmap in integers (`ui_vec_fill_rect/linear/radial`; CoreGraphics took ~10 ms for a 1080p vignette). The Metal
+  renderer passes a fresh `UiRaster` to every `draw_modern`, so the kept image is still copied and uploaded every frame
+  (keeping the raster and skipping on an equal `version` is a renderer change for later). Rules for new code: a new
+  `DrawCmd` kind or HD op needs both backends and a case in `tests/vector_cases.cpp`; regenerate the references on
+  Windows (`nf_vector_check --write tests/data/vector`, then `tools/png_shrink.py`) and check the CI comparison (its
+  macOS images and diffs are the `desenho-vetorial-macos` artifact; the conformance scenes' are in `render-metal`); keep
+  the cases synthetic (no game strings or images).
+- **macOS package and install** (stage 4; docs/port.md "macOS: o pacote e a instalação"; no Apple signature, user
+  decision): on macOS `nightfire` is the `MACOSX_BUNDLE` "Nightfire PC.app" (executable `Contents/MacOS/Nightfire PC`, so
+  the macOS command lines use `"./build/Nightfire PC.app/Contents/MacOS/Nightfire PC"`), with `src/app/macos/Info.plist.in`
+  (configure_file `@ONLY`: `org.nightfirepc.port`, the version from `-DNF_VERSION` or `git describe` (`v0.3` + 36 commits =
+  "0.3.36", "0.0" without tags), `NFPortBuild` = the git hash, `LSMinimumSystemVersion` 11.0, action-games category,
+  Game Mode, `NSHighResolutionCapable`, `NSSupportsAutomaticGraphicsSwitching`; controllers need no usage key),
+  `src/app/macos/nightfire.icns` (`tools/mac_icon.py`: the port's own results 007 on a macOS 11 rounded square, committed,
+  287 KB) and the git-tracked `hd_ui` in `Contents/Resources` (`git ls-files hd_ui` at configure time, one
+  `MACOSX_PACKAGE_LOCATION` per folder: the Windows zip's set). `CMAKE_OSX_ARCHITECTURES` defaults to `arm64;x86_64`
+  (universal; nothing in the code needed changing). `os::bundle_dir()` (`os::bundle_of_exe`, tested everywhere; empty on
+  Windows without allocating) is the `.app`: `UiHdApp::find_dir` tries `Contents/Resources/hd_ui` first (Finder launches
+  have cwd `/`), `disc_places_here` looks for `.iso`/`.cdr` beside the `.app` instead of in `Contents/MacOS`. The log
+  (`platform/app_log_macos.h`, only the `nightfire` target, `NF_APP_LOG`): `~/Library/Application Support/Nightfire
+  PC/nightfire.log` (previous run `nightfire.prev.log`), an English header (version, build, arch and Rosetta, macOS, model,
+  CPU, memory, every `MTLDevice`, app path, arguments), then fds 1/2 become pipes that a non-allocating thread copies to
+  the log (home folder masked as `~`, `app_log.h`) and to the old fds (Terminal and CI still see everything); stdout is
+  line-buffered; `crash_report_flush()` (POSIX only, `crash_report_set_flush`) makes the crash report and
+  `os::exit_process` wait up to 1 s for the copy; `-psn_` arguments are dropped before `nf_app_main`.
+  `tools/ci/symbolize.py` accepts paths with spaces. The Mac zip (`tools/make_release_mac.py`, on a Mac): `ditto` the
+  bundle, `lipo` must show both archs, `dsymutil` (the dSYM outside the zip), `strip -S` (no build paths), the bundle's
+  `hd_ui` replaced by `make_release.tracked_hd_ui()` (exactly the Windows zip's list: CMake never deletes a resource git
+  dropped from an old build's bundle), `plutil -lint`,
+  `codesign --force --deep -s -` and `--verify --deep --strict`, `README-mac.txt`/`LICENSES-mac.txt` as `README.txt`/
+  `LICENSES.txt`, `make_release.check_tree` (now with a `large_ok` parameter; the Windows zip is unchanged) with the git
+  name/e-mail and `/Users/<name>/`, `ditto -c -k --keepParent` into `Nightfire-PC-mac-<git describe>.zip`. The CI's macOS
+  job (timeout 15 min) builds universal, runs nf_tests and the Metal conformance in both halves (x86_64 by `arch -x86_64`,
+  Rosetta installed if missing), the launcher capture in both, makes the zip, unzips it, runs the app through
+  LaunchServices (`open -W -n`) and Rosetta, checks the log and compares the launcher captures with the build's, and
+  uploads the zip as the `nightfire-pc-macos` artifact (never a release) and the dSYM with the captures. Rules: anything
+  the program reads beside its executable must also be found in the bundle (`os::bundle_dir`) and nothing is written
+  inside it (`os::user_files_dir`); a new player-facing Mac fact goes in `tools/release/README-mac.txt`.
 - Memory: one heap (`Mem_*`, `src/engine/memory.cpp`) with 12-byte block headers; `psiMem_Init`
   reserves `psiMemHeapSize` bytes with `VirtualAlloc` (x64: `nf::arena::alloc_pages`, inside the 4 GB window). `ResetMap_Load` re-runs `Mem_Init` on every
   level load. Allocation tags: high byte =
@@ -702,7 +849,8 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   units of 90 degrees. Use (action 14, key E) goes through `Player_WeaponFiring` (use, or reload
   when nothing was used) to `Player_Activate` (sphere of radius 1 one metre in front of the eyes).
   Damage: `MP_RegisterBulletHit` (true outside multiplayer) -> `Player_HandlePain` (difficulty
-  multipliers `Plr_DMod_*` copied from the ELF, `BLData::armour` absorbs shots, `CheatInfo` +0 is god
+  multipliers `Plr_DMod_*`, written per level group by `ReadTuningVars` at every load (07000012: 0.5/0.6/1.0; see
+  "Per-level tuning"), `BLData::armour` absorbs shots, `CheatInfo` +0 is god
   mode, `BLData::pain_flash` is the hit's red: the PS2 draws no full-screen red, it is the alpha of the red hit-direction
   arrows, HUD pane 1 sprites 20-23 by `BLData::hit_dir` in `HUD_UpdateHealthPane`, fading `FRAME_RATE_MUL` per tick;
   drawn). `Player_CheckForDeath` (every tick)
@@ -840,6 +988,20 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   one-sequence script. Releasing the trigger cancels the rest of a burst (`BLData::burst = 0`).
   `Player_Init` writes the level's punch skin into weapon 1. The screenshot report has a line
   `arma W estado S pente N municao M mirando A zoom Z`.
+- Per-level tuning (`ReadTuningVars`, 0x1d3a80, `engine/resetmap.cpp` and `resetmap.h`, comments there; docs/engine.md
+  "O ajuste das fases"): `ResetMap_Load` calls it at every load, after creating the objects. Despite the name it reads no
+  file: always the player's aim/turn speeds (`Plr_AimSpeed_*` 0.1275/0.136, the rest as the `.data`), the continue
+  health (50) and the auto-aim (`Autoaim_*`, see "Gameplay polish"); then a switch on `GameState.level_file` (jump table
+  0x305160) per level group (Henderson 01-04, castle 05-08, tower 09-0b, power station 0c-0d, second tower 11-13 and 4a,
+  base 14-16, space station 1b, the multiplayer arenas 21-29/4b/4c) writes the 32 drone values (`DroneDamage_*` the
+  damage the player deals by difficulty and body part, head x10; `DroneArmour_*`; `DroneFiring` accuracy and burst
+  rhythm; `DroneCaptain_*`) and the damage the player takes (`Plr_DMod_Easy/Normal/Hard`, e.g. 0.5/0.6/1.0 in
+  07000012; the arenas write `Plr_DMod_Multi/Head/LowerLimb/UpperLimb` instead). Levels outside the switch (the front
+  end, the NIS levels 0e-10, the test maps) keep the previous load's values. `nf_loader_check` runs the ELF's own
+  `ReadTuningVars` in the MIPS interpreter for 0x07000000-0x0700004f and three other codes, poisons the 65 globals on both
+  sides and compares them bit for bit (`ajuste das fases (ReadTuningVars): 83 de 83 conferem com o ELF`). The P_TWEAKS
+  debug page still edits the same globals (the next load rewrites them, as on the PS2). Tests:
+  `read_tuning_vars_per_level_group` (tests/test_game.cpp).
 - Modern aiming and the weapon wheel (`engine/player_ads.h`, `engine/weapon_wheel.h`, `ui/modern_wheel.h`,
   `platform/pc_gameplay.h`, header comments; docs/port.md "Mira moderna e roda de armas", docs/design.md "A roda de
   armas"; port-only, user decisions 2026-10-10):
@@ -930,10 +1092,12 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
     0x1000, which makes `DroneWeap_Ready2Fire` wait for the barrel to point at the target (20 degrees): AI firing
     changed slightly (`tiros_ia`). `--no-torso-aim` (debug) turns it off; report line `mira_ia ... erro_cano` (barrel
     to target angle); guards in `g_anim_aim_guards`.
-  - Auto-aim: `Check_AutoAim` (player_weapon.cpp, constants `Autoaim_*` from the ELF: 10-degree cones, range 35, lock-on
-    x2, difficulty x1.25/x1/x0 for 00 Agent) for each drone and player from `Player_AutoAim` when
+  - Auto-aim: `Check_AutoAim` (player_weapon.cpp, constants `Autoaim_*` that `ReadTuningVars` writes at every load: a
+    cone of 0.12 rad horizontal and 0.22 rad vertical, range 25, lock-on x1.4, difficulty x1.9/x1/x0 for 00 Agent; the
+    `.data` values, 10-degree cones, range 35, x2 and x1.25, only last until the first load) for each drone and player from
+    `Player_AutoAim` when
     `PlayerSetting::autoaim` is on and not aiming (weapons 0x50/0x51: always, type-0x51 objects): cone x
-    `weapon_definition_tag::autoaim` (+0x14, %) x (1 - dist/35); inside both cones and with line of sight the target's
+    `weapon_definition_tag::autoaim` (+0x14, %) x (1 - dist/25); inside both cones and with line of sight the target's
     spine goes to `BLData::aim_target` and its screen position to `aim_cur_x/y` (crosshair, gun and bullet follow). PC
     choice: the same rule for mouse and pad (the game has no mouse and never disables it per device; RMB is the game's
     aim and disables it). With auto-aim on, captures with enemies in view differ from before (the crosshair moves);
@@ -1101,7 +1265,8 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   settle to `root_y`. Rays and spheres hit the joint boxes from `AnimGetCollData`
   (`HumanCollisionBones`/`AstronautCollisionBones` from the ELF; the joint id is the hit location). A
   bullet hit becomes message 8, which a state must pass to `DroneFunc_HandleImpact`; damage goes
-  through `NDrone2_HitDamage` with `DroneDamage_*`/`DroneArmour_*` copied from the ELF. The hurt
+  through `NDrone2_HitDamage` with `DroneDamage_*`/`DroneArmour_*` (copied from the ELF, rewritten per level group by
+  `ReadTuningVars`: head x10, helmet 1 in the campaign). The hurt
   broadcast (message 0x12) reuses `NPCGlobals.alert` with no object and the hurt drone as sender.
   `nf_loader_check` prints `ia_corpo: caíram=N variação=X` (height change of the drones over the 2 s)
   and `em_inimigos=N` (pistol bullets that hit a drone).
@@ -1115,7 +1280,8 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   `next_shot`, `last_shot` (`DroneWeap_NextBulletTime`, `DroneWeap_BurstDelay`); a shot only hits
   after 2 s of sight or within 3 m (`DroneWeap_DoBulletAccuracy`, else `aim_error`). The
   `DroneFiring_*` constants are one `kTables` row (`DroneFiring`, up to
-  `DroneCaptain_Mod_BulletDamage`). `Drone_tag::look`/`look_variant` are in fact the grenade and
+  `DroneCaptain_Mod_BulletDamage`), rewritten per level group by `ReadTuningVars` (accuracy by difficulty
+  0.5/0.7/1.0 in most levels, "too close" 3 m). `Drone_tag::look`/`look_variant` are in fact the grenade and
   its count. Drone bullets hit the player (his hit list), but `MP_RegisterBulletHit` (stub: false)
   and `Player_HandlePain` (stub) keep his health; friendly fire is filtered by side in
   `NDrone2_DealWithObjHit`, like the original. `nf_loader_check` makes every armed enemy fire one
@@ -1125,6 +1291,19 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   the global state it touches (Rand seeds, `GameState`, switch channels, stub/state counts) and
   lists its own stub calls in `stubs chamados pelos tiros da IA`. `ResetMap_Load` clears the switch
   channels on cold loads (`Init_SwitchChannels`), so alarms no longer carry over between levels.
+  Per tick also (ported 2026-10-12 from the nightfire-cxbx study's list): `NDrone2_NavNodeCache` (Drone_InitComms)
+  keeps `NPCGlobals.player_target` on the player's feet and rebuilds its network nodes when he moved 2 m, so A* routes
+  to the player work and `DSTATE_DroneStuck` sees `player_target.frame` advance; `DroneFunc_HandleExplosives` (end of
+  `NDrone2_ControlSTANDARD`) sends message 0x21 (`DroneFunc_ConsiderExplosive`: flee) for the first kind-2 aware point
+  (grenades and the like, smoke clouds) within its radius when the drone has property 0x3b or 0x3a, sees it (>= 0.7)
+  and has line of sight (quirk kept: the first one in range ends the search even unseen); `Drone_MessageObjVicinity`
+  (the flash grenade, message 0x18 within 20 m to who sees it: the `StunGrenade*` states); `Occlude_Create/Update`
+  (bullet.cpp: the smoke grenade's cloud, a type-0x2a object with model 0x2000273 for 20 s, 40 s for class 0x69: two
+  aware points and network links flagged 0x200); `Drone_FellOutMap` (a drone out of every room is disabled and
+  deleted). The DTYPE controls (`DroneTypeSettings` +8) are ported: Zoe (07000008: channel 1 sets 0x9b; with 0x9b on
+  and the player more than 10 m away, `DroneFunc_SetMissionFailReason(0xf)`, channel 99), the ninjas
+  (`NDrone2_CreateNinjaEyes`, still a stub) and the astronauts (the default). Tests at the end of
+  `tests/test_drone_vision.cpp`.
   Spawners (`engine/drone_spawner.cpp`, header comment; `drone.h` section "Geradores"): placement 0xf1
   makes a type-0x30 object with a `DroneSpawner_tag` (0x3c bytes: kind 2 refill / 3 waves, group,
   `max_alive`, `waves`, start/stop/done/kill channels, minimum distance from the player) registered in
@@ -1174,7 +1353,8 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   (arrows) mira X cortina E/S`. Missions: `Mission_Init` (from `ResetMap_GameInit`) finds the level in
   `MissionData` (base map = the mission's first level, order) and resets this and later levels'
   objectives; `Mission_Update` (in `Game_Run`) runs `Mission_MonitorObjectives` (reveal, complete,
-  "don't let it happen" objectives with flag 2; channel 99 = failed, 100 = all done) and the end
+  "don't let it happen" objectives with flag 2; channel 99 = failed, 100 = all done; quirk kept: "all done" ANDs the
+  raw channel bytes, so a channel holding an even value counts as not done) and the end
   flow: channel 0x62 (death) -> status 3, 1 s; channel 99 -> status 2, 5 s; channel 100 -> status
   6, 4 s, then `ResetMap_LevelToLoad(LevelToEndTo)` (the front end or the mission's end movie). Levels
   without a `MissionData` entry get status 5, where `PlrStat_OkToUpdate` refuses health changes: in
@@ -1244,9 +1424,10 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   `--ui-inventory <dir>` appends every distinct image element (hash, texel rect, size, pane:sprite, frame
   count) to `<dir>/inventory.tsv` and writes crops and whole textures as PNG (keep it under `out/`: game
   data). `NF_UI_HD_DUMP=<dir>` writes every SVG rasterization as PNG. Menu pieces (docs/port.md,
-  "Inventário dos menus") have their own SVGs from `tools/ui_hd_assets.py` (the panel 0x03000070, the pause
-  silhouette 0x030000db, the 0x03000042 pieces, the results 007 0x03000140 and corner 0x0300014c; only the
-  "007 nightfire" logo 0x0300016d is still the texture); label images copy their model sprite, so
+  "Inventário dos menus") have their own SVGs from `tools/ui_hd_assets.py` (the panel 0x03000070, the 0x03000042
+  pieces, the results 007 0x03000140 and corner 0x0300014c; only the "007 nightfire" logo 0x0300016d is still the
+  texture, and the pause panel's image 0x030000db has no replacement: the game animates it, see "The animated pause
+  background"); label images copy their model sprite, so
   `sprite_texture_hash` also finds the hash by `sprite::texture` (the texture record).
   Frames (port-only, `psi_2d_find_frame`/`psi_2d_nine_slice` in `platform/psi_2d.h`): a quad showing the
   whole texture of a frame (the panel 0x03000070, insets 64/72/64/80 texels) whose window-pixel texel
@@ -1304,6 +1485,31 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   that open menus must call `menu_debug_power_on`/`menu_handlers_debug_power_on` and `MenuManager_Init`
   after the 2D lists, and clear `glb_players` if no player exists (`P_ENDMISSION_Handler` calls
   `Player_RamLoad`).
+- The animated pause background (`platform/psi_woman.h`, header comment; docs/port.md "O fundo animado da pausa";
+  found by the nightfire-cxbx study, docs/cxbx.md 3.1; ported from the PS2 MIPS on 2026-10-13): the image of the pause
+  and end-mission panel, texture 0x030000db (label 0x10000184, additive, alpha 0x50), is not the image stored in the
+  pack (blurred party lights and a man raising a glass: never shown on the PS2). At load `psiPreGameRun` ->
+  `psi_woman_pack_textures` (the part of `CreateSpaceAndPackTextures` 0x0011dcf8 that gives it the fire texture
+  0x030000da's palette and zeroes it: black until the first frame); while the game is paused `Game_Run` calls
+  `psiDecompressWoman` (0x001202a8): `skipit.288` (2, static) counts down `PS2FramesToSkip` (the port leaves it 0: it
+  counts as 1), so one frame every other tick at 60 Hz (30 per second); each frame is a 128x128 RLE (the pack's
+  type-16 item, `PS2SetUpWoman`: alternating zero runs and blocks of copy/zero runs, big-endian u16 counts) copied from
+  the fire, whose source scrolls with `WomanFrame` (two rows and one column per frame), and frame 348 goes back to the
+  first (the Xbox holds the last one 240 ticks, the PS2 does not): a woman's silhouette turning and aiming a gun, filled
+  with moving fire. On PC there are no VRAM spaces: the texture's pixels and palette are the `pstex_tag` heap copies (the
+  fire alone fills its 128x256 space, which the PS2 leaves unconverted, so it is the linear texture); `Conv8to32` is not
+  ported (the GS reads the linear image) and the backend swaps the texture: `PsiGfxBackend::update_texture` ->
+  `RuntimeGfx::on_texture_update` (`decode_texture_frame`, no per-frame allocation) -> `Renderer::update_texture` (the
+  facade: the slot's level 0 + mips; D3D11 `UpdateSubresource` + `GenerateMips`, Metal through the upload command buffer
+  or, with a frame being recorded, a blit in the frame's command buffer, in order; an empty slot or another size is a
+  `set_texture`; the slot's HD replacement is dropped) and the D3D9 mirror. The HD 2D layer no longer replaces 0x030000db
+  (decided 2026-10-13: the static SVG drew an image the PS2 never shows; removed): the animation shows with it too.
+  Visible in the Original pause and end mission; the Modern style hides the game's panel (the animation runs under it,
+  captures unchanged); the front end has neither texture. Report line `fundo_pausa quadro Q proximo P decodificados D
+  trocas T preparos R textura X guardas G`; `nf_loader_check` ends with `fundo animado da pausa: 33 fases, 33 ciclos de
+  348 quadros, bytes lidos 88638-88638 ...` (each level, after the menu test, 696 paused ticks from frame 0 come back to
+  the start). Guards (`g_psi_woman.guards`, 0 on the real data): no item, a missing texture or other sizes, an RLE past
+  the frame or the item. Tests: `tests/test_woman.cpp`, the `textura_trocada` scene of `nf_render_check`.
 - Front end (`engine/menu_frontend.h`, header comment; docs/engine.md "Menu principal"; docs/port.md "Menu
   principal"): `nightfire.exe` without `--level` keeps the boot's front-end request (07000048) and the game runs its own
   single-player path, every page drawn Original with `--menu-style original` and as the Modern front end otherwise (`src/ui/modern_front.h`,
@@ -1412,7 +1618,9 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   manual_aim (toggle|hold), weapon_auto_switch, flashing_objects, hud_always_on, music_volume, effects_volume`.
   Precedence: (1) at boot the keys the ini has override the PS2 defaults (`psiInput_Init` -> `game_options_apply_ini`);
   (2) a card codename read (`LS_LoadPlrSettings/LS_LoadGlobalSettings`) brings its own options, as the game does, and the
-  ini does not change (`game_options_rebase`); (3) the default profiles ("New Codename", "Play without saving", "Default":
+  ini does not change (`game_options_rebase`), except the music and effects volumes the ini knows, which are the
+  machine's and win over the codename's (`game_options_codename_loaded`; user report 2026-10-12: lowering the volume in
+  the options and then picking a saved codename brought it back up); (3) the default profiles ("New Codename", "Play without saving", "Default":
   `Menu_MapDefaultCodename`, and the subtitles `Menu_WillRunMiniMission` turns off in the US version) take the ini's keys
   over `def_codename` (the ini plays the role of the default profile the PS2 loses at power-off); (4) a change made in
   any menu (a difference since the last rebase, seen every tick by `game_options_sync` at the start of
@@ -2020,7 +2228,9 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   parameter 2 puts it out for good. Mines (0xfe, object 0x4b): any object in the hit list explodes them
   (`Explode_Create`, inline in the original). Shooters (0xd2, 0x4e): one shot of weapon parameter 1 when channel
   parameter 0 turns on. Inverters (0x41, 0x53): channel 0 on clears channel 1 every tick. Quakes (`Apocalypse`, 0x4a,
-  0x54): rumble, `viewer_tag::shake` of camera 0 and `Player_SetFlashBang` for parameter 1 seconds. The mounted gun
+  0x54): rumble, `viewer_tag::shake` of camera 0 (`Camera_Update` moves the camera by `Rand_FRand_MVar2_Vec`, between
+  -shake/60 m and 0 per axis, each tick: 07000016's quake ~1.5 cm per frame) and `Player_SetFlashBang` for parameter 1
+  seconds. The mounted gun
   (`GunImp`, 0x34, 0x47; `TurretGuns` from the ELF, entry 11 in single player): use mounts it (substate 0xc, frozen,
   camera mode 0xe, FOV 30 degrees), the sticks aim (pitch -90..+45 degrees), fire every `TURRETGUN::delay` ticks, heat 2
   per beam shot and overheat above 200; `PositionBeam` (ported with it) places beam models. The space station
@@ -2396,8 +2606,11 @@ Done:
   `psiStart/EndLoadingScreen`, `psiAllocateLoadingBlobs`, `CacheLoadingBlobs`, `ResetLoadingBlobs`; the weather
   `InitDrops`, `UpdateDrops`, `AddDrop`, `DrawDrops`, `Env_Update`, `Env_Reset`, `RainBox_*`, `InitRainBox`,
   `Lightning_*`, `Cloud_Create`, `cloud_update`; the scenery `Ripples_*`, `LeafGen_*`, `Leaf_*`, `Env_Tree_*`,
-  `rotor_init/update`, `OneSided_*`, `Env_Breath`, `Particles_*`, `psiCreateParticles`, `psiParticleUpdate`)
-  (2103 functions, 79.25% of the bytes; see `python tools/decomp_status.py`).
+  `rotor_init/update`, `OneSided_*`, `Env_Breath`, `Particles_*`, `psiCreateParticles`, `psiParticleUpdate`); the
+  short on-foot gaps the nightfire-cxbx study found (`ReadTuningVars`, `NDrone2_NavNodeCache`,
+  `NDrone2_ControlDTYPE_Zoe/Ninja/Astronaut`, `DroneFunc_HandleExplosives`, `Drone_MessageObjVicinity`,
+  `Drone_FellOutMap`, `Rand_FRand_MVar2_Vec`, `Occlude_Create/Update`, `View_DrawGlist`, `Input_Ready`)
+  (2116 functions, 79.74% of the bytes; see `python tools/decomp_status.py`).
 - Lighting and fog as on the PS2: the VU1 microcode is decoded (`tools/vudis.py`, formulas in
   `docs/formats.md`) and the renderer runs its routines per vertex: the levels' baked vertex
   colours, the tweak as the ambient term, the two nearest lights (`1/d² - 1/r²` times N·D, from the
@@ -2430,7 +2643,7 @@ Done:
   game's own weapon code (`DroneWeap_Fire`: bursts, fire rate, accuracy rules, muzzle flash, casings,
   grenades, melee hits, dropping the gun when they die): in 07000013 the lobby guards open fire within
   5 s (`efeitos marcas` ~95). `nf_loader_check` also drives one burst per armed enemy (`tiros_ia`,
-  drone bullets hit the player on 07000004/12/13). Triggers work:
+  drone bullets hit the player on 07000011 and 07000012 in the full run, 1 and 3 hits). Triggers work:
   touching, using and channel logic turn channels on, which wakes the drones that wait for them
   (`nf_loader_check` prints `estados_ia=state:count` after 2 s; the screenshot report lists `canais`
   on and `gatilhos`). Spawners work: 79 on the disc in 16 levels (07000001/05/06/08/0a/0b/0c/0d/11/12/
@@ -2469,8 +2682,9 @@ Done:
   player's eyes on every level (`balas:`). `nf_loader_check` puts the player in front of every
   unlocked closed door and uses it (`usar=`; ~94% open, the misses are the placement heuristic) and
   reports where the player ends after 2 s standing still (`andou=`, `chão=`). The enemies' bullets
-  hurt the player with the game's own rules (difficulty, armour) and he dies at 0 health (07000012:
-  hit from ~6 s and dead at ~9 s standing at the start, the HUD going 7/7 -> 2/7; 0700000d, the old
+  hurt the player with the game's own rules (difficulty, armour, the level's tuning) and he dies at 0 health
+  (07000012: hit from ~6 s and dead at ~15.3 s standing at the start, 41 health and the HUD at 3/7 at 9 s; ~8.4 s
+  before `ReadTuningVars`; 0700000d, the old
   example, no longer kills him: its early attackers were spawner templates, now off the map at load).
 - Items: every level's ammo, weapons, armour, keys and mission items are real objects (328 on the
   disc at difficulty 2), drawn by `Game_Draw` with the room tint and the near-camera pulse; walking
@@ -2507,8 +2721,9 @@ Done:
   gauge (7 spiral blades + ring); other images fall back to the original texture with bilinear filtering;
   optional edge anchoring for wide windows; `--ui-inventory` lists and crops every 2D image. The menus too:
   every piece of the pause, mission-failed, YES/NO box, results and PC option pages is vector (panel with
-  bronze frame, gold tab band, dark-red glass and help bar; silhouette; arrows, slider thumb, checkboxes,
-  highlight; the results 007 and corner), crisp at 3840x2160, and the button symbols follow the device:
+  bronze frame, gold tab band, dark-red glass and help bar; arrows, slider thumb, checkboxes, highlight; the
+  results 007 and corner; the pause silhouette had one until 2026-10-13, when the animated texture replaced it),
+  crisp at 3840x2160, and the button symbols follow the device:
   PS2 vector symbols, the bound keyboard keys as key caps, or Xbox buttons (`[ui] prompts`, auto = last
   device used). The menu panel no longer deforms on taller pages (9-slice, also in the original 2D, where
   the game's own pages stay pixel-identical).
@@ -2518,7 +2733,7 @@ Done:
   gauge turning red), the ammo count, fire mode and bullet stack, the red hit arrows fading with
   `pain_flash`, the crosshair (aim, scope panes), night vision/X-ray with the battery, the objective,
   info and item messages ("NEW OBJECTIVE", "Press Action to open door", "Picked up 20x 9mm rounds"),
-  the blood curtain when the player dies (07000012 at `--wait 9`). The mission module
+  the blood curtain when the player dies (07000012 at `--wait 16`). The mission module
   runs the objectives (`nf_loader_check`: objectives complete in 07000006, 07000012 and 07000016
   during the game tests; an alarm fails 07000007), and death, failure and success follow
   the game's flow through the real menus (see the next item).
@@ -2527,8 +2742,8 @@ Done:
   MISSION/OBJECTIVES/CONTROLS/SCORE; continue, restart with a YES/NO box, quit; the objectives list;
   the controller style and look inversion) and closes it again (07000012: `--input "none:1 enter:0.2"
   --wait 2`); death or a failed objective opens "Mission Failed" (REPLAY/QUIT) over the paused game,
-  and REPLAY restarts the level warm with `Player_RamLoad` (07000012: `--input "none:10 space:0.3"
-  --wait 12.5` shows the menu; `"none:10 space:0.3 none:2.5 space:0.3" --wait 16` gives `recomecos 1`
+  and REPLAY restarts the level warm with `Player_RamLoad` (07000012: `--input "none:17 space:0.3"
+  --wait 19.5` shows the menu; `"none:17 space:0.3 none:2.5 space:0.3" --wait 23` gives `recomecos 1`
   and full health); after a mission success the front end shows the results page (score, medal
   target, "Continue / Stats / Dossier"; `--win 1 --shot-level 07000048 --wait 2`) and continue loads the
   next mission.
@@ -2635,8 +2850,8 @@ Done:
   radios, the game's images: mission pictures, the 007 medals, the reward cards and portraits, the gadget and weapon
   pictures; back to the map or the results), the **credits** (the game's 578 lines rolling at its pace in the kit's
   type, companies, roles and names by the game's fonts, from a CREDITS row of the Modern main menu, returning by
-  themselves) and the pause's **SCORE** tab in single player (the game's mission stats: 07000012 after five shots, 1 hit,
-  1 dispatched, 20% accuracy, 65 health, 00:09). Keyboard, mouse (tab clicks, row hover, right click back) and pad (X
+  themselves) and the pause's **SCORE** tab in single player (the game's mission stats: 07000012 with the `ms.png`
+  command above, 3 shots, 1 hit, 1 dispatched, 83 health, 00:07). Keyboard, mouse (tab clicks, row hover, right click back) and pad (X
   on the map, LB/RB, d-pad, B) all drive them; with `--menu-style original` the dossier, credits, pause, SCORE, results,
   map and main pages stay pixel-identical (only the HD layer's square prompt changes: it now shows E).
 - Sound (see "Audio"): the game plays its own sounds through its own code and the ported IOP driver, out of
@@ -2647,9 +2862,9 @@ Done:
   game's options, 3D panning, the room reverb, pause and scenes as on the PS2. Verified on WAV dumps: 07000001's intro
   NIS (Kiko and Mayhew's speech at -24 to -30 dB RMS over ambience at ~-40 dB, no clipping, the subtitles in step;
   10-34 s: speech and ambience -27.2 dB RMS, the music alone -38.8 dB, 11.6 dB under the speech, the game's own
-  levels); 07000012's gunfight (`--wait 14 --fixed-video-hz 60`: peaks at 0 dBFS, 341 clipped samples in 14 s, RMS -11
-  to -14 dB in the 5 s of fire, the unclipped peak +3.7 dB: the SPU2's own saturation, checked against SFX.IRX, LIBSD.IRX and the EE: the chain has
-  unity gain); a door in 07000006; the front end; the music volume at 35 instead of 70 is 12.3 dB lower (the squared
+  levels); 07000012's gunfight (`--wait 14 --fixed-video-hz 60`, remeasured with `ReadTuningVars`, the player alive
+  until ~13 s: peaks at 0 dBFS, 329 clipped samples in 14 s, RMS -10.5 to -15 dB in the 8 s of fire, the unclipped
+  peak +3.5 dB: the SPU2's own saturation, checked against SFX.IRX, LIBSD.IRX and the EE: the chain has unity gain); a door in 07000006; the front end; the music volume at 35 instead of 70 is 12.3 dB lower (the squared
   formula predicts 12.2); 07000007's guests talk to the player (`--at 42.96,44.2,-71.81,-1.571 --wait 15.95`: the guard
   says "Enjoy the party." with its subtitle, -19.3 dB RMS over ~-26 dB of ambience and music).
 - Smooth rendering above 60 fps with the logic at 60 Hz (see "Tick interpolation"): `Game_Draw` runs once per tick
@@ -2709,7 +2924,8 @@ Done:
   react in the probe), and E on a monitor shows the group's cameras full screen with HUD pane 16 (the PS2 has no
   render-to-texture: camera 0 takes the security camera's matrix, so the renderer is unchanged); 07000006: the
   searchlights sweep, find the player under their spot, follow him, light the spot (their kind-2 light) and their alarm
-  0x37 wakes 27 guards; 07000015: a crossbow bolt sets off a laser mine (Explode_Create, the player 100 -> 32.9);
+  0x37 wakes 27 guards; 07000015: a crossbow bolt sets off a laser mine (Explode_Create, the player 100 -> 59.8 with
+  the level's damage tuning, 32.9 before `ReadTuningVars`);
   0700000d: the mounted laser cannon is used, fires, overheats and is left; 0700001b: the station's laser charges and
   fires at the player and the missiles arm and launch. Provisional placements went from 441 to 270 with `inimigos=`,
   the guards and `bloqueios da campanha (fases): nenhum` unchanged. Performance on the Radeon iGPU (1080p offscreen,
@@ -2719,8 +2935,9 @@ Done:
   their torso so the gun points at the player (`AnimObjectAimAt`: 07000012 with the player crouched, the nearest
   guard's barrel misses him by 0.5 degrees instead of 6.3 with `--no-torso-aim`, and the AI now waits for the barrel to
   point before firing, as on the PS2); the "Auto aim" option works (`Check_AutoAim`: 07000012, five pad shots from the
-  same spot, 2 hits and a kill with it on, 0 off and 0 on main; the crosshair snaps onto the crouched guard's chest;
-  `nf_loader_check`: 0 vs 5 hits in 07000006, 0d and 12, 1 vs 5 in 13); the watch laser draws its beam to the lock and
+  same spot, 1 hit and a kill with it on, 0 off and 0 on main; the crosshair snaps onto the crouched guard's chest;
+  `nf_loader_check`, with the cones `ReadTuningVars` writes (narrower sideways, range 25): off vs on 0/5 in 07000006,
+  0/3 in 0d, 0/1 in 12, 4/5 in 13, 2/4 in 01; 0/5 in each before); the watch laser draws its beam to the lock and
   the watch shows its dial and
   hands at the mission's time (07000008), the upgraded pistols draw the laser sight and its red dot, the taser draws
   its zigzag; underwater the camera wobbles and asks for the screen blur (07000016: submerged, air dropping); the 34
@@ -2832,6 +3049,78 @@ Done:
   07000012/07000001/Modern-pause captures identical in x86 and x64 (same build hash). Next: 3c (window, input, entry
   with NSApplication; decide main-thread stack switch vs game thread), 3d (Core Audio, ImageIO; the MPEG-2 decoder
   is done: stage 3b, the port's own), 3e (Metal).
+- macOS backends (stage 3c of macOS, 2026-10-12/13; see "macOS backends" in the conventions and docs/port.md "macOS: os
+  backends"): the macOS `nightfire` compiles, links and runs in the CI (the window, keyboard, mouse, wheel, borderless
+  fullscreen, GameController pads, Core Audio, ImageIO, the file picker, `/Volumes` discs and `.cdr`, the ini and saves
+  in Application Support), with the non-drawing renderer (black window) until Metal (3d). The game thread / main
+  thread split works on macOS 14 arm64: `nf_window_smoke` opened a 640x360 window with focus, resized it to 800x450,
+  went borderless 1920x1080 and back, read the monitor (1920x1080, 1 mode on the VM) and the layout (`;` = U+003B);
+  the launcher captured without a disc (no personal-copy row); the runner even has an audio device (16 x 480 frames
+  consumed in 200 ms). nf_tests: Windows x86 817, x64 820, headless 817 (main 809/812/809: +8, 0 failures), Linux 820,
+  macOS 822 (the 2 macOS-only ones); the Windows `nf_tests` checks `xmath_compat.h` against the SDK's DirectXMath (sin,
+  cos and the projection bit-identical, the view within 1e-6). Windows unchanged: the MSVC compile lines of every
+  existing object identical to main in x86, x64 and headless (the only new object is `test_macos.cpp`),
+  `nf_level_check` 35/0 and identical, `nf_loader_check` identical (addresses masked) in x86 and x64, the 07000012
+  gunfight at 9 s with its WAV, the Modern pause, the Modern main menu and the launcher pixel-identical in x86 and x64
+  (same build hash), `check_platform.py` 0. CI: runs `38330829413`, `38331442176` (the final code) and `38331794578`
+  (comments and docs) green on all three jobs (the first `38330389299` stopped at Linux on three `P32 ? literal`);
+  macOS used 2.75 min (1 min 23 s, 41 s, 41 s; 40 billed), Linux 11.8 min. Left for later: vibration (Core Haptics), a raw
+  mouse delta (`IOHIDManager`), the `.app` bundle (stage 4, done since), real hardware checks (keyboard layouts, mouse feel,
+  trackpad notch size, pads, speakers).
+- Metal renderer (stage 3d-A of macOS, 2026-10-13; see "Metal renderer" in the conventions and docs/port.md "macOS: o
+  renderizador Metal"): the macOS `nightfire` draws with Metal everything the D3D11 backend draws (meshes, skinning,
+  face morphs, the VU1 routines, GS blend/alpha/Z per part, fog, the list-2 depth clear, particles, shards, 2D with
+  9-slice, fades, screen blur, the Modern blur, the movie layer, the load-screen snapshot, port images, DDS BC1-BC7,
+  render scale, MSAA 2/4/8 with per-sample fog and alpha-to-coverage, texture filters, VSync on the `CAMetalLayer`),
+  the adapters by `MTLCopyAllDevices`; the vector 2D goes through `render/ui_vector.h` (its CoreGraphics backend came with stage
+  3d-B; until then a null factory kept the Modern menus and the HD layer off, like Windows without Direct2D). `nf_render_check` (29 synthetic scenes, D3D11 references in `tests/data/render`) passed on the first macOS
+  run: every scene 35.8-66 dB PSNR against the RTX 5090's D3D11, within the Radeon iGPU D3D11's own envelope (36.3-67
+  dB), 0 Metal API validation errors, the real-window drawable path identical to offscreen, `read_texture` and the
+  env/coverage part counts equal. Windows unchanged: MSVC compile lines identical to main (0dfa630) for every existing
+  object in x86, x64 and headless (new: the `nf_render_check` objects), nf_tests 817/820/817, `check_platform.py` 0,
+  `nf_level_check` 35/0, `nf_loader_check` identical (addresses masked) in x86 and x64, and 07000012 at 9 s with its WAV,
+  07000001 at 11.7 s, the Modern pause, 0700000c at 200%/MSAA 4x/aniso16 and the 07370048 movie frame byte-identical to
+  main in x86 and x64. CI: runs `38336607116` (Metal green the first time; cancelled after the smoke by a push),
+  `38336691079` (with `MTL_DEBUG_LAYER=1`) and `38337432012` (the final code with main merged) on macOS, `38336102155`
+  stopped at the Linux link; macOS 2.6 minutes (40 billed) out of the stage's 20. Left: the vector backend (3d-B, done: next item), the per-phase GPU times, and what only a real Mac
+  can confirm (performance, Retina, VSync/ProMotion, occlusion, AMD/Intel Mac GPUs).
+- Vector drawing on macOS (stage 3d-B, 2026-10-13; see "Vector drawing off Windows" in the conventions and docs/port.md
+  "macOS: o desenho vetorial"): `render/ui_vector_cg.mm` draws the Modern menus and the HD 2D layer with CoreGraphics
+  and CoreText on the CPU, with the port's SVG reader (`core/svg.h`: the 61 SVGs of `hd_ui/svg` then, 60 since the
+  pause silhouette left on 2026-10-13, read with nothing ignored; painted with Direct2D primitives on Windows they
+  match Direct2D's own SVG reader within 0.87 mean difference).
+  Compared in the macOS CI against Direct2D references of 17 synthetic cases (`tests/data/vector`, 1.7 MB): lists and
+  the eight Modern screens at 1920x1080 0.06-0.75 mean difference and at most 0.98% of pixels over 32, every text and
+  glyph ink box within 1 px (the Menlo mono strip 13), the HD texts 4.90 / 4.45% (DIN Alternate in place of
+  Bahnschrift, boxes within 8 px), the SVG sheets 0.25-0.55; the `measure` widths of 150 Rajdhani texts equal (0.00%).
+  Through the facade (`nf_render_check`, composed by Metal): the Modern pause 34.3 dB PSNR and the HD batch 27.5 dB
+  against Direct2D on D3D11 (Direct2D on the Radeon: 53.6 and 54.2; without the layer 12.7 and 19.8). CPU time on the
+  CI's virtual Mac for the Modern pause: the whole list 14.4-14.7 ms at 1080p and 22.8-24.4 ms at 1440p (only when the
+  screen opens or changes tab), then 1.4-1.7 and 2.3-2.6 ms per animated frame, 0.015 ms for an equal list. CI: runs
+  `38336294027`, `38337484570`, `38338108766`, `38339334044`, `38339856731` (the final code) and `38340463898` (the
+  docs) green on all jobs; macOS 5 min 25 s (70 billed) out of the stage's 20 minutes; macOS nf_tests 832/0. Windows unchanged: MSVC lines identical to
+  main (8785846) for every existing object in x86, x64 and headless (new: the `nf_vector` lib, two test files,
+  `nf_vector_check`, `vector_cases.cpp` in `nf_render_check`), nf_tests 827/830/827 (+10), `check_platform.py` 0,
+  `nf_level_check` 35/0 and identical, `nf_loader_check` identical (addresses masked) in x86 and x64, the D3D11 conformance scenes byte-identical to their references, and the Modern pause, options, main menu, launcher, HD layer at 4K (with and without `--fixed-video-hz 60`) and weapon wheel captures byte-identical to main in x86 and x64 (same build hash). Left: see Known gaps 7.
+- macOS package and install (stage 4 of macOS, 2026-10-13; see "macOS package and install" in the conventions and
+  docs/port.md "macOS: o pacote e a instalação"): the macOS `nightfire` is the universal `Nightfire PC.app` (arm64 +
+  x86_64, macOS 11+, `org.nightfirepc.port`, the version from `git describe`, the port's own 007 icon, the `hd_ui` in
+  `Contents/Resources`), with a `nightfire.log` for testers in `~/Library/Application Support/Nightfire PC/` (header with
+  version, macOS, model and GPUs; stdout/stderr and the crash report copied, the home folder as `~`), and the CI builds,
+  signs ad hoc, tests and uploads the Mac zip (`Nightfire-PC-mac-<git describe>.zip`, 4.7 MB: the `.app`, the English
+  install guide `tools/release/README-mac.txt` as `README.txt` and `LICENSES-mac.txt`) as the `nightfire-pc-macos`
+  artifact; nothing published. CI: run `38343662753` green the first time, `38344609337` failed on the log test's
+  stream order (fixed: the log starts a new line when the stream changes), `38344978830` green with main (15a55d2)
+  merged; macOS 6 min 4 s over the three (70 billed). On the CI's virtual M2: nf_tests 851/0 in arm64 and in x86_64
+  through Rosetta with the determinism digests equal to Windows in both, the 32 conformance scenes within limits in both
+  halves (identical numbers but the CPU-drawn `modern_pausa`, 34.25/34.24 dB; the launcher captures of the two halves
+  differ by no pixel over 8), the zipped app opened through LaunchServices (cwd `/`) drew the launcher byte-identical to
+  the build's and wrote its log, and through Rosetta too; the zip's `hd_ui` is exactly `make_release.tracked_hd_ui()`
+  (69 files). Windows unchanged: MSVC compile/link lines identical to main (15a55d2) in x86 (327), x64 (340) and headless
+  (288), nf_tests 845/848/845 (+2 neutral tests), `check_platform.py` 0, `nf_level_check` identical, the 07000012
+  gunfight PNG and WAV, the Modern pause, the Modern main menu and the launcher byte-identical to main in x86 and x64 (x64
+  = x86, the gunfight's `arena` line equal), and the Windows zip the same 77 files with the same bytes. Left: see Known
+  gaps 7.
 - `nightfire.exe` calls `Mem_Init` at boot like the PS2 `main`; nothing allocates from the heap yet.
 - PC-standard keyboard and mouse (user request, 2026-10-10; see "Input"; docs/port.md "Controles" has the table): Esc
   pauses (and is back in menus, closing the pause at its top in both styles; the mouse is released by the menu, and in
@@ -2866,6 +3155,27 @@ Done:
   opaque cutouts (07000001's intro bamboo, the plants) use alpha-to-coverage: the 1x shape kept whole, the edges and thin
   leaf tips smooth; captures without MSAA pixel-identical to main; iGPU cost within noise.
 
+- Per-level tuning and the on-foot gaps of the nightfire-cxbx study (2026-10-12; "Per-level tuning" and "AI characters"
+  in the conventions, docs/cxbx.md 3.1): `ReadTuningVars` (checked against the ELF in the interpreter for 83 level
+  codes), `NDrone2_NavNodeCache`, the Zoe/ninja/astronaut controls, the raw-byte AND of `Mission_MonitorObjectives`,
+  `Rand_FRand_MVar2_Vec`, `DroneFunc_HandleExplosives`, `Drone_MessageObjVicinity`, `Occlude_Create/Update`,
+  `Drone_FellOutMap`, `View_DrawGlist` and `Input_Ready`, each from the PS2 MIPS with tests (nf_tests 828 x86, 831
+  x64). What changes in play, all as on the PS2: the damage the player takes (07000012 at Agent x0.6 instead of the
+  `.data`'s x1: standing at the start he dies at ~15.3 s instead of ~8.4 s; 07000015's mine 100 -> 59.8 instead of
+  32.9), the guards' accuracy (x0.8 in 07000012 instead of x1) and the head shot (x10 instead of x100), the auto-aim
+  (narrower sideways and range 25: 07000012's five pad shots still 1 hit with it, 0 without; the start of 07000012 no
+  longer locks onto a guard at 9.4 m, which moves the crosshair in captures with auto-aim on), A* routes to the player
+  (the AI's behaviour in the probes moves: 07000006's searchlight alarm wakes 20 guards instead of 15, run alone), the
+  camera shake (07000016's quake moves the camera
+  ~1.5 cm per frame) and the `Rand` sequence after any shake (3 more draws per tick: the probes that run after the
+  grenade probe see another sequence, e.g. 07000012's copter fires 40 shots instead of 3 before it is beaten, and
+  0700000a's decryptor opens 1 lock of 3 instead of 2 of 2). `nf_loader_check`: 36
+  packs, 0 differences, x64 identical to x86 (addresses masked), the auto-aim, AI-shot, copter, lock and searchlight
+  probes changed as above (per level, run alone, they differ only where the tuning, the routes or the shake act; in the
+  full run the `Rand` state carries the differences to later levels). Captures with no AI or damage are byte-identical
+  to main (the Modern main menu, the fade-in, a movie frame, 07000013's lobby, 0700000a's security camera, 07000007's
+  guests; the options, the Original pause and 07000012 at 2 s with `[game] auto_aim = off`), and every capture of x64
+  equals x86's.
 - `DRIVING.ELF` study (docs/driving.md; tools only, no game code ported): `DRIVING.SYM` decoded and matched to the disc's
   ELF (`tools/driving_sym.py match --evaluate`: 3,455 anchors, 97-100% of the size-equal matches right in hold-out tests),
   names applied in a separate Ghidra project (`tools/ghidra_driving.sh`), the `BASE.ELF` loader and the UberBond hand-off
@@ -2893,7 +3203,10 @@ Done:
   `in#0000` instances with the `vd#0001` outside-view draw list (`RSceneObj::GetViewDrawList`). One render-method family
   read from the VU1 microprogram and redone as a D3D11 shader + CPU reference: `MatCarTexturePacked` = `MatCarChrome`
   (same code), `MatCarTextureDullPacked`, `MatCarDash` (3 passes: base, specular sphere map, reflection; damage zones, 3
-  directional + 4 point lights, fog); the other 4 car methods use a flagged fallback (glass draws opaque black). The
+  directional + 4 point lights, fog) and `MatCarGlassPacked` (the glass, section 14: the damage zone's raw w as alpha,
+  four passes, the per-vertex backface ADC through the ModelView) and `MatCarTextureSwitchPacked` (the lights: the
+  colour pulled toward the `SwitchData` by its w); `MatCarGouraudDullPacked` and `BondCarShadow` use a flagged fallback;
+  `--verify` also reruns glass and lights with damaged zones and a lit switch (`variantes`). The
   Vanquish renders whole (plate "KE02 EWW" readable, wheels in place), 1.76 ms/frame at 1080p MSAA 4x on the Radeon iGPU.
   All 63 car `.crp` of the 9 archives load (0 loader/VIF errors except `MISC.VIV`'s `bus_tokyo`, which lacks a mission's
   shared data); the family covers 90.1% of their 7,872 batches and, run against the original microprogram in
@@ -2901,6 +3214,54 @@ Done:
   the PS2's clip-cull ADC is the documented divergence). Census: 115 methods, 97 distinct microprograms, 13 families.
   Not done: the other car methods, the per-frame `RReflection`/`RLightManager`/`RVehicle` inputs (SpecularMat, reflection
   texture, lights, wheel bones), the track world.
+- Driving phases 0 and 1, first half (docs/driving.md section 13; 2026-10-13): Paris drawn and the Vanquish drivable,
+  every step checked against the original code. The CARP resolved like `RCARPFile::Resolve` (namespaces, symbolic
+  references, the 20 tag resolvers); the track read like `WRender` (2,552 instances, 1,358 articles, the five passes, the
+  sky without Z writes, LOD multiplier 0) and the world's MatBond family (7,367 of Paris's 7,541 batches; 598,518 vertices
+  equal to the original VU1 microprogram); the ground (`WCollisionMgr`/`WGrid`/`WWorldPos` over `CDat`: nf_driving_check
+  part 5, the original code on the 8 tracks' collision, 0 differences); the car (`PBondCar` with the PS2 layout, 0x460:
+  `ProcessPhysics`, `AddWheelForces`, `ImproveLanding`, `TwoWheelStunt`, `CalculateRPM`, `GetControllerInput`, the
+  physics part of the constructor and of `Simulate`; the car's scratch area is the PS2 scratchpad with a DMA'd copy of
+  `CarPhysics`; part 6: 1,000 random states of the Vanquish on Paris's ground, 0 differences); `CarPhysics` (0x100) replaces
+  `PhysicsAttributes`; the `.atr` attribute collections. `nf_driving --drive` drives it with the keyboard (the drivecfg.def
+  actions), physics at 60 steps per second and a provisional chase camera: 4.65 ms per whole frame at 1080p on the Radeon
+  iGPU (215 fps). Not done then: `CollideWithWorld`/`CollideWithObject` (now done, next item), `RPlayerCamera`, the
+  game's input and loop (`InputConfigManager`, `Scheduler`), the scene tree and visibility curtains, the other world and
+  car render methods, the wheels' animation, the mission's start position.
+- Driving phase 1, second half (docs/driving.md section 14; 2026-10-13): the collisions. `RigidBody::CollideWithWorld`
+  (the `WCollider` region cache in the owner, the barriers of the collision instances (tilted ones in their own frame),
+  the cylinder objects, the box objects through `OBB` and `ResolveWorldOBBCollision`, `GenerateImpulse`,
+  `CalculateAndApplyWorldDamage`, the stimuli of the hit instance's animation, the mission event of face type 0x0e) and
+  `CollideWithObject` (the two boxes, `ResolveCollision`, `SetInShock` and the damage on both owners), called by
+  `SimulateGame` as on the PS2; `PBondCar::SetInShock`, `AddDamageByPlayer` and the small virtuals. nf_driving_check part
+  7: the original code on 4 tracks (Paris's 25,015 barriers, snow1a's 600 cylinders, junglea's and snow2a's boxes),
+  2,000+ cases per track with the colliders kept between cases, 0 differences; part 4's `SimulateGame` now runs the
+  original `CollideWithObject` too (147 collisions between bodies, equal). The Vanquish stops at Paris's walls
+  (`--car-pos -327.7,20,-17.7,0.3155 --drive-input "W:5"`). `PBondCar::ApplyDamage` (the damage zones, tyres, hit
+  points) is counted, not ported.
+  Then the player camera (same section): EA's INI reader (`DAFI_*`, `IniFiles`) and `RCameraIniLoader::LoadFile`
+  (the mode tables and each type's table from `data/render/camera.ini`, PS2 layouts; 22 modes, 9 Heli for the
+  Vanquish), `RPlayerCamera` (constructor, both `RestartCamera`, the director queue and `DirectorChangeCameraMode`,
+  `UpdateCamera`, `UpdateMomentumHeliCam` with fallback, vertigo, noise, rigid arm and transitions, the zoom,
+  `SetViewingTransform`), its collision (`ResolveAllCollisions` through a `WCollider` with the instances mask: the
+  ground faces along a segment were ported for it, `GetInstanceStripList`, `FindClosestFace`/`FindFaceInCInst`/
+  `FindFaceInTriStrip` along a segment, `MakeSegSpaceMatrix`, `IntersectSegPlane`; the anti-vertigo; the ellipse
+  around other cars), the shake and Perlin noise. nf_driving_check part 8 (`--so camera`): the original LoadFile
+  (with the original IniFiles/DAFI), Noise::Init, the constructor and UpdateCamera frame by frame with the anchor
+  moving through Paris near walls and ground (pauses, look-back, mode requests, restarts, jumps) for the Vanquish and
+  the sub's modes: 0 differences. `nf_driving --drive` uses the game's camera (2 x fov across the 4:3 screen, Hor+).
+  Pending (counted in `camera_pending()`): the other camera modes, the tumble camera (`GetResetAvailable` is 0), the
+  weapons manager, explosions, simple bodies.
+  Then the game's loop (same section): the `Scheduler` (`Profile.obj`: four schedules, eight priorities, the buckets, the
+  tasks' delay and count, `Run` with the 12-tick discard and the `timeScale` fraction lost, the cinematic mode) and the
+  tasks `RunTheGame` adds; `nf_driving --drive` runs through it (input before `Run`, events in order, drawing only when
+  `ERenderFrame` asks; captures byte-identical to before on the iGPU). nf_driving_check part 9 (`--so agenda`): the
+  original in the interpreter against the port with random tasks and `Run`s: 0 differences. Then the game's input: the
+  `PS2PadDevice` (32 scalars), `InputToAction::LoadParseDefFile` (the `.def` lines, 117 actions, 10 update methods) and
+  `IOModule::SendGameMessages` (only on change, the repeats, `ACTION_INPUTSYNC`); `nf_driving --drive` drives through
+  `drivecfg.def` with the keyboard and the PC pad as a PS2 pad (same capture byte for byte). nf_driving_check part 10
+  (`--so entrada`): the ten `.def` tables and 2,400 random pad frames against the original: 0 differences. Also
+  `MatCarGlassPacked` and `MatCarTextureSwitchPacked` (see the render bullet).
 - The Xbox version as a reading reference for the driving port (docs/driving.md section 9; tools only, nothing derived
   from the disc in git): `Driving.xbe` (MSVC x86, built the same day as the disc's `DRIVING.ELF`, no symbols or RTTI) is
   loaded in Ghidra as a flat PE (`tools/xbox.py pe`, `tools/ghidra_xbox.sh`; 7,016 functions with the 639 that only MSVC
@@ -2910,8 +3271,31 @@ Done:
   the PS2 runs as VU0 microcode (the rigid-body step, the lever forces, the visibility curtains) and VU0 macro code
   (`GenerateImpulse`, `ResolveCollision`): an algorithm oracle, not a numeric one (x87/SSE `rsqrtss` versus the VU0;
   64 rigid-body slots versus 48). The render methods' NV2A vertex programs agree with the VU1 programs of the same name
-  (checked on `LitGouraud`, `LitTextureEnvmap_Skin`) but only ~17 names are shared. Estimate: 27-41 days instead of
-  30-45. `default.xbe` (on-foot) is the same Eurocom code and adds little to the ported `ACTION.ELF`.
+  (checked on `LitGouraud`, `LitTextureEnvmap_Skin`) but only 43 names are shared (128 on Xbox, 108 on PS2; an earlier
+  count said ~17). Estimate: 27-41 days instead of 30-45. `default.xbe` (on-foot) is the same Eurocom code and adds
+  little to the ported `ACTION.ELF`.
+- The nightfire-cxbx study (2026-10-12; docs/cxbx.md; tools only, no game code ported): NightfireResearch's Xbox port
+  (runs the original x86, rewrites functions in C++) read as a reference, with the authors' blessing. Their Ghidra names
+  of `Driving.xbe` (6,714) and their placements of the SYM names on `DRIVING.ELF` (3,970; their European ELF has our
+  layout) are imported through our pairs by `tools/cxbx_names.py` into `out/ghidra_driving` (2,376 new function names,
+  71 corrected, 480 globals) and `out/ghidra_xbox` (4,719 names); `xbox_match.py match --cxbx` grows the pairs from
+  2,332 to 3,629 (the game code with a confidence >= 2 pair: 57% -> 74% of the bytes). Their C++ and docs of the
+  driving engine (physics and world collision, `PBondCar`, the CARP resolvers and world blocks, the `Scheduler`, the
+  hand-off page, the render inputs above EAGL, the EA SND library) cut the driving estimate to 20-32 days. On foot,
+  the comparison found gaps of ours with gameplay effect (Known gaps item 10) and a list of errors in their reading, all
+  checked on the PS2.
+- The animated pause background (2026-10-13; see "The animated pause background" in the conventions; docs/port.md "O
+  fundo animado da pausa"): `psiDecompressWoman` and the texture preparation of `CreateSpaceAndPackTextures` from the PS2
+  MIPS, with a per-frame texture update in the renderer facade (`Renderer::update_texture`: Direct3D 11 and Metal; the
+  `textura_trocada` conformance scene, Metal 53.75 dB against the D3D11 reference, the Radeon 54.0). The Original pause
+  (and end mission) shows the PS2's woman in the fire at 30 frames per second, 348 frames a loop (07000012: frame 28 at
+  2 s and 88 at 4 s, with and without `--hd-ui`); the HD layer's static silhouette SVG is gone. Everything else is
+  byte-identical to main: 07000012's gunfight at 9 s and its WAV, 07000012 at 2 s, 07000001's intro NIS at 11.7 s, the
+  Modern main menu, a movie frame, the Modern pause (2, 2.5 and 4 s); x64 identical to x86 (those and the Original
+  pause captures). nf_tests 843 x86 / 846 x64 / 843 headless; `nf_level_check` 35/0; `nf_loader_check` as main
+  (addresses masked) but for `hd=` +1 in each level (the user's PCSX2 pack has the black fire-palette texture the PS2
+  shows before the first frame, never the stored image) and `psiDecompressWoman` gone from the stub lists, plus the new
+  summary line; x64's identical to x86's.
 
 Known gaps / next steps (agreed order: 1 next, then the rest):
 1. AI (`NDrone2`), so there is something to shoot. Done: the core, the navigation network, the
@@ -2925,7 +3309,11 @@ Known gaps / next steps (agreed order: 1 next, then the rest):
    Places where the combat states would read an invalid address are guarded and counted in
    `g_drone_combat_guards` (`nf_loader_check`: `guardas do combate da IA`, printed only when nonzero).
    Spawner leftovers: the radio call of the kind-3 waves in 0700000c/0d (`NDrone2_PlaySFX` with a null
-   `DCVars_tag`, guarded in the port, and no disc spawner reaches it).
+   `DCVars_tag`, guarded in the port, and no disc spawner reaches it). `NDrone2_CreateNinjaEyes` (the ninjas' eyes,
+   360 bytes) is still a stub, now called every tick by the ninja DTYPE control too; `BOT_fellOutMap` is the bots' side
+   of `Drone_FellOutMap`. To check in play: the smoke cloud (`Occlude_Create`) on screen (model 0x2000273, only where a
+   level loads it) and drones fleeing a grenade or stunned by a flash grenade (the unit tests and `nf_loader_check`
+   prove the paths, not a scripted fight).
    Then the rest of the menus (item 6), multiplayer (bots: `BOT_*`).
 2. Lighting leftovers (the lightning beams `Lightning_*` and `Particles_*`, empty on the PS2, are done; the
    searchlights are done too: their spot carries a kind-2 light; to confirm on hardware that the VU1 light really sits at the spot's placement, as
@@ -2965,7 +3353,7 @@ Known gaps / next steps (agreed order: 1 next, then the rest):
    Scene scripts: the fades of GameFlow state 0xd before a NIS and of cameras 0/4, and skipping a scene (Enter/Space,
    pad Start/A: action 0x19 -> `Script_FFwd`), are done; a dedicated "skip" binding is not (the game reads the Start
    action, so the pause key skips).
-6. Rest of `hashtable_*`.
+6. (`hashtable_*` is done: all 14 functions of the ELF carry `[decomp]`.)
    HUD and mission leftovers: multiplayer panes and the
    radar are ported but unexercised (`MP_*` stubs).
    Menu leftovers: the front end's other handlers (null entries in `kHandlers`, counted as stubs): multiplayer
@@ -2974,10 +3362,12 @@ Known gaps / next steps (agreed order: 1 next, then the rest):
    the stats' callers outside the ported code (`GT_Update` shots, `Copter_Update` hits, `BOT_*` health, the
    DRIVING.ELF exchange `Boot_*PTPData`), the
    multiplayer score tab of `C_GCPAUSE_Handler` (abbreviated), `Combo_*`/`Spin_*` (no such control on
-   the disc). (The 0x10000184 image of the pause panel, texture 0x030000db at alpha 0x50, additive, is the
-   game's art: blurred party lights and a man raising a glass; its 8-bit CSM1 palette decodes smooth, the
-   raw order would be noise. The small squares next to RESTART/REPLAY and the video page's "60" are the
-   green exit sign on 07000012's far wall seen through the panel's glass.)
+   the disc). (The 0x10000184 image of the pause panel, texture 0x030000db at alpha 0x50, additive, is animated on the
+   PS2: `psiDecompressWoman` draws a woman's silhouette filled with fire into it while paused; ported on 2026-10-13, see
+   "The animated pause background"; the image stored in the pack, party lights and a man raising a glass, is never
+   shown. Left there: a check on PCSX2 or hardware of the first paused ticks (black until the first frame) and of the
+   frame rate at 30 fps (one RLE frame per tick, as the MIPS reads). The small squares next to RESTART/REPLAY and the
+   video page's "60" are the green exit sign on 07000012's far wall seen through the panel's glass.)
    PC options in the menus (user request, 2026-10-08). Done (see "PC options in the menus" in the
    conventions): the pause row and the tabbed page 0x40000060 (resolution, display mode, VSync, FOV, render
    scale, MSAA, texture filtering, HD textures, HD UI, HUD anchoring, language, controls, keys) on the
@@ -3004,8 +3394,8 @@ Known gaps / next steps (agreed order: 1 next, then the rest):
    need new symbol textures or text fallbacks); a physical pad test (only the
    scripted pad was exercised: XInput reading, rumble strength feel, the disconnect page with a real
    unplug); pads for players 1-3 (slot 4 is read but multiplayer is not ported; no multitap); DualShock/
-   DualSense through raw HID (XInput only sees Xbox-compatible pads); `Input_Check4Combo` (cheat combos)
-   and `Input_Ready` (needs `ComboKeysList`); the main.cpp debug keys (F2-F4, F12, PgUp/PgDn are refused
+   DualSense through raw HID (XInput only sees Xbox-compatible pads); `Input_Check4Combo` (cheat combos; `Input_Ready`
+   now builds its `ComboKeysList` at every load, empty); the main.cpp debug keys (F2-F4, F12, PgUp/PgDn are refused
    by the capture; V, H, P, T are not and still toggle their debug views when bound); a rebinding entry for
    the free camera.
 7. Platform: VU0 intrinsics header for the 233 inline-VU0 functions, saves. Easy-install leftovers: other disc versions
@@ -3017,13 +3407,26 @@ Known gaps / next steps (agreed order: 1 next, then the rest):
    PLAY with a changed resolution or mode resizing a real window is untested (a capture checked the store and the menu
    style; captures are offscreen and never resize the window); closing the window while the file picker is open waits
    for the picker (it disables the game window, so only a posted WM_CLOSE reaches that). 64 bits (done for Windows, see "Two
-   builds"; the platform interfaces are done too, see "Platform interfaces and backends"): the macOS port itself (stage
-   3: the macOS backends of each interface listed in docs/port.md "Plataforma: interfaces e backends": Cocoa window and
-   input, Metal renderer with a vector layer and an SVG reader, Core Audio, GameController, ImageIO (the MPEG-2 decoder
-   is done: the port's own, stage 3b),
-   the crash handler; the arena with `mmap` near the image and the game stack as a `pthread` stack in the arena; clang
-   with `-ffp-contract=off`; its libm differs from the UCRT, so identical results would need the port's own math
-   functions);
+   builds"; the platform interfaces are done too, see "Platform interfaces and backends"): the macOS port itself (stages
+   3a-3c are done: the POSIX system layer and arena, the port's MPEG-2 decoder, the macOS backends of the window, input,
+   pads, audio, images, file picker and discs, see "macOS backends"; 3d-A too: the Metal renderer, the Metal adapter list
+   and the synthetic conformance test against the D3D11 references in the CI, see "Metal renderer"; and 3d-B, the vector
+   drawing in CoreGraphics/CoreText with the port's SVG reader, see "Vector drawing off Windows"); left: the vector
+   drawing's real-Mac checks (Retina sharpness and cost at 2x, the menus' feel), its HD fonts (DIN Alternate is ~8%
+   narrower than Bahnschrift) and Menlo for the mono strip, the Metal renderer skipping the copy and upload of an
+   unchanged vector raster (`UiRaster::version`); the Metal renderer's per-phase
+   GPU times (`MTLCounterSampleBuffer` where the GPU has stage-boundary timestamps) and a real Mac run of the game itself
+   (performance, Retina, VSync/ProMotion, the occlusion check); 3e, captures of the game compared between the two
+   renderers; stage 4 is done too (the universal `.app`, the log, the Mac zip and the install guide, see "macOS package
+   and install"); its leftovers: the forum testers' first runs (the Gatekeeper path on macOS 15 and on 11-14 with a
+   really downloaded zip, App Translocation, whether `-psn_` still arrives, the icon in the Finder and the Dock, Game
+   Mode, the log on a real account and a real crash reaching it, `hdiutil create -srcdevice` with or without `sudo`), a
+   real Intel Mac (the CI runs the x86_64 half only through Rosetta), a published version with the Mac zip (the user
+   decides; it stays a CI artifact), a Developer ID signature and notarization only if the user ever gets the paid
+   account; from 3c: pad vibration (Core Haptics), a raw mouse delta (`IOHIDManager`; the `NSEvent` delta carries the
+   system acceleration), the JIS keys, and everything only a real Mac can confirm (keyboard layouts, mouse feel, the
+   trackpad's 40 points per notch, pads, speakers, Retina and the notch); the macOS libm differs from the UCRT, so if a
+   capture diverges the port takes its own `fmath` functions;
    the x64 `RemixD3D9Renderer` path is untested (RTX is parked); x64 interactive play was exercised only through
    captures and `--bench` (no hand-played session yet). Done: the movies (see "Movies"); their
    leftovers: the D3D9 Remix path does not draw them, the movie's memory is not taken from the game heap
@@ -3148,7 +3551,20 @@ Known gaps / next steps (agreed order: 1 next, then the rest):
     the Xbox pair of a function in `out/xbox/match.tsv` or `out/ghidra_xbox`, port from the PS2); the driving missions stay skipped (`Menu_PortDrivingSkipped`) until the user decides to
     start, and the recommended first step is a prototype that draws one EAGL car model with one render method plus the
     VU0 physics microcode under tests. The render half of that prototype is done too (docs/driving.md section 10: one car,
-    the MatCar family verified against the original microprogram); its next step is the other car methods (glass, switch
-    lights) and the track's world methods. The physics half is done (docs/driving.md section 11, 26-39 days now); its next
+    the MatCar family verified against the original microprogram; glass and switch lights done too, section 14); what is
+    left of phase 1 (docs/driving.md, end of section 14: 5-8 days) is the world's visibility (`Wmap`/`wn`, `VisC`), the
+    world methods `MatDynamicTexturePacked`/`MatBondScrollTexture2`/`MatBondFrameAnimPacked`, `MatCarGouraudDullPacked`
+    and the shadow, the wheels (`RVehicle::ComputeWheels`, read) and the characters in `--check`. The physics half is done (docs/driving.md section 11, 26-39 days now); its next
     step is the real ground (CARP `CGrd`/`CDat`, `WGrid`, `WWorldPos::FindClosestFace`) and the car (`PBondCar`
     construction, `ProcessPhysics`, `AddWheelForces`), then `CollideWithObject` (`ResolveCollision` is ported).
+    nightfire-cxbx (NightfireResearch, the Xbox port that runs the original x86; docs/cxbx.md, docs/driving.md section
+    12; studied 2026-10-12 from a read-only clone in `out/ref/nightfire-cxbx`; credit them for anything taken): their
+    names imported into `out/ghidra_driving` (`tools/cxbx_names.py`: 2,376 new function names, the game code 63% -> 84%
+    named; 3,629 Xbox <-> PS2 pairs with `xbox_match.py match --cxbx`), and their C++ of the driving engine's physics,
+    world, CARP resolvers, Scheduler and the render inputs above EAGL as a reading reference: driving estimate 20-32 days.
+    The same study found on-foot gaps of ours with real gameplay effect, each checked on the PS2 (docs/cxbx.md section 3);
+    they are ported since 2026-10-12 (see Status, "Per-level tuning and the on-foot gaps"): `ReadTuningVars`,
+    `NDrone2_NavNodeCache`, `DroneFunc_HandleExplosives`, `Drone_MessageObjVicinity`, `Rand_FRand_MVar2_Vec`,
+    `Occlude_Create/Update`, `View_DrawGlist`, `Input_Ready`, `Drone_FellOutMap`, the DTYPE controls (Zoe, ninja,
+    astronaut) and the raw-byte AND of `Mission_MonitorObjectives`; `psiDecompressWoman` too since 2026-10-13 (see
+    Status, "The animated pause background").

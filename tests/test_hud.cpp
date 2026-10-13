@@ -692,6 +692,29 @@ TEST(mission_objectives_reveal_and_complete) {
     CHECK(second[0].state == 4 && switch_channels[100] == 1 && switch_channels_time[100] == GameState.frame);
 }
 
+TEST(mission_all_done_uses_bit_0_of_the_channels) {
+    // Mission_MonitorObjectives (0x1828b4 lbu, 0x1828c0 and): o "tudo satisfeito" é um AND com o byte cru de cada
+    // canal, então um valor par conta como não cumprido, embora o objetivo seja anunciado como cumprido.
+    HudWorld w;
+    GameState.level_file = kLevel + 1;
+    Mission_Init(kLevel + 1, 1);
+    w.mission.first[0].state = 4;
+    w.mission.first[1].state = 4;
+    switch_channels[0x47] = switch_channels[0x48] = 1;
+    switch_channels[0x49] = 2;
+    Mission_MonitorObjectives();
+    Mission_MonitorObjectives();
+    CHECK(w.mission.second[0].state == 4 && switch_channels[100] == 0);
+    switch_channels[0x49] = 3;
+    Mission_MonitorObjectives();
+    CHECK(switch_channels[100] == 1);
+    // O mesmo num canal já cumprido antes: 4 tira o "tudo".
+    switch_channels[100] = 0;
+    switch_channels[0x47] = 4;
+    Mission_MonitorObjectives();
+    CHECK(switch_channels[100] == 0);
+}
+
 TEST(mission_complete_flow_to_front_end) {
     HudWorld w;
     // Segunda fase da missão, com os objetivos da primeira já cumpridos.

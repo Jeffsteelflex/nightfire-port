@@ -4,9 +4,9 @@
   "anchor_skip": [8, [0, 7]],
   "text": true,
   "fonts": {
-    "1": {"name": "NFont2", "family": "Bahnschrift", "weight": 600, "stretch": 5, "italic": false, "size": 1.0, "spacing": 0.04, "fit_min": 0.7},
-    "2": {"name": "SerpLight", "family": "Bahnschrift", "weight": 600, "stretch": 5, "italic": false, "size": 1.0, "spacing": 0.04, "fit_min": 0.7},
-    "3": {"name": "Medium", "family": "Bahnschrift", "weight": 700, "stretch": 5, "italic": true, "size": 1.0, "spacing": 0.02, "fit_min": 0.7}
+    "1": {"name": "NFont2", "family": "Bahnschrift", "family_macos": ["DIN Alternate", "DIN Condensed"], "weight": 600, "stretch": 5, "italic": false, "size": 1.0, "spacing": 0.04, "fit_min": 0.7},
+    "2": {"name": "SerpLight", "family": "Bahnschrift", "family_macos": ["DIN Alternate", "DIN Condensed"], "weight": 600, "stretch": 5, "italic": false, "size": 1.0, "spacing": 0.04, "fit_min": 0.7},
+    "3": {"name": "Medium", "family": "Bahnschrift", "family_macos": ["DIN Alternate", "DIN Condensed"], "weight": 700, "stretch": 5, "italic": true, "size": 1.0, "spacing": 0.02, "fit_min": 0.7}
   },
   "images": [
     {"name": "mira (HUDCrossCoords recorta o quadro em uso)", "texture": "03000026", "rect": [0, 0, 31, 32], "file": "svg/crosshair.svg"},
@@ -27,7 +27,6 @@
     {"name": "vida: anel (o ícone, sprite 15)", "pane": 1, "sprite": 15, "texture": "0300007a", "file": "svg/health_ring.svg"},
 
     {"name": "menus: o painel (pausa, fim de missão, caixa SIM/NÃO, páginas do PC; nove pedaços quando esticado)", "texture": "03000070", "rect": [0, 0, 512, 256], "file": "svg/menu_panel.svg"},
-    {"name": "menus: a silhueta da pausa (aditiva, alfa 0x50)", "texture": "030000db", "rect": [0, 0, 128, 128], "file": "svg/menu_silhouette.svg"},
     {"name": "menus: botão cinza com borda laranja (o cursor das barras usa as linhas de cima, de baixo e o meio)", "texture": "03000042", "rect": [0, 0, 17, 17], "file": "svg/menu_button.svg"},
     {"name": "menus: rádio", "texture": "03000042", "rect": [0, 16, 17, 17], "file": "svg/menu_radio.svg"},
     {"name": "menus: seta para cima", "texture": "03000042", "rect": [16, 0, 17, 17], "file": "svg/menu_arrow_up.svg"},

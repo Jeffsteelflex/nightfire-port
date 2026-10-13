@@ -29,7 +29,7 @@ procura acha a partir de `build\Release`; `--disc` (ou o nome antigo `--data`) i
 | `--setup-pick <caminho>`, `--setup-input "<seq>"` | capturas da tela de entrada: a resposta da janela de escolha de arquivo e o roteiro (como `--input`, com `cmouse=x,y`; o relógio conta da tela) |
 | `--pack-disc <caminho>` | faz a cópia pessoal em um arquivo só e sai (sem janela; o andamento no console); com `--out <arquivo.exe>` (padrão: `<executável>-personal.exe` ao lado dele) e `--pack-no-movies` (sem os filmes, uns 850 MB a menos) |
 | `--level <hash>` | começa direto nessa fase; sem ele, o menu principal do jogo (07000048) |
-| `--save-dir <pasta>` | a pasta do cartão de memória (padrão `saves\` ao lado do executável); com `--screenshot` e sem ele, o cartão fica em memória |
+| `--save-dir <pasta>` | a pasta do cartão de memória (padrão `saves\` ao lado do executável; no macOS em `~/Library/Application Support/Nightfire PC/`); com `--screenshot` e sem ele, o cartão fica em memória |
 | `--width`, `--height` | tamanho da janela (padrão 1600x900) |
 | `--fullscreen` | tela cheia sem bordas, na resolução nativa do monitor (o mesmo que `--window-mode borderless`) |
 | `--window-mode <m>` | `windowed` (janela com bordas, do tamanho de `--width`/`--height`), `borderless` (sem bordas, do tamanho do monitor) ou `exclusive` (tela cheia exclusiva do DXGI, que troca o modo do monitor para `--width` x `--height`) |
@@ -38,7 +38,7 @@ procura acha a partir de `build\Release`; `--disc` (ou o nome antigo `--data`) i
 | `--no-alpha-coverage` | depuração: com MSAA, o teste de alfa descarta o pixel inteiro, como sem MSAA (para comparar) |
 | `--filter <f>` | filtro das texturas: `bilinear`, `trilinear`, `aniso2`, `aniso4`, `aniso8` (padrão) ou `aniso16` |
 | `--lang-pc pt\|en` | idioma dos textos só do port (as opções do PC no menu); padrão `en` |
-| `--config <ini>` | o arquivo de opções (padrão: `nightfire.ini` ao lado do executável; ver "Opções do PC no menu") |
+| `--config <ini>` | o arquivo de opções (padrão: `nightfire.ini` ao lado do executável; no macOS em `~/Library/Application Support/Nightfire PC/`; ver "Opções do PC no menu") |
 | `--fov <graus>` | campo de visão vertical (padrão 60); o horizontal cresce com a largura (Hor+) |
 | `--sensitivity <x>` | radianos por contagem do mouse (padrão 0.0022) |
 | `--novsync` | sem sincronismo vertical |
@@ -495,21 +495,21 @@ os mudou de lugar. Não há SDL nem uma camada gráfica portátil por baixo do W
 
 | Interface (sem nada do sistema) | O que dá | Backend do Windows | Backend nulo (`NF_HEADLESS`) | Etapa 3 (macOS) |
 |---------------------------------|----------|--------------------|------------------------------|-----------------|
-| `platform/os.h` | caminhos (o executável, a pasta atual e a de dados do usuário, `kPathSep`, `join`), arquivos (`open_file`, listar, apagar, `file_open_read`/`file_read_at`/`file_write` para as fontes do disco e a cópia pessoal), os leitores de CD/DVD, o caractere de uma tecla no layout, o relógio de alta resolução e a espera do limite de quadros, a memória virtual (o heap; a arena de 64 bits: `image_end`, `vm_largest_free`, `vm_reserve_at`, `vm_commit`...), a `Mutex` da arena, o console, a caixa de erro, o fim do processo | `os_win32.cpp`: `GetModuleFileNameW`, `CreateFileW`/`ReadFile` com `OVERLAPPED`, `FindFirstFileW`, `GetLogicalDriveStringsW`/`GetDriveTypeW`, `SetErrorMode`, `MapVirtualKeyW`, `QueryPerformanceCounter`, `CreateWaitableTimerExW` de alta resolução, `VirtualAlloc`/`VirtualQuery`/`VirtualProtect`, `SRWLOCK`, `AttachConsole`/`WriteConsoleW`, `MessageBoxW`, `SHGetKnownFolderPath`, `GetProcessMemoryInfo` | `os_null.cpp`: `std::filesystem`, `std::chrono`, o C runtime | POSIX (`open`/`pread`, `opendir`), `_NSGetExecutablePath`, `mach_absolute_time`, `nanosleep`/`mach_wait_until`, `mmap` perto da imagem, `os_unfair_lock`, `NSAlert`, os volumes ópticos (DiskArbitration ou `getfsstat`), `UCKeyTranslate`, `task_info` |
-| `platform/keys.h` | os códigos de tecla do port (os números dos `VK_` do Windows; letras e dígitos são o caractere) | `window_win32.cpp` passa os do Windows direto (`static_assert` de cada um) | — | traduzir os `kVK_*` do Carbon/NSEvent para estes |
-| `platform/window.h` (`nf::Window`) | a janela, o tamanho, o foco, as teclas (`key_down`, `key_pressed`), o mouse em contagens do sensor, a roda, a captura do cursor, a tela cheia sem bordas, `native_handle()` para o renderizador, `set_topmost` (`--bench`) | `window_win32.cpp`: Win32, Raw Input, `GetAsyncKeyState`, `ClipCursor`, `WM_SETCURSOR` | — | `NSWindow`/`NSView` com `CAMetalLayer`, `NSEvent` (deltaX/deltaY sem aceleração), `CGAssociateMouseAndMouseCursorPosition`, `toggleFullScreen` |
-| `platform/entry.h` (`nf_app_main`) | o ponto de entrada dos programas de janela (`nightfire.exe`, `nf_driving.exe`): o relatório de falhas, a linha de comando, a pilha do jogo (`nf::run_main`) | `entry_win32.cpp`: `wWinMain` e `CommandLineToArgvW` (o `argv` passa sem cópia) | — | `main` com o `NSApplication` (a janela bombeada pelo laço do jogo, `nextEventMatchingMask`) |
-| `platform/file_dialog.h` (`nf::FilePicker`) | a janela de escolha de arquivo sem travar o laço (a tela de entrada) | `file_dialog_win32.cpp`: `IFileOpenDialog` numa thread STA própria | não abre | `NSOpenPanel` (na thread principal, com `beginWithCompletionHandler`) |
-| `platform/gamepad.h` (`system_pad_source`) | até 4 controles no formato do XInput e a vibração | `gamepad_xinput.cpp`: XInput 1.4 | nenhum conectado | GameController (`GCExtendedGamepad`), Core Haptics para a vibração |
-| `platform/audio_device.h` | uma fila de PCM de 48 kHz estéreo de 16 bits (`queued_buffers`, `submit`, `played_frames`); `audio_out.cpp` decide o resto (a linha do tempo do jogo, o WAV, o descarte) | `audio_device_xaudio2.cpp`: XAudio2 2.9 | sem aparelho (mudo, como nas capturas) | Core Audio (`AudioQueue` ou uma `AudioUnit` com um anel), com as mesmas contas de fila |
+| `platform/os.h` | caminhos (o executável, a pasta atual e a de dados do usuário, `kPathSep`, `join`), arquivos (`open_file`, listar, apagar, `file_open_read`/`file_read_at`/`file_write` para as fontes do disco e a cópia pessoal), os leitores de CD/DVD, o caractere de uma tecla no layout, o relógio de alta resolução e a espera do limite de quadros, a memória virtual (o heap; a arena de 64 bits: `image_end`, `vm_largest_free`, `vm_reserve_at`, `vm_commit`...), a `Mutex` da arena, o console, a caixa de erro, o fim do processo | `os_win32.cpp`: `GetModuleFileNameW`, `CreateFileW`/`ReadFile` com `OVERLAPPED`, `FindFirstFileW`, `GetLogicalDriveStringsW`/`GetDriveTypeW`, `SetErrorMode`, `MapVirtualKeyW`, `QueryPerformanceCounter`, `CreateWaitableTimerExW` de alta resolução, `VirtualAlloc`/`VirtualQuery`/`VirtualProtect`, `SRWLOCK`, `AttachConsole`/`WriteConsoleW`, `MessageBoxW`, `SHGetKnownFolderPath`, `GetProcessMemoryInfo` | `os_null.cpp`: `std::filesystem`, `std::chrono`, o C runtime | feito: `os_posix.cpp` (etapa 3a: POSIX, `_NSGetExecutablePath`, `mmap` perto da imagem, `os_unfair_lock`, `getmntinfo`, `task_info`) e `os_macos.mm` (3c: `UCKeyTranslate`, `CGEventSourceKeyState`, `NSAlert`); `/Volumes` com `SYSTEM.CNF`, `~/Library/Application Support` |
+| `platform/keys.h` | os códigos de tecla do port (os números dos `VK_` do Windows; letras e dígitos são o caractere) | `window_win32.cpp` passa os do Windows direto (`static_assert` de cada um) | — | feito (3c): `platform/mac_keys.h`, os `kVK_*` pela posição |
+| `platform/window.h` (`nf::Window`) | a janela, o tamanho, o foco, as teclas (`key_down`, `key_pressed`), o mouse em contagens do sensor, a roda, a captura do cursor, a tela cheia sem bordas, `native_handle()` para o renderizador, `set_topmost` (`--bench`) | `window_win32.cpp`: Win32, Raw Input, `GetAsyncKeyState`, `ClipCursor`, `WM_SETCURSOR` | — | feito (3c): `window_macos.mm`, `NSWindow`/`NSView` com `CAMetalLayer`, `NSEvent` (o deltaX/deltaY tem a aceleração do sistema), `CGAssociateMouseAndMouseCursorPosition`, a tela cheia sem bordas |
+| `platform/entry.h` (`nf_app_main`) | o ponto de entrada dos programas de janela (`nightfire.exe`, `nf_driving.exe`): o relatório de falhas, a linha de comando, a pilha do jogo (`nf::run_main`) | `entry_win32.cpp`: `wWinMain` e `CommandLineToArgvW` (o `argv` passa sem cópia) | — | feito (3c): `entry_macos.mm`, o laço do `NSApplication` na thread principal e o jogo noutra ("macOS: os backends") |
+| `platform/file_dialog.h` (`nf::FilePicker`) | a janela de escolha de arquivo sem travar o laço (a tela de entrada) | `file_dialog_win32.cpp`: `IFileOpenDialog` numa thread STA própria | não abre | feito (3c): `file_dialog_macos.mm`, `NSOpenPanel` com `beginWithCompletionHandler` |
+| `platform/gamepad.h` (`system_pad_source`) | até 4 controles no formato do XInput e a vibração | `gamepad_xinput.cpp`: XInput 1.4 | nenhum conectado | feito (3c): `gamepad_macos.mm`, GameController (`GCExtendedGamepad`); a vibração (Core Haptics) ficou de fora |
+| `platform/audio_device.h` | uma fila de PCM de 48 kHz estéreo de 16 bits (`queued_buffers`, `submit`, `played_frames`); `audio_out.cpp` decide o resto (a linha do tempo do jogo, o WAV, o descarte) | `audio_device_xaudio2.cpp`: XAudio2 2.9 | sem aparelho (mudo, como nas capturas) | feito (3c): `audio_device_macos.cpp`, a `AudioUnit` de saída padrão com um anel, as mesmas contas de fila |
 | `platform/movie_decoder.h` (`Mpeg2Decoder`) | MPEG-2 para NV12 em ordem de exibição; a escolha do decodificador, o do port (`platform/mpeg2_decoder.h`, neutro), a conversão de cor do IPU (`nv12_to_bgra`) e a fila de quadros ficam no neutro | `movie_decoder_mf.cpp` (`open_system_mpeg2_decoder`): o MFT de MPEG-2 do Media Foundation; sem ele, o do port | nenhum do sistema: o do port | feito: o decodificador do port (12/10/2026; ver "Filmes"); o VideoToolbox só se um dia valer a pena |
-| `platform/image_io.h` | PNG RGBA e BGRA em arquivo (as capturas, o inventário do 2D), imagens lidas em BGRA (as substitutas PNG da camada HD) | `image_io_wic.cpp`: WIC | não lê nem grava | ImageIO (`CGImageDestination`, `CGImageSource`) |
-| `platform/crash_report.h` | a pilha de chamadas de uma falha | `crash_report_win32.cpp`: `SetUnhandledExceptionFilter`, dbghelp `StackWalk64` com o PDB | uma linha | `sigaction` (SIGSEGV, SIGBUS) com `backtrace` e `dladdr` |
-| `platform/arena.h` (`call_on_stack`) | a pilha do jogo dentro da janela dos ponteiros de 32 bits (só 64 bits) | `arena_win32.cpp`: os limites no TEB, `arena_stack_x64.asm`, o SEH | só 32 bits | uma thread com `pthread_attr_setstack` dentro da arena, esperada com `join`; `NF_IMAGE_BASE` = `_mh_execute_header` (`platform/ptr32.h`) |
+| `platform/image_io.h` | PNG RGBA e BGRA em arquivo (as capturas, o inventário do 2D), imagens lidas em BGRA (as substitutas PNG da camada HD) | `image_io_wic.cpp`: WIC | não lê nem grava | feito (3c): `image_io_macos.cpp`, ImageIO (`CGImageDestination`, `CGImageSource`) |
+| `platform/crash_report.h` | a pilha de chamadas de uma falha | `crash_report_win32.cpp`: `SetUnhandledExceptionFilter`, dbghelp `StackWalk64` com o PDB | uma linha | feito (3a): `crash_report_posix.cpp` |
+| `platform/arena.h` (`call_on_stack`) | a pilha do jogo dentro da janela dos ponteiros de 32 bits (só 64 bits) | `arena_win32.cpp`: os limites no TEB, `arena_stack_x64.asm`, o SEH | só 32 bits | feito (3a): `arena_posix.cpp`, uma thread com `pthread_attr_setstack` dentro da arena; `NF_IMAGE_BASE` = `_mh_execute_header` |
 | `platform/compiler.h`, `platform/crt_compat.h` | o que é de um compilador só: `NF_DEBUGBREAK`, `NF_FORCEINLINE`, `NF_NOINLINE`, `NF_FENV_ACCESS_ON`, `nf::RoundTowardZero` (o arredondamento do EE na pontuação), `nf::ctz64`; `fopen_narrow`, `NF_SSCANF`, `str_icmp`, `str_nicmp`, `str_copy_trunc`, `get_env_narrow` | os ramos do MSVC: `__debugbreak`, `__forceinline`, `#pragma fenv_access`, `_controlfp_s`, `_BitScanForward64`, `fopen_s`, `sscanf_s`, `_stricmp`, `strncpy_s`, `_dupenv_s` | os mesmos (MSVC) | os ramos do clang (já escritos): `__builtin_trap`, `_Pragma("STDC FENV_ACCESS ON")`, `fesetround`, `__builtin_ctzll`, `strcasecmp`... |
-| `render/renderer.h` (`Renderer`, `GpuImage`) | o 3D da lista de desenho, o 2D, a névoa, o desfoque e o rastro, a tela de carga, o quadro dos filmes, o desenho vetorial dos menus Modern e da camada HD (`draw_modern`, `modern_measure`, os lotes `UiHdBatch`), as medidas do `--bench`, as opções de vídeo; `GpuImage` é uma textura vista de fora (um ponteiro opaco) | `renderer_d3d11.{h,cpp}` (o `Renderer::Impl`, com os shaders HLSL), `movie_layer_d3d11`, `ui_hd_draw_d2d` e `ui_modern_draw_d2d` (Direct2D e DirectWrite), `gpu_adapters_dxgi` | — (sem renderizador) | Metal (os mesmos shaders em MSL, a profundidade invertida, o MSAA, as consultas de tempo), o desenho vetorial (Core Text e Core Graphics, ou um atlas de glifos na GPU) e um leitor de SVG (os glifos dos menus e as substitutas da camada HD: o Direct2D lê SVG, o macOS não) |
-| `render/gpu_adapters.h` | os adaptadores de vídeo (`--list-adapters`, `[video] adapter`) | `gpu_adapters_dxgi.cpp`: DXGI | — | `MTLCopyAllDevices` |
-| `render/remix_d3d9.h` | o caminho de Direct3D 9 para o RTX Remix (`--renderer d3d9ff`) | `remix_d3d9.cpp` | — | nenhum: uma `create_remix_d3d9` que devolve nulo |
+| `render/renderer.h` (`Renderer`, `GpuImage`) | o 3D da lista de desenho, o 2D, a névoa, o desfoque e o rastro, a tela de carga, o quadro dos filmes, o desenho vetorial dos menus Modern e da camada HD (`draw_modern`, `modern_measure`, os lotes `UiHdBatch`), as medidas do `--bench`, as opções de vídeo; `GpuImage` é uma textura vista de fora (um ponteiro opaco) | `renderer_d3d11.{h,cpp}` (o `Renderer::Impl`, com os shaders HLSL), `movie_layer_d3d11`, `ui_hd_draw_d2d` e `ui_modern_draw_d2d` (Direct2D e DirectWrite), `gpu_adapters_dxgi` | — (sem renderizador) | feito (3d-A): `renderer_metal.mm`, o Metal com os mesmos shaders em MSL ("macOS: o renderizador Metal"); e feito (3d-B): o desenho vetorial em CoreGraphics e CoreText, `render/ui_vector_cg.mm` atrás de `render/ui_vector.h`, com o leitor de SVG do port `core/svg.h` ("macOS: o desenho vetorial") |
+| `render/gpu_adapters.h` | os adaptadores de vídeo (`--list-adapters`, `[video] adapter`) | `gpu_adapters_dxgi.cpp`: DXGI | — | feito (3d-A): `gpu_adapters_metal.mm`, `MTLCopyAllDevices` |
+| `render/remix_d3d9.h` | o caminho de Direct3D 9 para o RTX Remix (`--renderer d3d9ff`) | `remix_d3d9.cpp` | — | nenhum: a `create_remix_d3d9` do `renderer_null.cpp` recusa (3c) |
 | `driving_app/drv_renderer.h` | o renderizador do `nf_driving` | `drv_renderer_d3d11.cpp` | — | Metal, se a ferramenta for para o Mac |
 
 O laço do `nightfire.exe` (`src/app/app_main.cpp`: as opções, o roteiro de `--input`, o laço de ticks e `plan_tick`, a
@@ -645,7 +645,9 @@ não deu o foco à janela (outro programa na frente), e o teste não força o fo
    levar as próprias fica para se uma captura do macOS divergir.)
 4. O renderizador em Metal: os shaders HLSL de `renderer_d3d11.cpp` (a rotina da VU1, o skinning, os morphs, a névoa,
    o alpha-to-coverage, o desfoque, a redução) em MSL; o desenho vetorial dos menus Modern e da camada HD (texto com
-   espaçamento, contorno de glifos, degradês, recortes) em Core Text e Core Graphics, mais um leitor de SVG.
+   espaçamento, contorno de glifos, degradês, recortes) em Core Text e Core Graphics, mais um leitor de SVG. Feitos:
+   o Metal na 3d-A ("macOS: o renderizador Metal"), o desenho vetorial e o leitor de SVG na 3d-B ("macOS: o desenho
+   vetorial").
 5. Os filmes: feito, o decodificador de MPEG-2 do port (`platform/mpeg2_decoder.h`, "Filmes"). O som: Core Audio. Os
    controles: GameController.
 6. A cópia pessoal (`disc_pack`) põe os arquivos depois da imagem PE e acha o fim do programa pelo rodapé; no Mac o
@@ -660,8 +662,9 @@ seguinte.
 Etapa 3a do macOS: o código compartilhado compila com o clang da Apple e com o GCC, e a build headless (o código neutro,
 o `nf_tests` e as ferramentas de conferência de console) roda no macOS e no Linux com um backend POSIX de verdade para o
 sistema operacional, inclusive a arena de 64 bits e a pilha do jogo. Não há Mac aqui, e o Windows não compila código do
-macOS: quem compila e testa é a CI do GitHub (GitHub Actions) no repositório privado (`origin`). A janela, o
-renderizador (Metal), o som, os controles e os filmes do macOS são as etapas seguintes (3c, 3d, 3e).
+macOS: quem compila e testa é a CI do GitHub (GitHub Actions) no repositório privado (`origin`). A janela, a entrada, o
+som, os controles e as imagens do macOS vieram na etapa 3c (a seção seguinte, "macOS: os backends"); o renderizador
+(Metal) é a 3d, com a comparação das imagens sintéticas contra as do Direct3D 11 na CI ("macOS: o renderizador Metal").
 
 ### A build
 
@@ -672,8 +675,9 @@ cmake --build build
 ./build/nf_level_check <pasta do disco>                                      # com os dados do jogo (nunca na CI)
 ```
 
-- Fora do Windows o CMake só aceita `NF_HEADLESS` e só em 64 bits: liga `NF_ARCH64` sozinho (os ponteiros de 4 bytes
-  das estruturas do jogo, a arena, o `operator new` dela, `NF_P32_CHECK`). No Windows nada mudou: as linhas de
+- Fora do Windows o CMake só aceita 64 bits e liga `NF_ARCH64` sozinho (os ponteiros de 4 bytes das estruturas do jogo,
+  a arena, o `operator new` dela, `NF_P32_CHECK`). No Linux só a build `NF_HEADLESS`; no macOS ela continua possível, e
+  sem ela (desde a etapa 3c) a build inteira com os backends do macOS ("macOS: os backends"). No Windows nada mudou: as linhas de
   compilação e ligação das três builds do MSVC (x86, x64, headless) são as da main (os `build.ninja` comparados objeto
   por objeto).
 - As opções do clang e do GCC dão ao código compartilhado a semântica que ele tem no MSVC, a referência:
@@ -696,7 +700,8 @@ Os caminhos (o executável por `_NSGetExecutablePath` ou `/proc/self/exe`, a pas
 macOS, `/proc/mounts` no Linux), o relógio (`clock_gettime(CLOCK_MONOTONIC)`) e a espera do limite de quadros
 (`nanosleep` até ~1 ms antes, depois `sched_yield`), a memória virtual, a trava (`os_unfair_lock` no macOS; no Linux
 uma trava de giro que cede a CPU), o console e o fim do processo. O que só a janela dá (a caixa de erro do `NSAlert`, o
-caractere de uma tecla no layout do usuário) fica para a etapa 3c: aqui o stderr e 0. Os caminhos continuam
+caractere de uma tecla no layout do usuário, o estado do teclado) vem do `os_macos.mm` no programa de janela do macOS
+(etapa 3c); no Linux e na build headless, o stderr, 0 e nenhuma tecla. Os caminhos continuam
 `std::wstring` (UTF-32 fora do Windows) e viram UTF-8 nas chamadas do sistema.
 
 ### A janela dos ponteiros e a pilha do jogo
@@ -725,10 +730,9 @@ a arena na maior região livre depois dela.
 - A pilha do jogo: no Windows a mesma thread troca de pilha (`arena_stack_x64.asm`); aqui `call_on_stack` cria uma
   thread com `pthread_attr_setstack` sobre a pilha que a arena separou (16 MB, com a página de guarda embaixo) e espera
   o fim com `pthread_join`. O glibc guarda o descritor da thread e o TLS estático no topo dessa pilha; o macOS os guarda
-  à parte. Um sinal de falha roda numa pilha alternativa (`sigaltstack`), também num estouro da pilha do jogo. Para a
-  etapa 3c: o AppKit quer a janela e os eventos na thread principal; com o jogo nesta thread, ou a principal bombeia os
-  eventos e o jogo pede o resto a ela, ou `call_on_stack` passa a trocar a pilha na própria thread principal, como no
-  Windows (um trecho de assembly de ARM64).
+  à parte. Um sinal de falha roda numa pilha alternativa (`sigaltstack`), também num estouro da pilha do jogo. O AppKit
+  quer a janela e os eventos na thread principal: a etapa 3c deixou o jogo nesta thread e a principal com o laço de
+  eventos (o `entry_macos.mm`; "macOS: os backends", "A decisão das threads").
 - O relatório de falhas (`crash_report_posix.cpp`): `sigaction` para SIGSEGV, SIGBUS, SIGILL, SIGFPE e SIGABRT (uma
   exceção não tratada chega como SIGABRT), a pilha pelo `backtrace_symbols_fd` (sem alocar) e a base da imagem; na CI,
   `tools/ci/symbolize.py` passa os endereços pelo `addr2line` (Linux, com `-g1` e `-rdynamic`) ou pelo `atos` (macOS).
@@ -740,11 +744,17 @@ a arena na maior região livre depois dela.
   só vale depois que o arquivo estiver no `main`. Nunca a cada push no `main`. Um push novo no mesmo ramo cancela a
   rodada em andamento (`concurrency`).
 - O que roda, do mais barato ao mais caro: (a) o Linux (`ubuntu-24.04`, x86_64), com o GCC e com o clang em paralelo:
-  compilar tudo, `nf_tests`, `check_platform.py`; (b) só se o Linux passou, o macOS 14 (`macos-14`, ARM64, o clang da
-  Apple): a sonda do Metal (antes de compilar), compilar, `nf_tests`, `check_platform.py` e os autotestes das ferramentas
-  Python que não precisam dos dados do jogo (`vudis.py --test`, `xbox.py test`, `xbox_match.py test`, `driving_sym.py
-  test`, `driving_data.py test`, `movies.py test`, `sound.py test`, `pcsx2_pine.py test`).
-- Nenhum dado do jogo, nenhum segredo, nenhum artefato: o único cache é o do `ccache` (os objetos compilados do código),
+  compilar tudo (a build headless, o laço do `nightfire` e o teste de conformidade do renderizador sem ligar,
+  `nf_app_check` e `nf_render_check`), `nf_tests`, `check_platform.py`; (b) só se o Linux passou, o macOS 14
+  (`macos-14`, ARM64, o clang da Apple): a sonda do Metal (antes de compilar), compilar a build inteira com os backends do
+  macOS (desde a etapa 3c; antes, a headless), `nf_tests`, `check_platform.py`, a conformidade do renderizador Metal
+  (desde a etapa 3d: `nf_render_check --compare tests/data/render --janela` com a validação da API do Metal ligada; as
+  imagens do Metal, as diferenças e o relatório sobem como o artefato `render-metal`, sintéticos), a fumaça da janela (o
+  `nf_window_smoke`, o `nightfire` na tela de entrada sem disco e o `--list-adapters`; pulada sem a sessão gráfica) e os
+  autotestes das ferramentas Python que não precisam dos dados do jogo (`vudis.py --test`,
+  `xbox.py test`, `xbox_match.py test`, `driving_sym.py test`, `driving_data.py test`, `movies.py test`, `sound.py
+  test`, `pcsx2_pine.py test`).
+- Nenhum dado do jogo, nenhum segredo, e só o artefato das imagens sintéticas do teste do renderizador: o único cache é o do `ccache` (os objetos compilados do código),
   que faz uma rodada que muda poucos arquivos recompilar só eles (um cabeçalho como `ptr32.h` recompila tudo).
 - Os minutos: no repositório privado o Linux conta 1x e o macOS 10x, e o plano gratuito tem poucos minutos de macOS. Por
   isso o Linux vem primeiro e pega a maior parte dos problemas (o clang do Linux achou os mesmos erros de compilação que
@@ -850,20 +860,997 @@ relatórios iguais a menos dos tempos de relógio e da pasta do `hd_ui`, e a lin
 `tools/check_platform.py` sem nenhum uso do sistema fora dos backends. Atenção para quem confere: dois `nf_tests` ao mesmo
 tempo se atrapalham (os testes do disco usam pastas temporárias com o mesmo nome): rode um de cada vez.
 
-### O que as etapas 3c e 3d precisam
+### O que as etapas 3c e 3d precisavam
 
-- **3c (a janela e a entrada)**: `window_macos.mm` (`NSWindow`/`NSView` com `CAMetalLayer`, `NSEvent` para as teclas e
-  o mouse sem aceleração, `CGAssociateMouseAndMouseCursorPosition`, tela cheia), `entry_macos.mm` (o `main` com o
-  `NSApplication`), `key_char`/`key_held` de verdade (`UCKeyTranslate`, `CGEventSourceKeyState`), `show_error` com o
-  `NSAlert`, `file_dialog_macos.mm` (`NSOpenPanel`), `gamepad_macos.mm` (GameController). Decidir onde o jogo roda: hoje
-  `call_on_stack` cria uma thread para a pilha do jogo, e o AppKit quer a janela e os eventos na thread principal; ou a
-  principal bombeia os eventos e passa ao jogo, ou `call_on_stack` troca a pilha na própria thread principal (umas dez
-  linhas de assembly de ARM64, como o `arena_stack_x64.asm`).
-- **3d (som e filmes)**: `audio_device_coreaudio.cpp` (uma `AudioQueue` ou `AudioUnit` com a mesma fila de 48 kHz);
-  os filmes já decodificam pelo decodificador de MPEG-2 do port (a etapa 3b: `platform/mpeg2_decoder.h`, compilado e
-  testado na CI); `image_io_macos.mm` (ImageIO) para as capturas em PNG, que a etapa 3e precisa para comparar imagens.
-- O CMake: um `elseif(APPLE)` com essas listas, e o `nightfire` e o `nf_driving` fora do `if(NOT NF_HEADLESS)` no Mac;
-  a CI ganha um passo que compila o `nightfire` (sem rodar) para cada backend novo.
+A 3c está feita (a janela, a entrada, os controles, o som, as imagens, a escolha de arquivo, os discos; o `nightfire`
+compilando e ligando): a seção seguinte. O que fica para a 3d está no fim dela ("O renderizador nesta etapa").
+
+## macOS: os backends
+
+Etapa 3c do macOS: os backends do sistema operacional, da janela, da entrada, dos controles, do som, das imagens, da
+escolha de arquivo e dos discos, e o `nightfire` do macOS compilando e ligando na CI. O renderizador ainda é um que não
+desenha (o Metal e o 2D vetorial são a etapa 3d; a comparação das imagens com as do Direct3D 11, a 3e). Não há Mac
+aqui: tudo o que é do macOS foi escrito daqui e compilado e rodado só na CI (abaixo); o teclado, o mouse, o som e os
+controles de verdade só um Mac vai confirmar (o fim desta seção).
+
+### A build
+
+```
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release     # macOS (clang da Apple): o programa de janela e tudo o mais
+cmake --build build
+./build/nf_tests
+./build/nf_window_smoke                                      # a janela de verdade por um segundo (77: sem sessão gráfica)
+./build/nightfire --setup --config /tmp/l.ini --wait 0.5 --screenshot /tmp/launcher.png   # a tela de entrada, sem disco
+./build/nightfire --disc ~/Nightfire.iso                     # o jogo (a janela fica preta até o renderizador da 3d)
+```
+
+(Desde a etapa 4 o `nightfire` do macOS é o pacote: `"./build/Nightfire PC.app/Contents/MacOS/Nightfire PC"` no lugar
+de `./build/nightfire`; ver "macOS: o pacote e a instalação".)
+
+- No macOS o `NF_HEADLESS` passou a ser opcional: sem ele, a build inteira (o `nightfire`, o `nf_window_smoke`, o
+  `nf_tests` e as ferramentas de console, todos com os backends do macOS); com ele, a build headless de antes. O Linux
+  continua só com a headless e ganhou o `nf_app_check`: o laço do `nightfire` (`src/app`, a parte neutra de
+  `src/render`) e o renderizador nulo compilados sem ligar, para o GCC e o clang acharem nesse código o que o clang da
+  Apple acharia antes da rodada do macOS (ele nunca tinha passado por outro compilador que o MSVC).
+- O sistema mínimo é o macOS 11 (Big Sur, o primeiro dos Macs com Apple Silicon: `CMAKE_OSX_DEPLOYMENT_TARGET`, só no
+  macOS), que tem tudo o que os backends usam sem `@available`.
+- Os backends do macOS são Objective-C++ (`*_macos.mm`, com o ARC: `-fobjc-arc`) e C++ sobre as APIs em C
+  (`*_macos.cpp`); as mesmas opções do clang do resto (o `-ffp-contract=off` e companhia). Os frameworks: AppKit,
+  QuartzCore, Metal, GameController, CoreAudio, AudioToolbox, AudioUnit, ImageIO, CoreGraphics, CoreFoundation,
+  Foundation, Carbon (o `UCKeyTranslate` e os `kVK_*`) e UniformTypeIdentifiers.
+- `os_posix.cpp` continua o sistema operacional do macOS e do Linux; com `NF_MACOS_APP` (a build sem `NF_HEADLESS` do
+  macOS) ele deixa o caractere das teclas, o estado do teclado e a caixa de erro para o `os_macos.mm`.
+- `tools/check_platform.py` e o teste `platform_code_stays_behind_the_interfaces` passaram a ler também os `.mm`; as
+  regras ganharam os cabeçalhos e as funções do macOS que faltavam (ImageIO, CoreGraphics, Carbon, o GCD...).
+- No Windows nada mudou: as linhas de compilação e ligação das três builds do MSVC são as da main para todo arquivo que
+  já existia (os `build.ninja` comparados); os novos são o `tests/test_macos.cpp` (com a definição
+  `NF_TEST_SYSTEM_BACKENDS`, só dele) e nada mais (os `*_macos.*`, `renderer_null.cpp`, `entry_macos.mm` e o
+  `nf_window_smoke` não entram no Windows).
+
+### A decisão das threads
+
+O AppKit só aceita a janela, os eventos, os painéis e o cursor na thread principal, e o jogo roda na pilha da arena (os
+campos do jogo guardam endereços de variáveis locais: a pilha tem de ficar na janela dos ponteiros de 32 bits; "64 bits"),
+que fora do Windows é a de uma thread criada com `pthread_attr_setstack` (`arena_posix.cpp`). A escolha
+(`entry_macos.mm`, comentários no topo):
+
+- a thread principal fica com o laço de eventos do `NSApplication` (`[NSApp run]`) e o jogo roda noutra: uma thread que
+  chama `nf::run_main` (que cria a da pilha da arena e espera por ela). Quando o `nf_app_main` volta, a thread do jogo
+  para o laço da principal e o `main` devolve o código;
+- o que é do AppKit vai à principal pelo `nf::macos::run_on_main` (`platform/main_thread_macos.h`: um `dispatch_sync` na
+  fila principal, que o laço de eventos atende também durante um redimensionamento ou com um menu aberto): criar, fechar,
+  mudar o tamanho e a tela cheia da janela, o título, a captura e o cursor, ler os controles, o painel de escolha;
+- os eventos chegam na principal (a `NSView` e o delegate da janela) e viram um estado com uma trava (`WindowShared`) que
+  o `Window::pump()` da thread do jogo copia para os campos da `Window`, como o `pump` do Windows processa as mensagens:
+  os campos (o tamanho, o foco, a captura, a tela cheia, as teclas) só mudam na thread do jogo. Uma mudança pedida pelo
+  jogo (`set_fullscreen`, `set_client_size`) volta na hora, como o `WM_SIZE` síncrono do `SetWindowPos`;
+- o Metal da etapa 3d desenha da thread do jogo na `CAMetalLayer` (o `CAMetalLayer` aceita outra thread).
+
+A outra saída, trocar a pilha na própria thread principal com um trecho de assembly de ARM64 e x86_64 (como o
+`arena_stack_x64.asm` do Windows), deixaria o jogo bombear os eventos ele mesmo; mas a janela pararia de responder nas
+cargas (como no Windows), e o assembly e o desenrolar da pilha para o relatório de falhas teriam de ser escritos e
+conferidos sem um Mac. Com a thread, a janela continua respondendo (arrastar, Cmd+Tab) mesmo com o jogo ocupado, e nada
+de assembly. Fora do programa de janela (o `nf_tests`, as ferramentas de console) não há laço na principal: o
+`run_on_main` roda na própria thread, e o que só a principal pode fazer recusa (`can_use_appkit`).
+
+Sem sessão gráfica (um processo de fundo, uma sessão SSH, a CI se o runner não a tiver) o `NSApplication` não abre: o
+`main` percebe (`CGSessionCopyCurrentDictionary`) e roda o jogo sem o laço; as opções de linha de comando funcionam e a
+`Window` recusa abrir com a mensagem.
+
+Sair: o botão vermelho, Cmd+Q e o Quit do Dock fazem o `pump()` devolver `false` (o `WM_CLOSE` do Windows) e o jogo
+termina como no Windows; o menu do aplicativo tem Hide (Cmd+H) e Quit (Cmd+Q), e o View, a tela cheia (Ctrl+Cmd+F).
+
+### A janela e a entrada (`window_macos.mm`)
+
+- **A janela**: uma `NSWindow` com uma `NSView` cuja camada é uma `CAMetalLayer` (`native_handle()` é a `NSView`; a
+  camada fica preta nesta etapa). O tamanho da `Window` é o da camada em pixels: os pontos da view vezes o
+  `backingScaleFactor` (numa tela Retina 1600x900 pixels são 800x450 pontos, como 1600x900 num monitor 4K a 200% no
+  Windows); o `drawableSize` da camada acompanha. Um executável fora de um `.app` vira um aplicativo comum (o ícone no
+  Dock, o foco) quando a janela abre.
+- **A tela cheia** é a sem bordas do Windows: a janela sem moldura do tamanho do monitor, com a barra de menus e o Dock
+  escondidos (`presentationOptions`), na hora, sem a animação e o Espaço próprio da tela cheia nativa do macOS. O botão
+  verde, Ctrl+Cmd+F e Option+Return (o Alt+Enter do Windows) chamam a mesma coisa. O macOS não troca o modo do monitor
+  como a tela cheia exclusiva do DXGI: o modo Exclusive das opções é a mesma janela sem bordas (o renderizador aceita sem
+  fazer nada). Num MacBook com o entalhe da câmera, a imagem cobre a tela inteira, entalhe incluído.
+- **As teclas**: o `keyCode` do `NSEvent` é a posição física da tecla (os `kVK_*` do Carbon); `platform/mac_keys.h` (só
+  dados, testados em toda plataforma; `window_macos.mm` confere cada número com o Carbon num `static_assert`) os liga aos
+  códigos do port (os VK do Windows) pela posição do teclado americano, como o Windows. Return e o Enter do teclado
+  numérico são `VK_RETURN`; Command é a tecla Windows, Option o Alt; Delete é o Backspace e a "forward delete" o Delete;
+  Help é o Insert; `kVK_ISO_Section` (o § dos teclados ISO) é `VK_OEM_102`. Os modificadores (`flagsChanged`) pelos bits
+  de cada lado, com o VK genérico junto (`VK_SHIFT` com o `VK_LSHIFT`, como o `GetAsyncKeyState`). A repetição automática
+  não conta como tecla nova. O macOS não manda o `keyUp` de uma tecla solta com o Command seguro: um monitor local o
+  reenvia (como o GLFW). Perder o foco solta tudo (o macOS não manda o `keyUp` das teclas soltas fora da janela).
+- **O caractere de uma tecla** (`os::key_char`: o Ç do ABNT2 na tabela de teclas) vem do `UCKeyTranslate` no layout em uso,
+  calculado na thread principal quando a janela abre e quando o layout muda (no macOS 14 as funções do TIS só podem ser
+  chamadas nela); sem janela, 0 (como no backend nulo). **`os::key_held`** (o Shift na partida) lê o estado do sistema
+  (`CGEventSourceFlagsState`, `CGEventSourceKeyState`), sem janela.
+- **O mouse**: o clique esquerdo captura (`CGAssociateMouseAndMouseCursorPosition(false)`, o cursor parado e escondido) e
+  o olhar soma o `deltaX`/`deltaY` de cada evento de movimento. Atenção: esse delta é o do cursor, com a curva de
+  aceleração do sistema (o Raw Input do Windows não tem); quem joga pode desligar a aceleração nos Ajustes do Sistema >
+  Mouse ("Aceleração do ponteiro", macOS 14) ou com o `defaults`; um delta cru de verdade pediria o `IOHIDManager` (se os
+  testes do fórum pedirem). Os botões 1 a 5 (o 4 e o 5 pelo `buttonNumber` 3 e 4). Perder o foco (Cmd+Tab, como o
+  Alt+Tab) e abrir um menu soltam o mouse; no menu o cursor aparece só enquanto o mouse é usado
+  (`setHiddenUntilMouseMoves`); a posição do cursor em pixels da área de desenho, a origem em cima à esquerda.
+- **A roda**: o macOS dá linhas (as rodas comuns, já com a aceleração) ou pontos (o trackpad e o Magic Mouse); o port
+  quer entalhes (1,0 por entalhe, o `WHEEL_DELTA` do Windows). `nf::mac::MacWheel`: uma linha é um entalhe (menos de uma
+  linha num evento conta um inteiro, para uma roda lenta não se perder); 40 pontos de um aparelho preciso são um entalhe,
+  somados entre os eventos (a troca de sentido zera o resto); a inércia do trackpad (o `momentumPhase`) não conta; a
+  "rolagem natural" é desfeita (`isDirectionInvertedFromDevice`): positivo é para cima, como no Windows.
+- **Os modos do monitor** (`platform/display_modes.h`, uma interface nova só fora do Windows, onde o DXGI responde):
+  `CGDisplayCopyAllDisplayModes` no monitor da janela, com os modos HiDPI, em pixels, e o modo em uso; as listas de
+  resolução da tela de entrada e da página VIDEO são as de sempre (`resolution_choices`).
+- **A caixa de erro** (`os::show_error`): um `NSAlert` na thread principal (também no stderr); sem o laço de eventos,
+  só o stderr.
+
+### Os controles (`gamepad_macos.mm`)
+
+O GameController (`GCController`, o perfil `GCExtendedGamepad`) reconhece os controles do Xbox, o DualShock 4, o
+DualSense e o Pro Controller do Switch, por cabo ou Bluetooth, todos no mesmo perfil, e o backend os converte no estado
+do XInput (`PadState`): os botões pela posição (o `buttonA` é o de baixo: o X do DualShock), os ombros, os gatilhos (0 a
+1 para 0 a 255), os sticks (-1 a 1, y para cima), o direcional, Menu = Start, Options = Back (o Share/Create; nem todos
+têm), os cliques dos sticks. Daí o `psi_pad.h` faz o resto como no Windows (o primeiro controle no slot 0 do PS2, o
+segundo no 4). Os índices: o primeiro controle visto fica com o 0, o segundo com o 1, e um índice só volta a ser usado
+quando o controle dele sai (o `playerIndex` acompanha: a luz, nos que têm). A leitura é na thread principal
+(`run_on_main`), uma vez por tick. Com o jogo sem o foco o GameController não manda nada (o padrão dele), como o
+`g_pad_enabled` do Windows. **A vibração fica de fora**: no GameController ela é o Core Haptics (um `CHHapticEngine` por
+lado do controle, padrões contínuos com a intensidade mudada por parâmetros dinâmicos), não dois motores como no
+XInput; sem um controle para conferir, o `vibrate()` não faz nada.
+
+### O som (`audio_device_macos.cpp`)
+
+A `AudioUnit` de saída padrão do Core Audio (`kAudioUnitSubType_DefaultOutput`), 48 kHz, estéreo, 16 bits, com as regras
+do backend do XAudio2: uma fila de até 16 pedaços (o `audio_out.cpp` não deixa passar de 8 e faz o pré-enchimento de 50
+ms), `queued_buffers()` os pedaços ainda não tocados até o fim e `played_frames()` as amostras tocadas (o relógio dos
+filmes, `audio_out_queued_frames`); como o `SamplesPlayed` do XAudio2, com a fila vazia a saída toca silêncio e o relógio
+para. A fila é um anel com um produtor (a thread do jogo, que copia o pedaço) e um consumidor (a thread de tempo real do
+Core Audio), as posições em atômicos, sem trava na thread de tempo real. A unidade padrão converte 48 kHz para a taxa do
+aparelho e segue o aparelho padrão quando ele muda. Sem aparelho de saída (uma máquina virtual sem som) o
+`open_audio_device` devolve nulo e o jogo fica mudo, como no Windows sem placa de som.
+
+### As imagens (`image_io_macos.cpp`)
+
+O ImageIO, com a semântica do WIC: gravar um PNG de pixels RGBA ou BGRA de 8 bits sem pré-multiplicar (as capturas, que a
+etapa 3e compara com as do Windows; um `CGImage` sobre os próprios pixels, com o alfa "não pré-multiplicado" que o
+`CGImage` aceita e o `CGBitmapContext` não, etiquetado sRGB sem mudar os valores) e ler em BGRA sem pré-multiplicar. A
+leitura pega os bytes decodificados do PNG direto do `CGImage` (`CGDataProviderCopyData`, sem gerenciamento de cor) quando
+o formato é RGB de 8 bits (as capturas, as substitutas PNG da camada HD); os outros (paleta, 16 bits, cinza) são
+desenhados num contexto RGBA pré-multiplicado e o alfa é desfeito (exato nos pixels opacos). O teste
+`image_io_png_round_trip` grava e lê de volta um RGBA com alfas parciais e exige os bytes iguais (no Windows, pelo WIC).
+
+### A escolha de arquivo (`file_dialog_macos.mm`)
+
+O `NSOpenPanel`, aberto na thread principal sem travar o laço (`beginWithCompletionHandler`: a tela de entrada continua
+desenhando); a escolha volta por um estado com uma trava. Dá para escolher as imagens de disco (`.iso`, `.cdr`, `.img`) e
+também uma pasta (os arquivos extraídos do disco, ou um volume montado), que o `probe_disc` confere e recusa com o motivo.
+O painel não tem o filtro "todos os arquivos" do Windows. A cópia pessoal não se aplica (abaixo).
+
+### Os discos no macOS
+
+- **Os leitores** (`os::optical_drives`, o que a tela de entrada mostra como DVD): os volumes montados com o sistema de
+  arquivos de um CD/DVD (ISO 9660, UDF: o leitor de DVD, uma imagem montada) e os volumes locais de `/Volumes` com um
+  disco de PS2 na raiz (o `SYSTEM.CNF`: uma imagem montada pelo Finder ou pelo Utilitário de Disco de outro formato, um
+  disco externo com os arquivos extraídos). Só a tabela de montagem (`getmntinfo` com `MNT_NOWAIT`, sem tocar nos
+  volumes) e só os volumes locais: um volume de rede que caiu travaria o `stat` do `SYSTEM.CNF`. Fora do Windows a raiz
+  de um volume é uma pasta qualquer, e o `open_disc` a reconhece como leitor pelo `os::is_optical_drive`.
+  `os::roots_with`/`os::folders_with` (em `os.h`, sobre `list_dir` e `exists`) escolhem as raízes com o `SYSTEM.CNF`; o
+  teste `volumes_with_a_ps2_disc_are_drives` simula o `/Volumes` numa pasta temporária.
+- **O `.cdr`** (o "DVD/CD master" do Utilitário de Disco: setores de 2048 bytes com o mesmo ISO 9660) abre como imagem
+  (o `open_disc` sempre abriu qualquer arquivo com o ISO 9660), e fora do Windows a procura o considera ao lado do
+  executável como o `.iso` (`disc_image_extension`; no Windows a procura continua só com `.iso`, como antes).
+- **A cópia pessoal não existe no macOS** (`personal_copy_supported`): o programa é um Mach-O assinado (o arm64 sempre,
+  ao menos ad hoc; bytes depois da assinatura a invalidam) e vai num pacote `.app` (etapa 4, "macOS: o pacote e a
+  instalação": a imagem do disco fica ao lado dele). A tela de entrada não mostra a linha da cópia e o `--pack-disc` recusa; ler uma cópia
+  continua igual em todo lugar (os testes).
+
+### Onde ficam o ini e os saves
+
+`os::user_files_dir(app)` (em `os.h`, com o backend de cada sistema) é a pasta dos arquivos que o programa grava: no
+Windows a do executável, como sempre (as mesmas contas e as mesmas alocações que o `settings.cpp` e o `psi_card.cpp`
+faziam: a linha `arena` do x64 não muda); no macOS `~/Library/Application Support/Nightfire PC/`, criada se faltar (o
+executável fica dentro do pacote `.app`, que não é lugar de gravar); no Linux, a do executável. Ali ficam o
+`nightfire.ini` e os `saves/`, e é a mesma pasta para onde a cópia pessoal tirava o `hd_ui` no Windows
+(`os::local_data_dir()` + `Nightfire PC`). `--config` e `--save-dir` continuam valendo.
+
+### O renderizador nesta etapa (`render/renderer_null.cpp`)
+
+No macOS, desde a etapa 3d-A, o renderizador é o Metal (a seção seguinte, "macOS: o renderizador Metal"); o nulo continua
+para o Linux. O que segue é o da etapa 3c.
+
+A fachada `render/renderer.h` com um `Renderer::Impl` que só guarda o estado: o tamanho, as opções de vídeo, as malhas e
+as imagens só como contagem; o `render()` e o resto do desenho não fazem nada; o `present()` espera até o próximo 1/60 s
+com o VSync (o laço não gira solto com a janela preta); o `save_png` grava a cor com que o quadro foi limpo, lisa, no
+tamanho do alvo (as capturas e o relatório `.txt` saem); os modos do monitor vêm da janela (`display_modes.h`); a tela
+cheia exclusiva é aceita sem fazer nada (a janela já é a sem bordas). O 2D vetorial não existe (`modern_ok()` e
+`ui_hd_ok()` falsos): o jogo cai nos menus Original, como no Windows sem Direct2D. O mesmo arquivo dá o
+`enumerate_adapters` (nenhum: o padrão do sistema), o `create_remix_d3d9` (recusa: o RTX Remix é do Windows) e as funções
+neutras que o `renderer_d3d11.cpp` define (`gs_alpha_of_blend`, `gpu_phase_name`). O Linux o compila no `nf_app_check`.
+
+A matemática da câmera do laço (`app_main.cpp`) usa o DirectXMath do SDK do Windows; fora do Windows, o pedaço dele que
+o laço usa (`src/app/xmath_compat.h`: as contas do caminho sem intrínsecos, o `XMScalarSinCos` com os polinômios dele). O
+`nf_tests` do Windows compara as duas: o seno, o cosseno e a projeção iguais bit a bit, a visão e o produto a 1e-6 (o
+caminho SSE normaliza dividindo e soma em outra ordem).
+
+O que a etapa 3d tem de fazer: trocar o `renderer_null.cpp` pelo backend do Metal (os shaders de `renderer_d3d11.cpp` em
+MSL: a rotina da VU1, o skinning, os morphs, a névoa, o alpha-to-coverage, o desfoque, a redução; a profundidade
+invertida; o MSAA; as consultas de tempo do `--bench`; o adaptador pelo `MTLDevice` e o `enumerate_adapters` pelo
+`MTLCopyAllDevices`), desenhando na `CAMetalLayer` da `NSView` que `Window::native_handle()` dá (o `drawableSize` já
+acompanha a janela); o 2D vetorial dos menus Modern e da camada HD (Core Text e Core Graphics: texto com espaçamento,
+contorno de glifos, degradês, recortes) e um leitor de SVG (os glifos dos menus e as substitutas da camada HD), feitos
+na 3d-A e na 3d-B ("macOS: o renderizador Metal", "macOS: o desenho vetorial"). As regras
+que o renderizador nulo já segue e o Metal mantém: a tela cheia exclusiva é a sem bordas; os modos do monitor vêm de
+`display_modes.h`; o `save_png` grava BGRA opaco pelo `image_io.h`.
+
+### O que fica de fora nesta etapa
+
+- A vibração dos controles (acima); o delta cru do mouse (`IOHIDManager`; o do `NSEvent` tem a aceleração do sistema).
+- O desenho (etapa 3d: o Metal está na seção seguinte) e o pacote `.app` com o ícone, o `Info.plist` e o guia de instalação (etapa 4,
+  feita: "macOS: o pacote e a instalação"); o executável avulso funcionava, sem assinatura da Apple.
+- O `nf_driving` (o renderizador dele é o Direct3D 11) e o caminho do RTX Remix (só Windows).
+- As teclas do teclado japonês (Eisu, Kana, Yen) e o Fn.
+- A cópia pessoal (acima).
+
+### A CI e a conferência (12-13/10/2026)
+
+As rodadas da CI (no repositório privado; os links pedem a conta dele):
+
+| Rodada | Linux GCC | Linux clang | macOS 14 ARM64 | O que mostrou |
+|--------|-----------|-------------|----------------|---------------|
+| 1 (`38330389299`) | erro de compilação (2 min 6 s) | erro de compilação (3 min 58 s) | não rodou | três `?:` entre um campo `P32<char>` e um texto literal no `NF_MENU_DUMP` do `app_main.cpp` (o `nf_app_check` compilou o laço do `nightfire` pela primeira vez fora do MSVC) |
+| 2 (`38330829413`) | 820 testes, 0 falhas (1 min 4 s) | 820, 0 (54 s) | 822, 0 (1 min 23 s) | o macOS verde na primeira vez que rodou: os backends compilaram e ligaram, a fumaça da janela e a tela de entrada passaram |
+| 3 (`38331442176`) | 820, 0 (56 s) | 820, 0 (58 s) | 822, 0 (41 s) | o código final (sem o App Nap, um aviso a menos no teste) com a main mesclada; a fumaça da janela de novo |
+| 4 (`38331794578`) | 820, 0 (56 s) | 820, 0 (55 s) | 822, 0 (41 s) | o commit dos comentários e da documentação (o código igual ao da rodada 3) |
+
+O que a rodada 2 mostrou no macOS 14 ARM64 (a máquina virtual M2 do GitHub):
+
+- o `nf_tests`: 822 testes, 0 falhas (os 820 do Windows x64, mais os 2 só do macOS); a tabela das teclas, a roda, o
+  `xmath_compat.h`, a pasta do jogador (`~/Library/Application Support/Nightfire PC/`), os volumes, o PNG ida e volta pelo
+  ImageIO (os bytes iguais, com alfas parciais) e o `.cdr` passaram; o runner tem um aparelho de som (o Core Audio abriu
+  e tocou os 16 pedaços de 480 frames em 200 ms) e nenhum controle;
+- o runner tem a sessão gráfica: o `nf_window_smoke` abriu a janela de 640x360 com o foco, mudou para 800x450, foi à tela
+  cheia sem bordas (1920x1080, o monitor virtual com um modo só) e voltou, leu o layout (o `;` do teclado americano,
+  U+003B) e o Shift (solto) e fechou;
+- o `nightfire` sem disco abriu a tela de entrada numa captura: o PNG (a cor do fundo, pelo renderizador nulo) e o
+  relatório, sem a linha da cópia pessoal, com o monitor 1920x1080;
+- nenhum aviso de compilação nos arquivos novos do macOS (só os de antes do código compartilhado, e um `ends_with_sep`
+  sem uso no teste, já corrigido).
+
+Os minutos (o tempo dos jobs): o Linux, 11,8 min em quatro rodadas (oito jobs); o macOS, 2,75 min em três (1 min 23 s,
+41 s e 41 s; cada job arredondado para cima e vezes 10 no plano: 40 cobrados), dentro do orçamento de 6 minutos de macOS
+desta etapa.
+Com o cache, o job do macOS leva uns 40 s (a primeira rodada com os backends compilou tudo de novo: o macOS mínimo 11 muda
+a linha de todo objeto).
+
+No Windows (a main em 9589e6e, exportada com `git archive` e compilada ao lado nas três builds com o hash fixo "cmp" nos
+menus Modern; o ramo também com ele; os dados da cópia principal):
+
+| Conferência | Resultado |
+|-------------|-----------|
+| as linhas de compilação e ligação (os `build.ninja` comparados, as raízes e as aspas dos caminhos com espaço tiradas) | iguais às da main nas três builds para todo objeto que já existia; o novo é o `tests/test_macos.cpp` (com a definição `NF_TEST_SYSTEM_BACKENDS` só dele) e o `nf_tests` que o liga |
+| `nf_tests` | x86 817, x64 820, headless 817, 0 falhas (a main: 809, 812, 809; os 8 novos: 7 em `test_macos.cpp` e o `.cdr` em `test_disc.cpp`) |
+| `tools/check_platform.py` | 0 usos do sistema fora dos backends (495 arquivos, agora com os `.mm`) |
+| `nf_level_check .` | 35 fases, 0 não resolvidas; a saída igual à da main |
+| `nf_loader_check .` | 36 pacotes, 0 diferenças; a saída igual à da main linha a linha (endereços mascarados), em x86 e em x64 |
+| 07000012 aos 9 s (`--fixed-video-hz 60`) e o `--audio-dump` dele | o PNG e o WAV idênticos byte a byte, em x86 e em x64 |
+| a pausa Modern (`--open-menu-page 4000004b --menu-tab pause --wait 2.5`) | idêntica, em x86 e em x64 |
+| o menu principal Modern (`--input "none:4.5 enter:0.1 none:2 enter:0.1" --wait 9.5`) | idêntico, em x86 e em x64 |
+| a tela de entrada (`--setup --config ... --wait 1.5`) | idêntica, em x86 e em x64; o relatório igual |
+
+Os relatórios das capturas diferem só nos campos de relógio de parede (os ms de CPU, o tempo da carga, o tempo da missão,
+os frames de áudio e a contagem de alocações da linha `arena` das capturas sem `--fixed-video-hz`, que dependem de quantos
+quadros couberam no tempo real) e na pasta do `hd_ui`; com `--fixed-video-hz 60` a pausa e o menu principal do x64 dão a
+linha `arena` igual à da main (as mesmas 381 745 e 420 426 alocações): a `os::user_files_dir` faz as alocações que o
+`settings.cpp` e o `psi_card.cpp` faziam.
+
+### O que só um Mac de verdade vai confirmar
+
+- **O teclado**: a tabela (conferida com o Carbon na compilação e pelos testes) com teclados reais (ANSI, ISO, ABNT2,
+  JIS), o Option+Return, as teclas com o Command seguro, o caractere de cada tecla no layout (`key_char`).
+- **O mouse**: a captura (`CGAssociateMouseAndMouseCursorPosition`) e o olhar pelo delta do `NSEvent`, com e sem a
+  aceleração do sistema; a roda com uma roda comum e com o trackpad (o número de pontos por entalhe, 40, é um palpite);
+  o cursor no menu.
+- **O som**: o Core Audio num aparelho de verdade (a latência, o relógio dos filmes, a troca para os fones).
+- **Os controles**: o Xbox, o DualShock 4, o DualSense e o Pro Controller pelo GameController (o mapeamento, o Menu e o
+  Options, os índices), sem vibração.
+- **A janela**: o Retina (o tamanho em pixels), a tela cheia sem bordas (e o entalhe), Cmd+Tab, Cmd+Q, o botão verde, o
+  painel de escolha de arquivo e uma imagem montada no Finder aparecendo como leitor.
+- A thread principal com o jogo noutra thread: a CI só abre a janela por um segundo (se tiver a sessão gráfica).
+
+## macOS: o renderizador Metal
+
+Etapa 3d do macOS, a metade A: o `Renderer::Impl` do macOS em Metal (`src/render/renderer_metal.mm`, Objective-C++ com
+ARC), no lugar do renderizador que não desenhava (`renderer_null.cpp`, que continua para o Linux). A especificação é o
+backend do Direct3D 11 (`renderer_d3d11.cpp`, a referência): os mesmos shaders em MSL, a mesma resolução do estado do GS
+por parte de malha, a mesma ordem dos desenhos, as mesmas opções do PC. A metade B (outro trabalho, em paralelo) é o
+desenho vetorial (os menus Modern, os textos e as teclas da camada HD, as substitutas SVG) com o CoreGraphics e o
+CoreText, atrás de `render/ui_vector.h`: este renderizador chama a interface e compõe as imagens dela; o backend é o
+`render/ui_vector_cg.mm` ("macOS: o desenho vetorial"; até ele entrar, uma fábrica nula deixava o jogo com os menus
+Original e sem a camada HD, como o Windows sem Direct2D). Os adaptadores de vídeo são os `MTLDevice` (`render/gpu_adapters_metal.mm`).
+
+### O mapa: Direct3D 11 → Metal
+
+| Direct3D 11 (`renderer_d3d11.cpp`) | Metal (`renderer_metal.mm`) |
+|------------------------------------|-----------------------------|
+| `D3D11CreateDevice` no adaptador padrão ou no do `[video] adapter` (DXGI) | o `MTLDevice` do `[video] adapter` pelo `registryID` (ou o índice em `MTLCopyAllDevices`); senão `MTLCreateSystemDefaultDevice`; sem ele (um processo sem a sessão gráfica, a CI), o primeiro de `MTLCopyAllDevices` |
+| a cadeia de troca (FLIP_DISCARD), `Present(vsync)`, `ALLOW_TEARING` sem VSync | a `CAMetalLayer` da `NSView` (`Window::native_handle`): o dispositivo, `BGRA8Unorm`, `framebufferOnly`, `displaySyncEnabled` = o VSync (configurados na thread principal pelo `run_on_main`); `nextDrawable` e `presentDrawable` da thread do jogo |
+| o back buffer (ou a textura fora da tela) é o alvo | sempre um alvo próprio (BGRA8 privado, o tamanho da janela em pixels: o Retina já vem da `Window`); `present()` copia o alvo para o drawable (o texel do pixel no mesmo tamanho; noutro, a janela mudando de tamanho, a redução do `ps_down`) |
+| HLSL compilado na partida (`D3DCompile`) | MSL compilado na partida (`newLibraryWithSource`, `fastMathEnabled = NO`: as contas como escritas) |
+| `row_major` e `mul(v, M)` | a matriz do motor chega como está e o MSL a lê por colunas (a transposta): `M * v` |
+| `round` (ao par mais próximo), `trunc`, `floor`, `fmod`, `discard`, `fwidth`, `lerp` | `rint`, `trunc`, `floor`, `fmod`, `discard_fragment`, `fwidth`, `mix` |
+| constant buffers (`Map` com DISCARD) | `setVertexBytes`/`setFragmentBytes` (até 4 KB: o objeto, os morphs, a névoa); a paleta do skinning (até 8 KB) num pedaço dos dados do quadro |
+| `StructuredBuffer<float3>` dos morphs (fora do buffer: 0) | `device const packed_float3*` com a contagem de elementos (fora dela: 0, a mesma regra) |
+| input layouts | `MTLVertexDescriptor` (`Vertex` de 36 bytes, `SkinnedVertex` de 48) |
+| blend, depth e rasterizer states em cache | pipelines em cache por programa, mistura do GS, cobertura, amostras, profundidade e formato; `MTLDepthStencilState` por (função, escrita); cull none; o wireframe pelo `setTriangleFillMode` |
+| o fator da mistura (`OMSetBlendState`) | `setBlendColorRed:green:blue:alpha:` |
+| `ClearDepthStencilView` antes da lista 2 (`psiClearZ`) | um encoder novo com `depthAttachment.loadAction = Clear` (0: a profundidade invertida) e a cor carregada |
+| a névoa lê a profundidade (`Texture2D<float>`; com MSAA `Texture2DMS<float>` e `SV_SampleIndex`) | `depth2d<float>`; com MSAA `depth2d_ms<float>` e `[[sample_id]]` (por amostra), num encoder sem a profundidade |
+| `ResolveSubresource` | um encoder vazio com o `storeAction` `MultisampleResolve` (direto no alvo quando a escala é 100%) |
+| `CopyResource` (o rastro, o desfoque, a tela de carga) | `copyFromTexture:toTexture:` no command buffer do quadro |
+| `UpdateSubresource` + `GenerateMips` | um buffer de passagem, `copyFromBuffer:toTexture:` e `generateMipmapsForTexture:` num command buffer de envio, enviado antes do do quadro |
+| `update_texture` (o fundo animado da pausa): `UpdateSubresource` no nível 0 da textura do slot + `GenerateMips`, no contexto imediato (os desenhos já feitos no quadro ficam com o conteúdo antigo) | fora de um quadro (o caso do jogo), o mesmo envio de uma textura nova, na textura que já está no slot; com um quadro sendo gravado, a cópia de um pedaço dos dados do quadro e os mipmaps num blit no command buffer do quadro, na ordem |
+| vertex buffers dinâmicos (sprites, estilhaços, 2D) | pedaços de 4 MB de buffers compartilhados, devolvidos quando a GPU acaba o command buffer que os usou |
+| scissor do 2D (`raster_2d_`) | `setScissorRect` preso ao anexo (vazio: o item não desenha) |
+| o Direct2D desenha no alvo (menus Modern, textos da camada HD) | a `UiVectorCanvas` devolve uma imagem BGRA com o alfa pré-multiplicado e o renderizador a compõe por cima (ONE, ONE_MINUS_SRC_ALPHA), lida texel a texel de um pedaço dos dados do quadro; as substitutas (`asset`) viram texturas RGBA8 como as do Direct2D (com mipmaps no PNG), em cache por (índice, largura, altura) e esquecidas depois de 300 quadros sem uso |
+| o filme (`movie_layer_d3d11`: o viewport é o retângulo) | dois triângulos no retângulo com o mesmo UV; o Catmull-Rom igual |
+| texturas DDS (BC1/BC2/BC3/BC7, RGBA8, sRGB) | as mesmas em `MTLPixelFormatBC*` (com `supportsBCTextureCompression`; sem ela, falso e fica a original); a de um nível só copiada para RGBA8 na GPU e com os mipmaps gerados |
+| filtro anisotrópico, trilinear, bilinear (`D3D11_SAMPLER_DESC`) | `MTLSamplerDescriptor` com `maxAnisotropy`, `mipFilter` linear ou nearest |
+| tela cheia exclusiva (troca o modo do monitor) | a janela sem bordas (aceita sem fazer nada, como o renderizador nulo) |
+| consultas `TIMESTAMP` por trecho (`--bench`) | o total de cada quadro pelo `GPUStartTime`/`GPUEndTime` dos command buffers; os trechos (`GpuPhase`) ficam em 0 |
+| a consulta EVENT que segura a CPU fora da tela (`--bench --offscreen`) | fora da tela, sempre: o `present()` espera o command buffer de três quadros atrás |
+| `enumerate_adapters` pelo DXGI | `MTLCopyAllDevices` (`gpu_adapters_metal.mm`: integrado = memória unificada, o fabricante pelo nome) |
+
+O quadro: os comandos vão num command buffer só, aberto no primeiro desenho e enviado no `present()` (ou antes, quando
+`save_png` lê o alvo). Um encoder de render fica aberto enquanto os desenhos seguidos usam os mesmos anexos; a passada de
+névoa, a limpeza do Z do meio do quadro, a resolução do MSAA e o 2D no alvo trocam de encoder. A ordem dos desenhos e o
+estado de cada um saem das mesmas funções do D3D11 (`resolve_state`, `gs_blend_equation`, `gs_alpha_coverage_candidate`),
+copiadas para o backend (nenhum arquivo do Windows mudou).
+
+### O que diverge do Direct3D 11
+
+- **Os últimos bits**: as contas são as mesmas, na mesma ordem, mas cada GPU arredonda à sua maneira as interpolações, a
+  divisão e as misturas; onde a rotina da VU1 trunca (`floor` no FTOI0, `trunc` na normal), um ulp pode mudar a cor de um
+  vértice em 1/128. Entre duas GPUs do Windows acontece o mesmo (abaixo, o NVIDIA contra o AMD).
+- **A rasterização**: as bordas dos triângulos (a precisão de sub-pixel, a regra de cima à esquerda), o padrão das
+  amostras do MSAA e o pontilhado do alpha-to-coverage são de cada GPU.
+- **A filtragem**: o anisotrópico e a escolha do mipmap são de cada fabricante (a maior diferença do teste); a
+  descompressão BC1/BC3 arredonda as cores interpoladas de cada um.
+- **Os tempos de GPU do `--bench`**: só o total de cada quadro; os trechos ficam em 0 (o Metal só os daria com os
+  contadores de tempo nas fronteiras dos estágios, que a GPU virtual da CI não tem; ver "Metal no runner do macOS").
+- **Sem tearing** (`tearing()` falso) e a tela cheia exclusiva é a sem bordas. Um quadro sem drawable (a janela coberta ou
+  minimizada) conta em `occluded` e, com o VSync, espera 16 ms.
+- **O alvo próprio**: o Direct3D 11 desenha direto no back buffer; o Metal desenha no alvo e o copia para o drawable no
+  `present()` (uma passada a mais, do tamanho da janela).
+
+### O teste de conformidade (`tests/render_conformance.cpp`, `nf_render_check`)
+
+Cenas sintéticas feitas no próprio teste (malhas e texturas procedurais, nada do jogo) desenhadas pela fachada `Renderer`
+fora da tela, em 256 x 192, cada uma gravada num PNG. No Windows o backend é o Direct3D 11: as imagens dele são as
+referências, em `tests/data/render` (32 PNG e `contagens.txt`, 1,1 MB, sintéticos: podem ir para o git). No macOS o Metal
+desenha as mesmas cenas e `--compare` mede cada uma contra a referência: o PSNR, o erro máximo e o médio por canal e a
+fração dos pixels com um canal a mais de 8 e de 32; cada cena tem os seus limites, e passar deles (ou uma contagem
+diferente) faz a saída ser 1. Também confere que `read_texture` devolve os bytes enviados, que o snapshot da tela de carga
+volta, que as 9 peças do 9-slice saem e que os quatro DDS carregam; com `--janela`, desenha a cena `rigido` numa janela de
+verdade (a `CAMetalLayer` no macOS, a cadeia de troca no Windows), 30 quadros com `present()`, e compara o último com a
+mesma cena fora da tela (tem de ser o mesmo).
+
+```
+./build/Release/nf_render_check.exe --out tests/data/render                     # Windows: as referências (Direct3D 11)
+./build/Release/nf_render_check.exe --out out/render --compare tests/data/render --adapter integrated  # outra GPU, o mesmo Direct3D 11
+./build/nf_render_check --out /tmp/render --compare tests/data/render --janela   # macOS: o Metal contra as referências
+```
+
+As cenas: `rigido` (malhas rígidas, cores de vértice acima de 0x80, Z entre caixas que se cruzam, a textura repetida),
+`luzes` (a rotina 0x340 com duas luzes, no plano e numa esfera, as luzes no espaço do objeto), `ambiente` (a rotina 0x2e0
+numa esfera e num cubo), `tweak` (o tweak em desenhos opaco, misturado e aditivo), `skinning` (dois ossos, um com uma luz
+no mundo), `morph` (três alvos, uma linha de vértices com o índice no fim dos deltas: os alvos 1 e 2 caem fora e valem 0,
+os cantos sem morph; ao lado, a mesma malha sem pesos, pelo shader de skinning comum), `misturas` (dez ALPHA_1: 0x44, 0x48,
+0x42, 0x01, 0x64 com FIX, 0x54 e 0x58 com o Ad que o fundo gravou, 0x46, 0x68 com FIX, e o 0x44 com o ABE desligado),
+`teste_alfa` (os oito ATST com AREF 0x40 e a regra antiga, opaca e misturada, sobre uma textura com o alfa até 0xff),
+`z` (ZTST NEVER, ALWAYS, GEQUAL, GREATER, o ZTE desligado e o ZMSK), `neblina` (a passada de névoa num chão de 160 m, um
+vidro depois dela), `limpa_z` (o que vem depois da limpeza fica por cima da parede e se testa entre si), `particulas`
+(sprites aditivos, pré-multiplicados com o alfa até 2,0 e subtrativos), `cacos` (estilhaços com o estado de
+`psiSetShardRenderStates`), `quads_2d` (ponto e linear, espelhado, a textura branca com o alfa 0xff, sem textura, aditivo,
+subtrativo, ladrilhos, alfa 0, uma imagem do port com mipmaps, o recorte), `nove_pedacos` (a moldura esticada num quadrado e
+em 9 pedaços por `psi_2d_nine_slice`), `esmaecimento`, `rastro` (dois quadros e o `screen_blur` com 0,55), `desfoque` e
+`desfoque_meio` (o `blur_background` com 1 e 0,5), `filme` (um quadro sintético de 512 x 448 no retângulo da tela do PS2,
+com uma legenda 2D por cima), `msaa_a2c` (MSAA 4x com o alpha-to-coverage nas folhas: TEST 0x507fd com a mistura e GEQUAL
+0x40 sem ela), `msaa_neblina` (a névoa por amostra), `escala_200` (a cena em 200% e o 2D na janela), `escala_msaa` (150% com
+MSAA 4x: a resolução e a redução), `filtro_bilinear`, `filtro_trilinear` e `filtro_aniso16` (um chão fino até 60 m),
+`tela_carga` (`clear_target`, o snapshot, uma bolinha que some na volta e outra pela `keep_texture`), `dds` (RGBA8 de um
+nível, BC1 com todos os níveis, BC1 de um nível e BC3, no chão e na tela), `textura_trocada` (o `update_texture` do fundo
+animado da pausa: uma textura com uma substituta HD, desenhada num quadro; depois um conteúdo novo, a substituta saindo e
+os mipmaps do chão refeitos, e outro tamanho num segundo slot; no segundo quadro, com ele ainda aberto, o conteúdo muda
+de novo e só o 2D desenhado depois o mostra: os desenhos de antes ficam com o de antes, como no contexto imediato do
+D3D11; acrescentada em 13/10/2026) e as duas do desenho vetorial, num
+renderizador de 960 x 540: `modern_pausa` (o desfoque e a pausa Modern por cima) e `hd_lote` (um lote da camada HD com
+textos, teclas e substitutas SVG); os números delas estão em "macOS: o desenho vetorial" (a 3d-B as acrescentou).
+
+Os números (13/10/2026). A referência é o Direct3D 11 do RTX 5090 desta máquina; o Metal é o da GPU virtual do macOS 14 da
+CI ("Apple Paravirtual device"), com a validação da API do Metal ligada (`MTL_DEBUG_LAYER=1`: nenhum erro); para comparar,
+o mesmo Direct3D 11 no Radeon integrado desta máquina (`--adapter integrated`), duas GPUs do Windows com o mesmo código:
+
+| Cena | Metal: PSNR (dB) / máx / média / > 32 | Direct3D 11 no Radeon: PSNR / máx / > 32 | Limite: PSNR / > 32 |
+|------|---------------------------------------|------------------------------------------|---------------------|
+| rigido | 45,82 / 32 / 0,32 / 0 | 46,90 / 30 / 0 | 39 / 0,5% |
+| luzes | 58,65 / 25 / 0,04 / 0 | 58,35 / 27 / 0 | 52 / 0,5% |
+| ambiente | 46,59 / 25 / 0,29 / 0 | 47,54 / 23 / 0 | 40 / 0,5% |
+| tweak | 45,95 / 28 / 0,32 / 0 | 46,83 / 28 / 0 | 39 / 0,5% |
+| skinning | 44,69 / 29 / 0,40 / 0 | 44,50 / 36 / 0 | 38 / 0,5% |
+| morph | 49,19 / 21 / 0,17 / 0 | 50,46 / 32 / 0 | 43 / 0,5% |
+| misturas | 52,35 / 9 / 0,08 / 0 | 50,45 / 11 / 0 | 44 / 0,5% |
+| teste_alfa | 43,60 / 88 / 0,35 / 0,08% | 58,02 / 3 / 0 | 37 / 0,5% |
+| z | 51,83 / 8 / 0,22 / 0 | 53,16 / 6 / 0 | 45 / 0,5% |
+| neblina | 44,54 / 22 / 0,41 / 0 | 45,91 / 20 / 0 | 38 / 0,5% |
+| limpa_z | 51,06 / 22 / 0,07 / 0 | 63,68 / 4 / 0 | 45 / 0,5% |
+| particulas | 45,29 / 29 / 0,39 / 0 | 46,38 / 28 / 0 | 39 / 0,5% |
+| cacos | 47,31 / 23 / 0,25 / 0 | 48,20 / 41 / 0 | 41 / 0,5% |
+| quads_2d | 60,55 / 2 / 0,06 / 0 | 59,64 / 2 / 0 | 53 / 0,5% |
+| nove_pedacos | 57,03 / 1 / 0,13 / 0 | 56,97 / 1 / 0 | 50 / 0,5% |
+| esmaecimento | 53,56 / 13 / 0,14 / 0 | 53,52 / 12 / 0 | 47 / 0,5% |
+| rastro | 45,74 / 30 / 0,33 / 0 | 46,78 / 30 / 0 | 39 / 0,5% |
+| desfoque | 55,26 / 2 / 0,19 / 0 | 59,04 / 1 / 0 | 49 / 0,5% |
+| desfoque_meio | 50,67 / 16 / 0,26 / 0 | 52,07 / 15 / 0 | 44 / 0,5% |
+| filme | 64,04 / 1 / 0,03 / 0 | 67,03 / 1 / 0 | 58 / 0,5% |
+| msaa_a2c | 39,58 / 114 / 0,48 / 0,32% | 41,50 / 115 / 0,13% | 33 / 1,5% |
+| msaa_neblina | 44,54 / 22 / 0,42 / 0 | 45,94 / 20 / 0 | 38 / 0,5% |
+| escala_200 | 53,49 / 13 / 0,14 / 0 | 56,45 / 13 / 0 | 47 / 0,5% |
+| escala_msaa | 52,31 / 15 / 0,16 / 0 | 54,54 / 14 / 0 | 46 / 0,5% |
+| filtro_bilinear | 38,55 / 86 / 0,42 / 0,28% | 40,09 / 85 / 0,21% | 32 / 1,5% |
+| filtro_trilinear | 48,68 / 9 / 0,40 / 0 | 48,37 / 13 / 0 | 42 / 0,5% |
+| filtro_aniso16 | 35,84 / 29 / 2,02 / 0 (8,8% > 8) | 36,29 / 29 / 0 (8,0% > 8) | 29 / 1% |
+| tela_carga | 65,95 / 1 / 0,02 / 0 | 47,18 / 105 / 0,02% | 41 / 0,5% |
+| dds | 39,25 / 143 / 1,16 / 0,02% | 40,51 / 98 / 0,01% | 33 / 0,5% |
+| textura_trocada (13/10/2026) | 53,75 / 22 / 0,08 / 0 | 53,97 / 20 / 0 | 47 / 0,5% |
+
+O Metal fica no mesmo envelope que duas GPUs do Windows entre si: em 22 das 29 cenas a menos de 2 dB do Radeon, para
+cima ou para baixo; em `desfoque`, `filme`, `escala_200` e `escala_msaa` a menos de 4 dB (todas acima de 50 dB); em
+`tela_carga` mais perto do NVIDIA que o Radeon; abaixo dele só `teste_alfa` e `limpa_z`. O que sobra:
+
+- **Bordas** (todas as cenas 3D, erro máximo de 20 a 36 num pixel de borda e nos texels de borda dos quadriculados): a
+  rasterização e a interpolação das UVs de cada GPU decidem de que lado de uma aresta ou de uma divisa de texel fica cada
+  pixel; é o mesmo número entre o NVIDIA e o AMD.
+- **`teste_alfa`** (máx 88 em 0,08% dos pixels): uma coluna da faixa do ATST EQUAL (passa só o alfa igual a 0x40): o alfa
+  interpolado de cada pixel cai do outro lado do inteiro numa coluna. O Radeon dá o mesmo inteiro que o NVIDIA ali.
+- **`limpa_z`** (51 contra 64 dB): as bordas dos dois quadrados de depois da limpeza (o mesmo da primeira linha).
+- **`msaa_a2c`**: o padrão das amostras do MSAA e o pontilhado do alpha-to-coverage são de cada GPU (o Radeon também
+  difere do NVIDIA).
+- **Os filtros e os DDS**: a escolha do mipmap, o anisotrópico e o arredondamento da descompressão BC1/BC3 são de cada
+  fabricante; o `filtro_aniso16` tem 8,8% dos pixels a mais de 8 no Metal e 8,0% no Radeon.
+
+Os limites ficam 6 dB abaixo do menor dos dois PSNR medidos (o erro quadrático médio quatro vezes maior) e a fração a mais
+de 32 em 0,5% (1,5% no alpha-to-coverage e no bilinear, 1% no anisotrópico). Um erro de verdade (uma matriz transposta,
+um fator de mistura trocado, o teste de alfa invertido, a névoa errada) muda a imagem inteira de uma parte da cena, não um
+pixel de borda: a fração a mais de 32 passa de 0,5% e o PSNR cai bem abaixo dos limites.
+
+As contagens das partes da rotina do mapa de ambiente e das que vão com a cobertura (`env_parts`, `alpha_coverage_parts`)
+são iguais às da referência em todas as cenas; `read_texture` devolve os bytes enviados. A janela de verdade na CI: 30
+quadros pelo drawable da `CAMetalLayer` (o quadro igual ao de fora da tela, erro máximo 0); a GPU virtual não segura o
+`nextDrawable` no ritmo do monitor (97 e 1657 quadros por segundo em duas rodadas, com o VSync ligado), então o VSync só um
+Mac de verdade confirma. No Windows a mesma conferência dá a cadeia de troca igual à textura fora da tela (263 quadros por
+segundo com o VSync a 240 Hz).
+
+### A CI e a conferência (13/10/2026)
+
+As rodadas da CI (no repositório privado; os links pedem a conta dele):
+
+| Rodada | Linux GCC e clang | macOS 14 ARM64 | O que mostrou |
+|--------|-------------------|----------------|---------------|
+| 1 (`38336102155`) | erro de ligação do `nf_render_check` | não rodou | o renderizador nulo pede os modos do monitor, que a build headless não tem: no Linux o teste virou uma biblioteca de objetos (só compilado), como o `nf_app_check` |
+| 2 (`38336607116`) | 820 testes, 0 falhas | 822, 0; a conformidade com as 29 cenas dentro dos limites, a janela, a tela de entrada pelo Metal (1 min 18 s; cancelada no fim pelo push seguinte, depois da fumaça) | o Metal desenhando na primeira vez que rodou, sem um aviso de compilação nos arquivos novos |
+| 3 (`38336691079`) | 820, 0 | o mesmo com `MTL_DEBUG_LAYER=1`: nenhum erro da validação, os números iguais aos da rodada 2 (36 s) | o uso da API conferido |
+| 4 (`38337432012`) | 820, 0 | 822, 0; as 29 cenas dentro dos limites novos (os números iguais), a janela (0 quadros sem drawable), o `--list-adapters` pelo Metal (o "Apple Paravirtual device", integrado, 9557 MB); 42 s | o código final, com a `main` (0dfa630) mesclada |
+
+Os minutos de macOS desta etapa: 2 min 36 s de relógio nas rodadas 2, 3 e 4 (cada job arredondado para cima e vezes 10
+no plano: 40 cobrados), dentro do orçamento de ~20 minutos de relógio; o Linux, 8 jobs.
+
+No Windows (a main em 0dfa630, exportada com `git archive` e compilada ao lado nas três builds com o hash fixo "cmp" nos
+menus Modern; o ramo também; os dados da cópia principal):
+
+| Conferência | Resultado |
+|-------------|-----------|
+| as linhas de compilação e ligação (os `build.ninja` comparados, as raízes e as aspas tiradas) | iguais às da main nas três builds para todo objeto que já existia; os novos são os do `nf_render_check` (o teste e os arquivos do backend do Direct3D 11 compilados de novo para ele) em x86 e x64; na headless nada muda |
+| `nf_tests` | x86 817, x64 820, headless 817, 0 falhas (os mesmos da main) |
+| `tools/check_platform.py` | 0 usos do sistema fora dos backends (501 arquivos; `*_metal.mm` e `*_metal.h` entraram como backends) |
+| `nf_level_check .` | 35 fases, 0 não resolvidas |
+| `nf_loader_check .` | a saída igual à da main linha a linha (endereços mascarados), em x86 e em x64 |
+| 07000012 aos 9 s (`--fixed-video-hz 60`) e o WAV dele, 07000001 aos 11,7 s, a pausa Modern, 0700000c com `--render-scale 200 --msaa 4 --filter aniso16`, o quadro 48 do filme 07370048 | PNG e WAV idênticos byte a byte aos da main, em x86 e em x64 |
+
+### O que só um Mac de verdade vai confirmar
+
+- **O desempenho**: o Metal na GPU de um Mac (Apple Silicon ou Intel), o custo da cópia do alvo para o drawable, o
+  `--bench` (só o tempo total de GPU de cada quadro).
+- **O Retina**: a janela em pixels (o `drawableSize` igual ao alvo) e a nitidez do 2D e dos menus.
+- **O VSync**: o `displaySyncEnabled` segurando o laço no ritmo do monitor (a GPU virtual da CI não segura), o
+  ProMotion de 120 Hz, a janela coberta ou minimizada (o `nextDrawable` não é pedido: `occlusionState`).
+- **A sensação**: o quadro inteiro do jogo (as fases, a névoa, os menus, os filmes) numa GPU de verdade; a CI só desenha
+  as cenas sintéticas e a tela de entrada sem disco.
+- **As outras GPUs**: as AMD e Intel dos Macs Intel (o anisotrópico, o alpha-to-coverage, a descompressão BC de cada uma);
+  os limites do teste foram tirados de três GPUs.
+
+## macOS: o desenho vetorial
+
+Etapa 3d-B do macOS: os menus Modern (a `ui::DrawList` de `src/ui`) e a camada 2D em alta definição (os textos, as
+teclas e as substitutas SVG/PNG de `render/ui_hd.h`) desenhados no macOS como o Direct2D e o DirectWrite os desenham no
+Windows. A outra metade da etapa 3d, a 3d-A, é o renderizador Metal ("macOS: o renderizador Metal"): ele chama esta
+interface e compõe as imagens no quadro. No Windows nada muda: o Direct2D continua desenhando direto no alvo do
+Direct3D 11 (`render/ui_modern_draw_d2d.cpp`, `render/ui_hd_draw_d2d.cpp`), que são a especificação deste desenho.
+
+### O contrato (`render/ui_vector.h`)
+
+`UiVectorCanvas` (o backend do sistema: `create_ui_vector_canvas()`, no macOS o `render/ui_vector_cg.mm`, o único que o
+CMake liga lá; a fábrica nula provisória da 3d-A saiu) rasteriza na CPU e devolve uma `UiRaster`: BGRA de 8 bits com o
+alfa pré-multiplicado, linhas de cima para baixo, só o retângulo com desenho (x, y, largura, altura), que o renderizador
+envia como textura e compõe com `ONE, ONE_MINUS_SRC_ALPHA` no mesmo ponto do quadro em que o Direct2D desenha no
+Windows. As coordenadas são os pixels da janela (o alvo do quadro). Dos menus Modern: `configure_modern(hd_ui)`,
+`measure` (a largura de um texto em unidades da tela virtual, como `UiModernDevice::measure`) e `draw_modern(lista,
+tela, janela)`. Da camada HD: `configure_hd(map.json, pasta)`, `asset` (uma substituta em RGBA com a cor sem
+pré-multiplicar e o alfa na escala do GS, `0x80` = opaco, como as do Direct2D; o Metal guarda a textura por (índice,
+largura, altura)), `draw_hd` (os textos e as teclas seguidos de um lote: `texts` e `keys` são os do lote inteiro e o
+`UiHdOp::index` de cada passo é a posição neles, como o Metal chama), `hd_measure` (a largura de um texto de tecla) e
+`end_frame` (envelhece o cache das substitutas). Nada ali toca na GPU nem guarda ponteiros do renderizador.
+
+O que mudou no contrato nesta etapa (o mínimo): a `UiRaster` ganhou `version`, que muda a cada imagem nova. Com a mesma
+lista o desenho não rasteriza de novo e, se a `UiRaster` de quem chama já tem aquela versão, nem copia; o renderizador
+pode guardar a `UiRaster` e a versão que enviou e pular a cópia e o envio da textura quando ela não mudou. Hoje o Metal
+cria uma `UiRaster` nova a cada `draw_modern` (a imagem guardada é copiada inteira a cada quadro, 8 MB em 1920 x 1080, e
+enviada): fica para o renderizador aproveitar.
+
+### O mapa: Direct2D/DirectWrite -> CoreGraphics/CoreText (`render/ui_vector_cg.mm`)
+
+| Direct2D/DirectWrite (Windows) | CoreGraphics/CoreText (macOS) |
+|--------------------------------|-------------------------------|
+| o alvo do Direct3D 11 (B8G8R8A8, pré-multiplicado) | um `CGBitmapContext` com `kCGImageAlphaPremultipliedFirst \| kCGBitmapByteOrder32Little` (B G R A na memória), no `DeviceRGB` (as cores e os degradês com os mesmos valores, sem gerenciamento de cor), a matriz virada para y para baixo |
+| `FillRectangle`, `FillRoundedRectangle`, `FillEllipse`, `DrawLine`, `DrawRectangle`, `DrawGeometry` com o traço redondo | caminhos `CGPath` (os arcos em cúbicas pelo `svg::append_arc`), `CGContextFillPath`/`StrokePath`, com as mesmas regras de pixel (`render/ui_vector_util.h`: os retângulos finos e as linhas presos ao pixel, o contorno no meio do pixel de dentro); os retângulos sem cantos são pintados direto no bitmap, em inteiros, com a cobertura das bordas fracionárias (`ui_vec_fill_rect`) |
+| `ID2D1LinearGradientBrush`, `ID2D1RadialGradientBrush` (`D2D1_GAMMA_2_2`, `D2D1_EXTEND_MODE_CLAMP`) | `CGGradient` com `CGContextDrawLinearGradient`/`DrawRadialGradient`, as pontas estendidas, o radial elíptico pela escala da matriz; a interpolação é a mesma (nos valores sRGB, sem pré-multiplicar: a sonda vermelho opaco a azul transparente das referências mostra o roxo no meio no Direct2D também). As faixas em degradê sem recorte (`Gradient`) e a vinheta da janela inteira (`Radial`) são pintadas direto no bitmap (`ui_vec_fill_linear`, `ui_vec_fill_radial` com a cor tabelada pelo quadrado da distância): o CoreGraphics levava ~10 ms numa vinheta de 1080p |
+| o brilho de brasa (`Glow`: elipse radial de quatro pontos recortada acima do sublinhado), os setores da roda em degradê | o mesmo recorte e os mesmos pontos (`ui_vec_modern_gradient`, `ui_vec_sector_gradient`) |
+| `PushAxisAlignedClip` (aliased) | `CGContextClipToRect` com as bordas nos pixels cujo centro cai dentro (`ui_vec_aliased_clip`) |
+| `PushLayer` com opacidade (os glifos com alfa) | `CGContextSetAlpha` + `CGContextBeginTransparencyLayer` |
+| `D2D1_PRIMITIVE_BLEND_ADD` (o texto aditivo da camada HD) | uma camada à parte somada só na cor (o alfa da imagem fica, e com `ONE, ONE_MINUS_SRC_ALPHA` a cor soma) |
+| `IDWriteTextLayout` com `SetCharacterSpacing` | `CTLine`/`CTTypesetter` com `kCTKernAttributeName` (depois de cada caractere); as quebras do `CTTypesetterSuggestLineBreak`; a linha de base presa ao pixel na vertical, como o Direct2D prende o texto; as maiúsculas centradas no retângulo pela `CTFontGetCapHeight` (a mesma `sCapHeight` da tabela OS/2) |
+| o espaçamento uniforme das linhas quebradas (`px * line`, a linha de base a 80%) | as mesmas contas |
+| `GetGlyphRunOutline` + `DrawGeometry` (o contorno de 1 pixel do PS2) | `CTFontCreatePathForGlyph` de cada glifo + traço redondo |
+| `SetDrawingEffect` (a cor de cada trecho) | os glifos de cada `CTRun` por `CTFontDrawGlyphs`, agrupados pela cor do caractere (`CTRunGetStringIndices`) |
+| a coleção privada da Rajdhani (`IDWriteFontSetBuilder1`) | `CTFontManagerCreateFontDescriptorsFromURL` de cada arquivo (nada instalado nem registrado); o peso pela tabela OS/2 |
+| `GetFirstMatchingFont` (a largura, o estilo, o peso) e a simulação de oblíquo | a mesma escolha (`match_face`: a largura mais perto, o itálico, o peso pela regra do CSS) e o oblíquo pela matriz da fonte (0,24 de inclinação, medido nas referências) |
+| `ID2D1SvgDocument` | o leitor de SVG do port (`core/svg.h`) pintado com os recortes, os degradês e a opacidade |
+| WIC (as substitutas PNG) | `platform/image_io.h` (o ImageIO) |
+
+### As fontes
+
+- **Menus Modern**: a Rajdhani do repositório (`hd_ui/fonts_ofl/rajdhani`, os cinco pesos), o mesmo arquivo do Windows:
+  as larguras do `measure` dão as mesmas até a terceira casa (abaixo). Sem os arquivos, a reserva do Windows é a
+  Bahnschrift; no macOS, a primeira que existir de DIN Alternate, DIN Condensed, Helvetica Neue, Helvetica. A faixa de
+  dados (`Face::Mono`, a Consolas no Windows) usa a Menlo, ~8% mais larga.
+- **Camada HD**: as fontes do `map.json` são do Windows (Bahnschrift). Cada fonte do `map.json` ganhou
+  `family_macos`, um nome ou uma lista (a primeira que existir); o do repositório é `["DIN Alternate", "DIN Condensed"]`
+  (do mesmo desenho DIN 1451 da Bahnschrift; as duas vêm com o macOS: a CI do macOS 14 tem a DIN Alternate Bold). A ordem
+  no macOS: a `family` se estiver nas fontes do usuário (`hd_ui/fonts`), depois a `family_macos`, a `family` no sistema e
+  as reservas (DIN Alternate, Helvetica Neue, Helvetica). O Windows continua escolhendo exatamente as mesmas fontes (ele
+  só lê a `family`). A DIN Alternate só tem o Bold: os pesos 600 e 700 caem nele, e o itálico da fonte 3 (que a
+  Bahnschrift também não tem: o DirectWrite simula) é simulado pela matriz da fonte.
+
+### O leitor de SVG (`core/svg.h`)
+
+Neutro (só C++ padrão), porque fora do Windows não há leitor de SVG no sistema. Lê o subconjunto dos SVG do port (os de
+`hd_ui/svg`, gerados por `tools/ui_hd_assets.py`, e os glifos dos botões), com folga: os elementos `svg`, `g`, `defs`,
+`path`, `rect` (com os cantos), `circle`, `ellipse`, `line`, `polyline`, `polygon`, `linearGradient`, `radialGradient`,
+`stop` e `clipPath`; os comandos de caminho M L H V C S Q T A Z absolutos e relativos (as quadráticas e os arcos viram
+cúbicas, com as correções da especificação nos arcos); as transformações (matrix, translate, scale, rotate com o centro,
+skewX, skewY); a pintura (cores, `url(#id)`), as opacidades, `fill-rule`, `clip-rule`, a largura, as pontas e as juntas
+do traço, o atributo `style`; os degradês em `userSpaceOnUse` e `objectBoundingBox` com `gradientTransform`; o `viewBox`
+com o `preserveAspectRatio`. O resultado é uma lista de formas (caminho, matriz, preenchimento, traço, recortes), que o
+`ui_vector_cg.mm` pinta. O que não conhece vai para `Document::ignored`.
+
+Testes no `nf_tests` (todas as plataformas; `tests/test_svg.cpp`): os comandos, os arcos (o raio conferido ao longo da
+curva), as transformações, as formas, os degradês e os recortes, e todos os 60 SVG de `hd_ui/svg` lidos sem erro, sem
+nada ignorado e com a caixa do desenho batendo com o `viewBox` (o desenho cobre ao menos 40% de cada eixo e fica dentro
+com até 15% de folga, ou o `viewBox` é uma janela dentro do desenho, como as pontas da faixa das mensagens). E uma
+conferência no Windows: `nf_vector_check --svg-parser <pasta>` pinta cada SVG lido pelo port com as primitivas do
+Direct2D (caminhos, pincéis, camadas de recorte) e compara com o que o próprio leitor de SVG do Direct2D desenha, nos
+dois tamanhos das folhas: a diferença média ficou em no máximo 0,87 (de 255; as bordas dos círculos), em 0 nos que não
+têm círculos.
+
+### O cache e o tempo de CPU
+
+Os menus mandam uma ou mais listas por quadro (o menu principal: o fundo, o véu e a frente), e a da frente muda a cada
+quadro (as línguas do brilho do foco tremulam). O `ui_vector_cg.mm` guarda até quatro camadas: uma lista igual à última de
+uma camada devolve a imagem guardada sem desenhar; uma lista com o começo igual (os resumos de cada comando,
+`ui_vec_cmd_hashes`) volta da foto do bitmap depois desse começo (num ponto sem recorte aberto) e só desenha o resto: o
+fundo, a vinheta e a barra de cima não são redesenhados quando só o brilho do foco mudou. As linhas do CoreText de cada
+texto também ficam guardadas (a tela monta os mesmos textos a cada quadro), e os lotes da camada HD num cache de 16.
+
+O tempo de CPU da pausa Modern (89 comandos) na máquina virtual M1/M2 da CI (`nf_vector_check --bench`; a lista inteira
+com o primeiro comando diferente, para nada vir do começo guardado; a animada, 120 quadros com o brilho mudando a cada
+um; só o `draw_modern`, sem a cópia nem o envio):
+
+| | lista inteira | animada (por quadro) | lista igual |
+|--|---------------|----------------------|-------------|
+| 1920 x 1080, só o CoreGraphics (rodada 2) | 19,60 ms | 1,72 ms | — |
+| 1920 x 1080, as pinturas diretas em inteiros (rodadas 4 e 5) | 14,40 a 14,67 ms | 1,40 a 1,65 ms | 0,015 ms |
+| 2560 x 1440, só o CoreGraphics (rodada 2) | 37,76 ms | 2,76 ms | — |
+| 2560 x 1440, as pinturas diretas (rodadas 4 e 5) | 22,80 a 24,37 ms | 2,26 a 2,56 ms | 0,015 ms |
+
+A lista inteira só acontece quando a tela abre ou muda de aba; daí em diante cada quadro custa o fim da lista (1,4 a
+2,6 ms). Pelas partes (1080p, a soma das 170 listas da medida): a vinheta 1,57 ms em 29 desenhos, os retângulos
+0,71 ms em 1392, os degradês 0,37 ms, os textos 0,16 ms em 3637 (com as linhas guardadas), limpar o bitmap 0,22 ms.
+
+### A comparação com o Direct2D (`nf_vector_check`)
+
+`tests/vector_cases.h` monta os casos, todos sintéticos (nada do jogo): cinco listas com cada tipo de `DrawCmd` (as
+formas, as linhas presas, os degradês com a sonda da mistura, o brilho, os setores da roda, textos em vários estilos,
+pesos, tamanhos e alinhamentos, um parágrafo quebrado, os glifos SVG com alfa, os recortes aninhados, e a lista das
+formas numa tela virtual escalada e deslocada); oito telas Modern montadas como os testes montam (estados feitos à mão)
+a 1920 x 1080 (as opções, a pausa e a aba CONTROLS dela, o fim de missão, o resultado, o menu principal, a tela de
+entrada, a roda de armas); textos e teclas da camada HD (os efeitos, as cores por trecho, o bloco centrado e à direita,
+a compressão, um trecho preso, um recorte); e cada SVG de `hd_ui/svg` em dois tamanhos (40 e 176 pixels no lado maior),
+em duas folhas. Cada caso vira uma imagem opaca: um fundo cinza-azulado com o desenho por cima.
+
+- No Windows, `nf_vector_check --hd-ui hd_ui --write tests/data/vector` desenha os casos com o Direct2D de hoje
+  (`tests/vector_canvas_d2d.cpp`: o `UiModernDevice` e o `UiHdDevice` sobre uma textura D3D11 fora da tela, limpa para
+  transparente, lida de volta como a imagem pré-multiplicada que o macOS dá) e grava as referências e o `measures.tsv`
+  (as larguras do `measure` e do `hd_measure`). Depois, `python tools/png_shrink.py tests/data/vector/*.png` recomprime
+  as imagens sem perda (1,7 MB as 17).
+- Na CI do macOS, `nf_vector_check --hd-ui hd_ui --compare tests/data/vector --out <pasta> --bench --strict` desenha os
+  mesmos casos com o CoreGraphics e compara: a diferença média por canal, a fração dos pixels com algum canal diferente
+  em mais de 32, a caixa da tinta de cada região (cada texto, cada glifo, cada SVG: o deslocamento de cada borda, em
+  pixels) e as larguras. As imagens do macOS, as diferenças (4x) e o `report.txt` vão como artefato da rodada
+  (`desenho-vetorial-macos`, 14 dias). As tolerâncias: listas e telas até 1,5 de diferença média, 1,5% e 1% dos pixels e
+  2 pixels por borda; a camada HD até 8 e 8% (as fontes são outras) e 12 pixels por borda; os SVG até 1,5, 0,5% e 3
+  pixels; as larguras da Rajdhani até 1%, as da mono até 15% e as das teclas da camada HD até 25% (a seta, da fonte de
+  reserva de cada sistema, só informada). Fora delas, a CI falha.
+- No Windows o `--compare` contra as próprias referências dá 0 em tudo (o Direct2D é determinístico aqui).
+
+Os números (a rodada 5 da CI, `38339856731`, o código final; a 4 deu os mesmos):
+
+| Caso | Grupo | Diferença média | Pixels > 32 | Borda da tinta (px) |
+|------|-------|-----------------|-------------|---------------------|
+| lista_formas | lista | 0,07 | 0,01% | 0 |
+| lista_degrades | lista | 0,07 | 0,00% | 0 |
+| lista_textos | lista | 0,75 | 0,98% | 1 (a mono: 13, até 16) |
+| lista_glifos | lista | 0,33 | 0,17% | 1 |
+| lista_escala | lista | 0,06 | 0,01% | 0 |
+| tela_opcoes | tela | 0,38 | 0,43% | 0 |
+| tela_pausa | tela | 0,30 | 0,35% | 0 |
+| tela_pausa_controles | tela | 0,34 | 0,35% | 0 |
+| tela_fim | tela | 0,13 | 0,15% | 0 |
+| tela_resultado | tela | 0,20 | 0,23% | 0 |
+| tela_principal | tela | 0,17 | 0,18% | 0 |
+| tela_entrada | tela | 0,37 | 0,47% | 0 |
+| tela_roda | tela | 0,11 | 0,10% | 0 |
+| hd_textos | hd | 4,90 | 4,45% | 8 (o bloco centrado: a DIN Alternate mais estreita) |
+| hd_teclas | hd | 1,15 | 1,02% | 0 |
+| svg_pequeno | svg | 0,55 | 0,04% | 3 (a coluna das balas, 2 pixels de largura) |
+| svg_grande | svg | 0,25 | 0,02% | 1 |
+
+As larguras do `measure` dos menus Modern (150 textos em todos os estilos) dão as mesmas do DirectWrite: média e pior
+diferença 0,00%. Nas teclas da camada HD a pior é a seta (51%, só informada: a fonte de reserva de cada sistema).
+
+### Pela fachada: o teste de conformidade do Metal
+
+O `nf_render_check` ("macOS: o renderizador Metal") tem duas cenas do desenho vetorial passando pela fachada `Renderer`
+com o backend de cada sistema, num renderizador de 960 x 540 (a tela virtual dos menus fica com metade do tamanho):
+`modern_pausa`, a pausa Modern como o jogo a desenha (a cena 3D, o `blur_background` e o `draw_modern` com a lista da
+`tela_pausa`, composta pelo Metal), e `hd_lote`, um `UiHdBatch` como o `ui_hd_build` monta (os textos de `hd_textos`,
+as oito teclas de `hd_teclas` e quatro substitutas SVG intercaladas: o Metal junta as imagens seguidas num item 2D com a
+textura do `asset` e os textos e teclas seguidos numa imagem da `UiVectorCanvas`). No lote as três fontes do `map.json`
+viram a Rajdhani do repositório (uma pasta temporária com `fonts/` e `svg/`, as fontes do usuário que os dois sistemas
+leem antes das suas): com a DIN Alternate, o lote sem os textos dava quase o mesmo PSNR que o lote com eles (19,8 contra
+20,2 dB) e a cena não pegaria uma camada faltando; a troca de fonte o `nf_vector_check` já mede.
+
+| Cena | Metal (CI): PSNR / máx / média / > 32 | Direct2D no Radeon: PSNR / máx / > 32 | Sem a camada (Windows) | Limite: PSNR / > 32 |
+|------|---------------------------------------|---------------------------------------|------------------------|---------------------|
+| modern_pausa | 34,25 / 194 / 0,79 / 0,58% | 53,60 / 3 / 0 | 12,72 dB, 95,8% | 30 / 1,5% |
+| hd_lote | 27,48 / 223 / 1,31 / 1,36% | 54,22 / 30 / 0 | 19,78 dB, 3,6% (sem os textos) | 24 / 2% |
+
+A diferença é a do antisserrilhado do texto (as bordas das letras; a do itálico simulado da fonte 3 é a maior) e a da
+cena desfocada atrás; as substitutas SVG e as teclas batem. As referências (`tests/data/render/modern_pausa.png` e
+`hd_lote.png`, 0,27 MB) saíram do Direct2D sobre o Direct3D 11 do RTX 5090; as outras 29 imagens geradas de novo
+saíram iguais byte a byte.
+
+### A CI e a conferência (13/10/2026)
+
+As rodadas da CI (`ci/portable-vector`, no repositório privado; os links pedem a conta dele):
+
+| Rodada | Linux GCC e clang | macOS 14 ARM64 | O que mostrou |
+|--------|-------------------|----------------|---------------|
+| 1 (`38336294027`) | verde | verde, 1 min 19 s: tudo compilou na primeira vez (o `.mm` tinha sido conferido no Windows contra cabeçalhos falsos do CoreGraphics e do CoreText); os casos dentro das tolerâncias | o primeiro desenho |
+| 2 (`38337484570`) | verde | 52 s: as camadas com o começo guardado, as linhas de texto guardadas, `--strict`; a pausa 19,60 ms inteira e 1,72 ms animada | o cache |
+| 3 (`38338108766`) | verde | 47 s: o véu, a vinheta e as faixas pintados direto (em ponto flutuante: mais lentos, 24,20 ms) | uma tentativa |
+| 4 (`38339334044`) | verde | 53 s: as pinturas em inteiros (14,40 ms, 1,65 ms), a `main` com a 3d-A mesclada, as duas cenas da conformidade (o lote HD com as fontes do `map.json`) | o código final do desenho |
+| 5 (`38339856731`) | verde | 49 s: o lote HD com a Rajdhani e os limites das duas cenas | a conformidade final |
+| 6 (`38340463898`) | verde | 45 s | só a documentação |
+
+Os minutos de macOS desta etapa: 5 min 25 s de relógio nas seis rodadas (cada job arredondado para cima e vezes 10 no
+plano: 70 cobrados), dentro do orçamento de ~20 minutos de relógio. O `nf_tests` do macOS: 832 testes, 0 falhas.
+
+No Windows (a main em 8785846, exportada com `git archive` e compilada ao lado nas três builds com o hash fixo "cmp" nos
+menus Modern; o ramo também; os dados da cópia principal):
+
+| Conferência | Resultado |
+|-------------|-----------|
+| as linhas de compilação e ligação (os `build.ninja` comparados, as raízes e as aspas tiradas) | iguais às da main nas três builds para todo objeto que já existia (297 em x86, 309 em x64, 268 na headless); os novos são a biblioteca `nf_vector` (`core/svg.cpp`, `render/ui_vector_util.cpp`), `test_svg.cpp` e `test_ui_vector.cpp` no `nf_tests`, o `nf_vector_check` (x86 e x64) e o `vector_cases.cpp` no `nf_render_check`; o `nightfire.exe` liga o mesmo de antes |
+| `nf_tests` | x86 827, x64 830, headless 827, 0 falhas (a main: 817, 820, 817; os 10 a mais são os do leitor de SVG e das contas do desenho) |
+| `tools/check_platform.py` | 0 usos do sistema fora dos backends (511 arquivos; `src/*_cg.mm` e `tests/*_d2d.cpp` entraram como backends, e o CoreText nas regras) |
+| `nf_level_check .` | 35 fases, 0 não resolvidas; a saída igual à da main em x86 e x64 |
+| `nf_loader_check .` | a saída igual à da main linha a linha (endereços mascarados), em x86 e em x64 |
+| `nf_render_check` no Windows | as 29 cenas da 3d-A geradas de novo iguais byte a byte às referências; as duas novas são as referências |
+| `nf_vector_check --compare` no Windows | 0 em todos os casos (o Direct2D contra as próprias referências) |
+| a pausa Modern, as opções Modern (VIDEO), o menu principal Modern, a tela de entrada, a camada HD a 3840 x 2160 (com e sem `--fixed-video-hz 60`) e a roda de armas | PNG idênticos byte a byte aos da main, em x86 e em x64 (o mesmo hash de build) |
+
+### As diferenças que ficam
+
+- **O texto**: o DirectWrite desenha com o antisserrilhado em tons de cinza e o realce de contraste do Direct2D (as
+  letras um pouco mais cheias); o CoreText, sem o "font smoothing" (que só vale em fundo opaco), um pouco mais finas. As
+  posições e as larguras são as mesmas (a mesma fonte, as mesmas contas de alinhamento, de espaçamento e de linha de base).
+- **As fontes da camada HD**: a DIN Alternate é ~8% mais estreita que a Bahnschrift na mesma altura de maiúsculas; os
+  blocos centrados ficam alguns pixels mais estreitos (a camada comprime só o que passa da largura original).
+- **A mono** (a faixa de dados decorativa): a Menlo no lugar da Consolas, ~8% mais larga.
+- **Os SVG muito pequenos**: a coluna das balas em 4 a 10 pixels de largura (degradês em `objectBoundingBox` em balas de
+  2 pixels) tem os realces um pouco mais marcados no CoreGraphics.
+- **As bordas** de círculos e curvas diferem em um tom aqui e ali (o antisserrilhado de cada um).
+
+### O que só um Mac de verdade vai confirmar
+
+- **O Retina**: a imagem é rasterizada nos pixels da janela (a `CAMetalLayer` em pixels, ver "A janela e a entrada"),
+  então o texto e as linhas finas ficam nítidos em 2x; falta ver numa tela Retina de verdade (a CI rasteriza em
+  memória). Em 2x uma janela de 1440 x 900 pontos são 2880 x 1800 pixels: a lista inteira passa de 30 ms (só ao abrir a
+  tela) e a animada fica perto de 4 ms por quadro, a medir.
+- **A sensação dos menus**: o tempo de CPU por quadro num M1/M2 de verdade (a CI é uma máquina virtual), a cópia e o
+  envio da imagem a cada quadro pelo Metal, e a animação do brilho do foco a 60 ou 120 Hz.
+- **As fontes do sistema** de outras versões do macOS (11 a 15): a DIN Alternate e a Menlo existem em todas, mas a lista
+  de reserva cobre se faltar.
+
+## macOS: o pacote e a instalação
+
+Etapa 4 do macOS: o que transforma o `nightfire` do macOS num aplicativo que um jogador baixa e abre. O pacote
+`Nightfire PC.app` com o `Info.plist` e o ícone, o binário universal (os Macs com Apple Silicon e os Intel), um registro
+para quem testa (aberto pelo Finder um aplicativo não tem console), o zip do Mac montado e testado na CI e o guia de
+instalação para os jogadores (`tools/release/README-mac.txt`, em inglês, como o do Windows). Não há assinatura da Apple
+(decisão do usuário: sem a conta paga de desenvolvedor não há Developer ID nem notarização): a assinatura é a ad hoc, a
+mínima que o arm64 exige para rodar, e o guia explica como abrir um aplicativo sem assinatura. Ninguém abriu o pacote
+num Mac de verdade ainda: as pessoas de um fórum vão testar (o fim desta seção diz o que só elas vão confirmar).
+
+### O pacote (`Nightfire PC.app`)
+
+O `CMakeLists.txt` do macOS (só ali: no Windows as linhas de compilação e ligação não mudam) faz do alvo `nightfire` um
+`MACOSX_BUNDLE`:
+
+```
+Nightfire PC.app/Contents/
+  Info.plist                 src/app/macos/Info.plist.in, preenchido pelo CMake
+  MacOS/Nightfire PC         o executável universal (arm64 e x86_64)
+  Resources/nightfire.icns   o ícone (src/app/macos/nightfire.icns)
+  Resources/hd_ui/...        o hd_ui que o git conhece: o map.json, o design/tokens.json, a Rajdhani (OFL) e os SVG
+  _CodeSignature/            a assinatura ad hoc (no zip)
+```
+
+- **O nome**: o executável se chama "Nightfire PC" (o `OUTPUT_NAME` dá o nome do pacote e do executável de dentro),
+  que é o que o menu do aplicativo mostra ("Hide Nightfire PC", "Quit Nightfire PC": o `processName` do
+  `entry_macos.mm`) e o que aparece no Monitor de Atividade. Na build ele fica em `build/Nightfire PC.app`; as linhas de
+  comando do macOS usam `"./build/Nightfire PC.app/Contents/MacOS/Nightfire PC"` no lugar do antigo `./build/nightfire`.
+- **O `Info.plist`**: o identificador `org.nightfirepc.port` (neutro, sem nome de conta), `CFBundleShortVersionString`
+  e `CFBundleVersion` com a versão (`-DNF_VERSION=x.y`, senão a do `git describe`: a última etiqueta `vX.Y` mais os
+  commits depois dela, "0.3.36"; na etiqueta, "0.3"; sem as etiquetas, um clone raso, "0.0"), a chave própria
+  `NFPortBuild` com o hash do git (o mesmo da barra dos menus Modern), `LSMinimumSystemVersion` 11.0 (o
+  `CMAKE_OSX_DEPLOYMENT_TARGET`), `LSApplicationCategoryType` `public.app-category.action-games` e `LSSupportsGameMode`
+  (o Modo de Jogo do macOS 14 com o jogo em tela cheia), `NSHighResolutionCapable` (a janela já trabalha em pixels do
+  Retina), `NSSupportsAutomaticGraphicsSwitching` (num MacBook Pro Intel com duas GPUs o aplicativo não força a dedicada
+  só por abrir; o renderizador escolhe pelo `[video] adapter`), `NSPrincipalClass` e o aviso de direitos. Os controles
+  não pedem nenhuma chave: o GameController não passa pela privacidade (TCC) num aplicativo fora da sandbox.
+- **O ícone** (`tools/mac_icon.py`): desenhado com a arte do port, nada do jogo: o 007 cromado com a arma de
+  `hd_ui/svg/results_007.svg` (a mesma geometria do `tools/ui_hd_assets.py`) no quadrado de cantos arredondados dos
+  ícones do macOS 11, no fundo quente e escuro do estilo Modern, com o brilho da brasa e o fio dourado do foco embaixo
+  (docs/design.md). Só a biblioteca padrão do Python: um rasterizador de polígonos (a cobertura por 8 subamostras na
+  vertical e exata na horizontal; as curvas, as elipses e os contornos do SVG em polígonos), o ícone em 1024 x 1024 e
+  reduzido pela média de 2 x 2 até 16 x 16, os PNG no `.icns` (os dez tipos que o `iconutil` grava, `ic07` a `ic14`,
+  `icp4`, `icp5`). O `.icns` (287 KB) está no repositório, como os SVG do `hd_ui`; `--check` confere que é o que o script
+  desenha. A CI abre o `.icns` com o `iconutil` (o formato que o macOS lê).
+- **O `hd_ui`**: a lista vem do `git ls-files hd_ui` na configuração (sem o git, a pasta menos o `hd_ui/fonts` do usuário),
+  cada arquivo com o `MACOSX_PACKAGE_LOCATION` da pasta dele: é o mesmo `git ls-files` da lista que o
+  `tools/make_release.py` põe no zip do Windows (`tracked_hd_ui`). Um arquivo novo no `hd_ui` pede configurar de novo, e
+  um que sai do git fica no pacote de uma build antiga (o CMake não apaga recursos velhos; foi o caso do
+  `menu_silhouette.svg`, que saiu com o fundo animado da pausa): por isso o zip do Mac troca o `Contents/Resources/hd_ui`
+  pela lista do `make_release.py` (abaixo), e o zip dos jogadores nunca leva um arquivo a mais ou a menos.
+
+### Onde o programa acha as coisas
+
+`os::bundle_dir()` (em `platform/os.h`) é o pacote em que o executável está: `.../Nightfire PC.app` quando o caminho do
+executável (sem links simbólicos) termina em `X.app/Contents/MacOS/<nome>`; vazio fora de um pacote, e sempre vazio no
+Windows, sem alocar (a conta é `os::bundle_of_exe`, testada em toda plataforma). Com ele:
+
+- o `hd_ui` (as fontes e os glifos dos menus Modern, os tokens, o `map.json` da camada HD) é procurado primeiro em
+  `Contents/Resources/hd_ui` (`UiHdApp::find_dir`), depois como antes (a pasta do executável e as de cima, a dos dados, a
+  atual). Aberto pelo Finder a pasta atual é `/`: o `hd_ui` só pode vir do pacote. No Windows a lista dos candidatos é a
+  de antes, sem nenhuma alocação a mais (a linha `arena` do x64 não muda);
+- as imagens do disco (`.iso`, `.cdr`) da procura (`disc_places_here`) são as que estão ao lado do `Nightfire PC.app`, no
+  lugar das da pasta do executável (o `Contents/MacOS`); as pastas de cima já chegavam à pasta do pacote (os arquivos
+  extraídos ao lado dele);
+- o pacote de texturas HD fica ao lado da imagem do disco ou ao lado do `.app` (a procura já subia quatro pastas a
+  partir do executável);
+- o `nightfire.ini`, os `saves/` e o registro ficam em `~/Library/Application Support/Nightfire PC/`
+  (`os::user_files_dir`, desde a etapa 3c): nada é gravado dentro do pacote, que a assinatura protege.
+
+### O binário universal
+
+`CMAKE_OSX_ARCHITECTURES` é `arm64;x86_64` por padrão no macOS (antes do `project`, como o sistema mínimo;
+`-DCMAKE_OSX_ARCHITECTURES=arm64` compila uma só, mais rápido para quem só testa). Todo executável e teste sai com as duas
+metades, e nada no código precisou mudar: o decodificador de MPEG-2 já tinha o caminho de SSE2 para o x86_64 (o mesmo
+que o Linux da CI compila) e o C++ comum para o arm64; a arena acha o fim da imagem pelos `LC_SEGMENT_64` e as regiões
+livres pelo `mach_vm_region` nas duas; a pilha do jogo é uma thread com `pthread_attr_setstack`, sem assembly; o
+`-ffp-contract=off` vale nas duas; o `ccache` guarda as compilações com os dois `-arch`.
+
+O job do macOS roda num runner arm64, e a metade x86_64 é testada nele mesmo pelo Rosetta 2 (instalado pelo passo da
+máquina se faltar; `arch -x86_64`; um runner Intel seria outro job, com outra compilação e os minutos dela): o `nf_tests` inteiro, a conformidade do renderizador Metal
+(as mesmas cenas contra as referências do Direct3D 11) e a tela de entrada, da build e do zip. O Rosetta traduz o x86_64
+com a aritmética de ponto flutuante do x86 (o SSE, o MXCSR com o modo de arredondamento), então os resumos do
+determinismo (`tests/test_determinism.cpp`) conferem a metade x86_64 contra os do Windows também. Um Mac Intel de
+verdade (a CPU, as GPUs AMD e Intel, o macOS 11 a 13) só os testadores vão ver.
+
+### O registro (`nightfire.log`)
+
+Aberto pelo Finder um aplicativo não tem console: a saída padrão e a de erro vão para o `/dev/null`. Para quem testa ter
+o que anexar num relato, o ponto de entrada do pacote (`entry_macos.mm` com `NF_APP_LOG`, só no alvo `nightfire`; o
+`nf_render_check` e o `nf_window_smoke` não gravam nada) começa o registro antes de qualquer coisa
+(`platform/app_log_macos.h`):
+
+- **onde**: `~/Library/Application Support/Nightfire PC/nightfire.log`, substituído a cada partida; o da partida
+  anterior vira `nightfire.prev.log`. O programa escreve no stderr onde ele está ("registro: ...");
+- **o cabeçalho** (em inglês, como o guia: quem testa o lê e o anexa): a versão do `Info.plist` e o hash do código, a
+  arquitetura em uso e se é pelo Rosetta (`sysctl.proc_translated`), a data, o macOS (`operatingSystemVersionString`), o
+  modelo (`hw.model`), a CPU, os núcleos e a memória, cada GPU do Metal (`MTLCopyAllDevices`: o nome, memória unificada,
+  baixo consumo, externa, a memória recomendada), o caminho do aplicativo e os argumentos; no fim, "---- end (exit code
+  N)";
+- **como**: as saídas 1 e 2 viram dois canos e uma thread copia o que chega neles para o registro e, como chegou, para
+  onde as saídas apontavam antes (o Terminal, o `tee` da CI, o `/dev/null` do Finder): quem roda pelo Terminal continua
+  vendo tudo. A thread não aloca (os buffers são globais) nem trava nada do jogo: se a thread do jogo cair dentro do
+  `operator new` (a trava da arena), a cópia ainda leva o relatório de falhas ao arquivo. O stdout passa a ter buffer de
+  linha (com o cano ele teria o de 4 KB, e as últimas linhas antes de uma falha se perderiam);
+- **a falha**: o relatório (`crash_report_posix.cpp`) escreve no stderr como antes e, antes de o processo acabar, chama
+  `crash_report_flush()`, que espera a thread esvaziar os canos (no máximo 1 s: `ioctl(FIONREAD)` e `nanosleep`, seguros
+  dentro de um sinal). O `os::exit_process` também espera; o fim normal (`stop_app_log`, também pelo `atexit`) devolve as
+  saídas e espera a thread. O sinal é levantado de novo depois, então o macOS ainda grava o relatório dele
+  (`~/Library/Logs/DiagnosticReports`);
+- **a pasta do usuário** (`/Users/nome`) vira `~` em todo o registro (`platform/app_log.h`, testado em toda plataforma:
+  só quando o que vem depois não continua o nome, `/Users/anabela` fica): os relatos vão para um fórum;
+- os argumentos `-psn_...` que o macOS ainda passa em alguns casos (a primeira abertura de um aplicativo baixado) saem
+  antes do `nf_app_main`, que trataria qualquer argumento como uma linha de comando e pularia a tela de entrada.
+
+Para traduzir a pilha de um relatório de um testador: o dSYM da mesma rodada da CI (o artefato
+`nightfire-pc-macos-dsym-e-capturas`) e `atos -o "Nightfire PC.app.dSYM/Contents/Resources/DWARF/Nightfire PC" -arch
+<arm64|x86_64> -l <a base da linha "imagem"> <os endereços>` (o `tools/ci/symbolize.py` faz o mesmo com a saída inteira:
+ele aceita agora caminhos com espaços).
+
+### O zip (`tools/make_release_mac.py`)
+
+Roda num Mac (na CI, o passo "O pacote e o zip" do job do macOS) sobre o pacote que o CMake montou:
+
+1. copia o pacote (`ditto`) para `Nightfire PC/Nightfire PC.app` e confere as duas arquiteturas (`lipo -archs`);
+2. grava o dSYM à parte (`dsymutil`, para o `atos`) e tira do executável a tabela de depuração (`strip -S`: os caminhos dos
+   objetos da compilação, com a pasta do usuário, saem; a tabela de símbolos fica, e o relatório de falhas continua
+   nomeando as funções); troca o `Contents/Resources/hd_ui` pela lista do zip do Windows (`make_release.tracked_hd_ui`,
+   dizendo o que o pacote da build tinha a mais ou a menos) e confere os recursos (o ícone, o `map.json`, os tokens, a
+   licença da fonte);
+3. confere o `Info.plist` (`plutil -lint`), assina ad hoc (`codesign --force --deep -s -`) e confere a assinatura
+   (`codesign --verify --deep --strict`);
+4. põe ao lado o guia (`tools/release/README-mac.txt` como `README.txt`) e as licenças (`tools/release/LICENSES-mac.txt`
+   como `LICENSES.txt`: a Rajdhani e o XXH3; o runtime do Visual C++ do Windows não se aplica, e os frameworks são os do
+   macOS);
+5. aplica a regra do zip do Windows (`make_release.check_tree`, agora com a lista dos arquivos grandes como parâmetro):
+   nenhum arquivo nem pasta do disco do jogo, nenhum arquivo grande além do executável, e nem o nome e o e-mail da conta
+   do git nem a pasta do usuário do Mac (`/Users/<nome>/`) em nenhum arquivo;
+6. faz o zip com `ditto -c -k --keepParent` (o pacote fica como o Finder espera): `Nightfire-PC-mac-<versão>.zip`, a
+   versão do `git describe` (a CI busca o histórico inteiro para isso).
+
+A CI então abre o zip noutra pasta, confere a assinatura de novo, abre o aplicativo de dentro dele pelo LaunchServices
+(`open -W -n`, como um duplo clique: a pasta atual é `/` e a saída vai para o `/dev/null`) e pelo Rosetta, e confere o
+`nightfire.log` (o cabeçalho e o fim com o código 0) e a captura da tela de entrada contra a da build (iguais: o `hd_ui`
+veio do pacote). O zip sobe como o artefato `nightfire-pc-macos` (30 dias; nunca como release) e o dSYM e as capturas
+como `nightfire-pc-macos-dsym-e-capturas`. O zip do Windows (`tools/make_release.py`) continua com o mesmo conteúdo.
+
+### O guia de instalação (`tools/release/README-mac.txt`)
+
+Curto e prático, em inglês (vai no zip como `README.txt`). Diz:
+
+- o que é preciso: o macOS 11 ou mais novo, Apple Silicon ou Intel (um aplicativo só), o disco americano do PS2
+  (SLUS-20579) do próprio jogador; que esta é a primeira versão do Mac, sem teste num Mac de verdade;
+- instalar: descompactar e arrastar o `Nightfire PC.app` para Aplicativos (movido pelo Finder, o macOS não o roda da
+  cópia escondida só de leitura que ele usa para os aplicativos baixados, a "translocação");
+- abrir um aplicativo sem assinatura, com o porquê em uma frase (sem o Developer ID e a notarização, que pedem a conta
+  paga, o macOS não sabe quem o fez): no macOS 15 (Sequoia) e mais novo, a primeira tentativa, depois Ajustes do Sistema
+  > Privacidade e Segurança > "Abrir Mesmo Assim" e a senha; do 11 ao 14, Control-clique > Abrir; ou o Terminal,
+  `xattr -dr com.apple.quarantine`;
+- fazer a imagem do disco: Utilitário de Disco > Arquivo > Nova Imagem > Imagem de "<o disco>", formato "Mestre de
+  DVD/CD" (um `.cdr`, que o jogo aceita como está); ou `diskutil list`, `diskutil unmountDisk` e `hdiutil create
+  -srcdevice /dev/diskN -format UDTO`; ou o disco direto num leitor externo (aparece na tela de entrada); ou uma ISO
+  feita no Windows;
+- jogar: a tela de entrada pede o disco na primeira vez, as opções, o Shift; os controles (os do Windows, mais
+  Option+Return e Control+Command+F para a tela cheia e Command+Q), o mouse (a captura, a aceleração do sistema e onde
+  desligá-la) e os controles de console que funcionam (sem vibração);
+- onde ficam as opções, os saves, o registro e as texturas HD;
+- como relatar: o `nightfire.log` (e o `.prev`), o modelo do Mac e a versão do macOS, o que aconteceu; e o "Abrir com o
+  Rosetta" do Obter Informações para comparar as duas metades num Mac com Apple Silicon;
+- o que ainda não funciona: as missões de carro, o multijogador, a vibração, o mouse cru, e o que não foi conferido (as
+  GPUs de verdade, o Retina, o ProMotion, outros teclados, controles e caixas de som).
+
+### A CI e a conferência (13/10/2026)
+
+As rodadas da CI (`ci/portable-mac4`, no repositório privado; os links pedem a conta dele):
+
+| Rodada | Linux GCC e clang | macOS 14 (o job do pacote) | O que mostrou |
+|--------|-------------------|----------------------------|---------------|
+| 1 (`38343662753`) | 4 min 19 s e 6 min 40 s (sem o cache), verdes | 2 min 59 s, verde na primeira vez | o pacote, o universal, o registro e o zip funcionando |
+| 2 (`38344609337`) | 39 s e 58 s, verdes | 50 s: o `nf_tests` falhou no teste do registro nas duas metades | o teste esperava a linha sem o fim da saída padrão logo antes do fim do registro, mas a thread leu a linha da saída de erro depois dela: o registro agora começa uma linha nova quando a saída muda, e o teste não depende da ordem |
+| 3 (`38344978830`) | 2 min 36 s e 3 min 57 s, verdes | 2 min 15 s, verde | o código final, com a main (15a55d2, o fundo animado da pausa) mesclada |
+
+O que as rodadas 1 e 3 mostraram (a máquina virtual M2 Pro do GitHub, macOS 14.8.9; os números são os da 3 quando
+mudaram):
+
+- **a compilação universal**: 1 min 45 s sem o cache (402 passos; o `ccache` 4.14 guardou as 312 compilações com os dois
+  `-arch`, 100% cacheáveis; na rodada 3, com a main nova, 54% de acertos); `lipo` dá `x86_64 arm64` no executável do
+  pacote e no `nf_tests`;
+- **o `nf_tests`**: 851 testes, 0 falhas no arm64 e os mesmos 851, 0 falhas no x86_64 pelo Rosetta (o Rosetta já estava
+  instalado no runner), os quatro resumos do determinismo iguais aos do Windows nas duas metades (e os três informados
+  também), o teste do registro de verdade nas duas; a arena do arm64 com 1071 a 1073 MB a 561 a 643 MB da imagem (o ASLR),
+  a do x86_64 com 3939 MB a 156 MB (o Rosetta deixa a janela dos ponteiros quase livre);
+- **a conformidade do Metal** nas duas metades: as 32 cenas dentro dos limites (a `textura_trocada` da main nova
+  também), com os mesmos números (a mesma GPU paravirtual) a menos da `modern_pausa`, 34,25 dB no arm64 e 34,24 dB no
+  x86_64 (o 2D vetorial é desenhado na CPU pelo CoreGraphics de cada arquitetura); a janela de verdade no arm64 com a
+  validação da API ligada;
+- **a tela de entrada** do pacote da build nas duas metades: os PNG diferem, mas em nenhum pixel por mais de 8
+  (`tools/pngdiff.py`: 0 de 1 440 000), pelo mesmo motivo; e a lista dos adaptadores;
+- **o zip**: `Nightfire-PC-mac-v0.3-41-g3057a03.zip`, 4 744 000 bytes (75 arquivos, 10,65 MB descompactados: o
+  executável universal com 8,26 MB depois do `strip -S`, o ícone com 287 KB, os 69 arquivos do `hd_ui` (a Rajdhani com
+  1,9 MB, os SVG, o `map.json`, os tokens; "o pacote da build tinha 0 a mais e 0 a menos" que a lista do
+  `make_release.py`), o `README.txt` com 6,8 KB e o `LICENSES.txt`); a assinatura "adhoc" com o identificador
+  `org.nightfirepc.port`, "Mach-O universal (x86_64 arm64)", os recursos selados, conferida antes e depois do zip; o
+  `iconutil` abriu o ícone nas dez imagens; a regra do zip do Windows não achou nada (nem a pasta `/Users/runner/`); o
+  artefato `nightfire-pc-macos` da rodada 3 (30 dias) é o zip para os testadores;
+- **o aplicativo de dentro do zip** aberto pelo LaunchServices (`open -W -n`, a pasta atual `/`) desenhou a tela de
+  entrada igual byte a byte à da build (o `hd_ui` veio do `Contents/Resources`), e o `nightfire.log` saiu assim:
+
+```
+Nightfire PC 0.3.36 (build 2d59f74), arm64
+Started: 2026-10-13 04:00:56 +0000
+macOS: Version 14.8.9 (Build 23J631)
+Mac: VirtualMac2,1, Apple M2 Pro (Virtual), 5 CPUs, 14.0 GB
+GPU: Apple Paravirtual device, unified memory, 9557 MB recommended
+App: ~/work/_temp/unzip/Nightfire PC/Nightfire PC.app/Contents/MacOS/Nightfire PC
+Arguments: --setup --config ~/work/_temp/l.ini --save-dir ~/work/_temp/saves --wait 0.5 --screenshot ~/work/_temp/pacote/launcher_zip_open.png
+Log: ~/Library/Application Support/Nightfire PC/nightfire.log
+----
+registro: ~/Library/Application Support/Nightfire PC/nightfire.log
+---- end (exit code 0)
+```
+
+  e pelo Rosetta ("x86_64 under Rosetta" no cabeçalho), com o anterior guardado como `nightfire.prev.log`.
+
+No Windows (a main em 15a55d2, exportada com `git archive` e compilada ao lado nas três builds com o hash fixo "cmp"
+nos menus Modern; o ramo com ela mesclada também; os dados da cópia principal; a mesma conferência tinha dado igual
+contra a main anterior, ea3ebd6):
+
+| Conferência | Resultado |
+|-------------|-----------|
+| as linhas de compilação e ligação (`ninja -t commands` comparados, as raízes trocadas) | iguais às da main nas três builds: 327 em x86, 340 em x64, 288 na headless, nenhuma a mais ou a menos |
+| `nf_tests` | x86 845, x64 848, headless 845, 0 falhas (a main: 843, 846, 843; os 2 a mais são o `bundle_of_exe` e a troca da pasta do usuário no registro) |
+| `tools/check_platform.py` | 0 usos do sistema fora dos backends (517 arquivos) |
+| `nf_level_check` | 35 fases, 0 não resolvidas; a saída igual à da main |
+| 07000012 aos 9 s (`--fixed-video-hz 60`) e o WAV dele, a pausa Modern, o menu principal Modern, a tela de entrada | PNG e WAV idênticos byte a byte aos da main em x86 e em x64, e o x64 idêntico ao x86; a linha `arena` do x64 no tiroteio igual à da main (377 422 alocações) |
+| o zip do Windows (`make_release.py --version 0.0-test`, fora do repositório, apagado depois) | os mesmos 77 arquivos com os mesmos bytes que o `make_release.py` da main dá com as mesmas builds (o `hd_ui` agora pela `tracked_hd_ui`) |
+
+Os minutos de macOS desta etapa: 6 min 4 s de relógio nas três rodadas (2 min 59 s, 50 s e 2 min 15 s; cada job
+arredondado para cima e vezes 10 no plano: 70 cobrados), dentro do orçamento de ~10 minutos; o Linux, seis jobs. Esta
+documentação final foi no commit com `[skip ci]`.
+
+### O que só um Mac de verdade vai confirmar
+
+- **O Gatekeeper**: o caminho do "Abrir Mesmo Assim" no macOS 15 e o do Control-clique do 11 ao 14 com um zip baixado de
+  verdade (a CI não põe a marca de quarentena), a translocação de um aplicativo aberto direto da pasta de Downloads e se
+  o macOS ainda passa o `-psn_` na primeira abertura.
+- **O pacote no Finder e no Dock**: o ícone em cada tamanho, o nome no menu, o Modo de Jogo em tela cheia.
+- **O registro numa conta de verdade**: a pasta, a troca do `~`, uma falha de verdade chegando ao arquivo.
+- **Um Mac Intel**: a metade x86_64 numa CPU Intel de verdade (a CI só a roda pelo Rosetta) e as GPUs AMD e Intel.
+- **A imagem do disco**: o `.cdr` do Utilitário de Disco e o `hdiutil create -srcdevice` (com ou sem o `sudo`) de um DVD
+  do jogo num leitor externo.
+- Tudo o que as seções anteriores já listavam (o teclado, o mouse, o som, os controles, o Retina, o desempenho).
 
 ## Texturas em alta definição
 
@@ -1223,7 +2210,9 @@ são posicionados pela atualização, não pela descrição; por isso os grupos 
   (100 a 950), largura (`stretch`, 1 a 9), itálico, `size` (multiplica o tamanho calculado), `spacing`
   (espaço a mais entre os caracteres, em em) e `fit_min` (menor compressão horizontal). As fontes da pasta
   `hd_ui/fonts/` (`.ttf`, `.otf`, `.ttc`; fora do git, porque podem ter licença própria) entram antes das do
-  sistema. Família não encontrada: Bahnschrift, depois Segoe UI.
+  sistema. Família não encontrada: Bahnschrift, depois Segoe UI. `family_macos` (um nome ou uma lista, a primeira que
+  existir) são as famílias do macOS, que não tem a Bahnschrift: o do repositório é `["DIN Alternate", "DIN Condensed"]`;
+  o Windows só lê a `family` ("macOS: o desenho vetorial", "As fontes").
 - `images`: a chave é o hashcode da textura (`texture`) com um retângulo em texels (`rect`: u, v, largura,
   altura), e/ou a identidade no HUD (`pane` 0 a 21 ou -1 para a mira, `sprite` o índice na pane). Uma
   entrada com `pane`/`sprite` vale antes das só de textura; entre iguais, a primeira do arquivo. O elemento
@@ -1238,7 +2227,7 @@ são posicionados pela atualização, não pela descrição; por isso os grupos 
   o desenho de cada símbolo de botão no conjunto do PS2 (pelo código depois do `~`) e de cada botão do Xbox
   (A, B, X, Y, LB, RB, LT, RT, LS, RS, Menu, View, DpadV, DpadH, Dpad); ver "Símbolos de botão por aparelho".
   Essas entradas não entram na busca por textura.
-- `file`: `.svg` (Direct2D, Windows 10 1703 ou mais novo; `width`/`height` em 100% e
+- `file`: `.svg` (Direct2D, Windows 10 1703 ou mais novo; no macOS, o leitor de SVG do port, `core/svg.h`; `width`/`height` em 100% e
   `preserveAspectRatio="none"`, para o desenho ocupar o tamanho em que é rasterizado) ou `.png` com alfa
   (WIC), relativo à pasta `hd_ui`. As cores do desenho são as finais: o elemento ainda multiplica pela cor
   do sprite (o verde, o amarelo e o vermelho das lâminas da vida vêm do sprite; por isso elas são cinza).
@@ -1265,8 +2254,7 @@ meio esticado de `0300007a`), a pilha de balas da munição de 9 mm (a coluna `[
 `03000128`) e o medidor de vida (as sete lâminas em espiral, sprites 8 a 14 da pane 1, e o anel, sprite
 15: uma íris de lâminas entre espirais `theta = a - b / r`, que se encaixam como as do jogo). Dos menus
 (ver "Inventário dos menus" abaixo): o painel (moldura cor de bronze com o fio vermelho, a faixa dourada das
-abas com brilho, o vidro vermelho escuro translúcido e a barra de ajuda laranja, escura à direita), a
-silhueta da pausa (luzes de festa desfocadas e um homem erguendo uma taça de martini), o botão cinza de
+abas com brilho, o vidro vermelho escuro translúcido e a barra de ajuda laranja, escura à direita), o botão cinza de
 borda laranja (o cursor das barras), o rádio, as quatro setas laranja, as caixas de marcar (ligada laranja
 com o visto, desligada cinza), o destaque de linha, a barra de volume em segmentos, as setas grandes, o 007
 com a arma e o canto escuro do resultado, e os símbolos de botão do PS2 e do Xbox (as letras são traços
@@ -1298,14 +2286,14 @@ desenhar um texto por quadro cria um layout do DirectWrite por linha (rápido, m
 ### Inventário dos menus
 
 Visto com `--ui-inventory` na pausa (as quatro abas e a caixa SIM/NÃO do RESTART), no "Mission Failed"
-(07000012 morre aos ~9 s: `--input "none:10 space:0.3"`), no resultado (`--win 1 --shot-level 07000048`) e
+(07000012 morre aos ~15,3 s com o ajuste da fase, aos ~9 s antes dele: `--input "none:17 space:0.3"`), no resultado (`--win 1 --shot-level 07000048`) e
 nas páginas do PC (central, vídeo, controles e teclas: `--open-menu-page 40000060..63`). Recortes em texels
 (u, v, extensão, como o `inventory.tsv`: `uw = 16` são 17 centros de texel) e o tamanho na tela do PS2:
 
 | Peça | Textura e recorte | Na tela | Como é esticada | Onde | Substituta |
 |---|---|---|---|---|---|
 | painel: moldura, faixa das abas (título), vidro e barra de ajuda, tudo numa imagem | `03000070` [0, 0, 511, 255] (512 x 256) | 440 x 248 (também nas opções do PC) | rótulo de imagem (`M_LABEL`, mensagem 0x24 e o recorte 0x2d): a textura inteira no retângulo do controle; agora em nove pedaços fora da proporção | pausa, fim de missão, caixa SIM/NÃO, páginas do PC | `menu_panel.svg` |
-| silhueta com luzes de festa | `030000db` [0, 0, 127, 127] (128 x 128) | 161 x 203 | rótulo de imagem, aditivo (0x100: ALPHA 0x48), alfa 0x50 | pausa, fim de missão | `menu_silhouette.svg` |
+| o fundo animado (a mulher no fogo) | `030000db` [0, 0, 127, 127] (128 x 128) | 161 x 203 | rótulo de imagem, aditivo (0x100: ALPHA 0x48), alfa 0x50 | pausa, fim de missão | nenhuma: a textura é animada ("O fundo animado da pausa") |
 | seta da linha escolhida | `03000042` [48, 16, 16, 16] | 16 x 16 | peça fixa do destaque da lista (conjunto 4) | listas da pausa, do fim e do PC | `menu_arrow_right.svg` |
 | setas cima/baixo | `03000042` [16, 0, 16, 16], [32, 0, 16, 16] | 16 x 16 | peças fixas | aba CONTROLS (estilo de botões) | `menu_arrow_up/down.svg` |
 | setas esquerda/direita da barra | `03000042` [48, 0, 16, 16], [48, 16, 16, 16] | 16 x 16 | peças fixas (conjunto 5) | página de controles | `menu_arrow_left/right.svg` |
@@ -1345,13 +2333,12 @@ Duas esquisitices conferidas:
   não são 2D: é a placa verde de saída de emergência (setas e o homem correndo) na parede do fundo de
   07000012, vista pelo vidro translúcido do painel. Aparecem no mesmo ponto da tela em todos os menus porque
   a câmera é a mesma; sem menu, a placa está lá (`--wait 2` sem `--input`). Comportamento do jogo.
-- A silhueta com bolhas coloridas (`030000db`, alfa 0x50, aditiva) é o desenho da textura: luzes de festa
-  desfocadas e um homem de smoking erguendo uma taça. A textura é de 8 bits com paleta de 256 cores CSM1; com
-  a paleta reordenada como o port faz (as faixas 8-15 e 16-23 de cada grupo de 32 trocadas, a mesma regra do
-  hash de paleta que acha 89% das texturas do pacote do PCSX2) as bolhas são manchas suaves (diferença média
-  entre vizinhos 31), e na ordem crua viram ruído de cores trocadas (72). O recorte é a textura inteira
-  [0, 0, 127, 127]. Então não é erro de paleta nem de formato: é o jogo (aditiva com alfa 0x28 de 0x80, ela só
-  clareia o vidro).
+- A imagem do painel (`030000db`, alfa 0x50, aditiva) não é o desenho guardado na textura (luzes de festa desfocadas e
+  um homem de smoking erguendo uma taça, com a paleta CSM1 dela): no PS2 esse desenho nunca aparece. Na carga a textura
+  ganha a paleta do fogo e é zerada, e com o jogo pausado o `psiDecompressWoman` desenha nela, a 30 quadros por
+  segundo, a silhueta de uma mulher com uma pistola cheia de fogo que rola ("O fundo animado da pausa", logo abaixo).
+  Até 13/10/2026 o port mostrava a imagem guardada (e a camada HD, um SVG próprio dela, `menu_silhouette.svg`, que
+  saiu); o estudo do nightfire-cxbx (`docs/cxbx.md` 3.1) apontou a função.
 
 ### Molduras em nove pedaços
 
@@ -1403,6 +2390,102 @@ Na camada HD, cada símbolo `~X` de um texto vira o desenho do aparelho em uso (
 O visto e o ponto dos objetivos (`~J`, `~I`) não são botões: ficam sempre com o desenho próprio. No 2D
 original os símbolos continuam os do jogo (a textura `03000075`). O relatório da captura tem
 `simbolos <escolhido>/<em vigor>` na linha `ui_hd`.
+
+## O fundo animado da pausa
+
+O painel da pausa e do fim de missão (o rótulo de imagem 0x10000184 da página, aditivo, alfa 0x50) mostra a textura
+`030000db`. No PS2 ela é uma animação, e o port a faz como ele (`platform/psi_woman.h`, comentários do cabeçalho;
+crédito do achado: o estudo do nightfire-cxbx, `docs/cxbx.md` 3.1; o porte é do MIPS do PS2):
+
+- **Na carga** o `CreateSpaceAndPackTextures` (0x0011dcf8, chamado pelo `psiPreGameRun`), que monta os "espaços" de
+  VRAM, trata duas texturas à parte: o espaço do fogo `030000da` (128 x 256, 8 bits) fica linear, sem o `Conv8to32`,
+  e o da `030000db` recebe a paleta do fogo (um `amemcpy` de 0x400 bytes de um registro para o outro) e é zerado
+  (`memset` de 0x4000). A imagem guardada no pacote nunca sobe para a VRAM; até o primeiro quadro a textura é a cor 0
+  do fogo, preta, e o painel aditivo não mostra nada. O `nf_loader_check` vê isso de outro jeito: o pacote de texturas
+  HD do PCSX2 do usuário tem uma substituta para essa textura preta com a paleta do fogo (o PCSX2 a viu no PS2) e
+  nenhuma para o desenho guardado (`hd=` sobe 1 em cada fase).
+- **Na pausa** o `Game_Run` chama `psiDecompressWoman` (0x001202a8, 608 bytes) em todo tick com o jogo pausado.
+  `skipit.288` (0x0030c9d8, 2 no `.sdata`, nunca volta na carga) desce `PS2FramesToSkip` por tick; quando chega a 0,
+  volta a 2 e um quadro é decodificado: a 60 quadros, um a cada dois ticks (30 por segundo), a 30, um por tick. O
+  quadro sai no scratchpad do EE (0x70000000, 16 KB): pares alternados, começando por um trecho zerado (u16
+  big-endian: quantos bytes) e depois um bloco (u16 big-endian: quantos trechos, cada um com um u8 de tamanho,
+  alternando cópia e zeros), até os 0x4000 bytes de 128 x 128. A cópia vem do espaço do fogo e anda junto com o
+  destino, a partir de `(WomanFrame & 0x3f) x 0x100 + 0x80 - (WomanFrame & 0x7f)`: com o fogo de 128 de largura, duas
+  linhas e uma coluna por quadro, o fogo sobe e corre para o lado dentro da silhueta. O `Conv8to32` (0x0011eeb0)
+  leva o quadro para o espaço da `030000db` (os bytes arrumados para subir como PSMCT32 e cair na VRAM como PSMT8; o
+  `CacheTexture` sobe o espaço uma vez por `CacheFrame`), e no quadro 348 (`0x15c`) o RLE volta ao começo: 11,6 s por
+  volta a 60 quadros. O Xbox segura o último quadro 240 ticks; o PS2 não.
+- **Os dados** são o item tipo 16 de cada pacote de missão (`woman`, 88.640 a 90.528 bytes com o preenchimento; 33
+  pacotes, o mesmo RLE em todos: 88.638 bytes lidos por volta), guardado pelo `PS2SetUpWoman` (0x00120c20). O
+  desenho é a silhueta de uma mulher que se vira e aponta uma pistola para um lado e para o outro, como nas aberturas
+  dos filmes.
+
+No PC (só do port a forma): os "espaços" não existem (o renderizador tem uma textura por entrada de `Tex`), então os
+pixels e a paleta da textura são as cópias no heap do `pstex_tag` (que o PS2 solta depois de empacotar). O fogo é lido
+das cópias dele: o `Reduce` abre um espaço do tamanho de VRAM da maior textura ainda sem lugar e a de 128 x 256 o ocupa
+inteiro, então o espaço do fogo é a textura linear. O `Conv8to32` não é portado: o que o GS lê depois dele é a imagem
+linear, que vai para os pixels da textura, e o backend gráfico troca o conteúdo dela
+(`PsiGfxBackend::update_texture` -> `RuntimeGfx::on_texture_update`, que converte com a paleta CSM1 por
+`decode_texture_frame` sem alocar a cada quadro -> `Renderer::update_texture`, e o espelho do D3D9). Na fachada,
+`Renderer::update_texture(slot, textura)` troca o nível 0 da textura que já está no slot e refaz os mipmaps: no
+Direct3D 11, `UpdateSubresource` + `GenerateMips`; no Metal, o envio pelo command buffer de envio (como uma textura
+nova) ou, com um quadro sendo gravado, uma cópia no command buffer do quadro, na ordem (os desenhos de antes ficam com
+o conteúdo de antes, como no contexto imediato do D3D11); num slot vazio ou com outro tamanho é um `set_texture`. A
+substituta HD do slot (um DDS do pacote do PCSX2) deixa de valer: uma imagem fixa não acompanha a animação.
+
+A camada 2D em alta definição: o `hd_ui/map.json` trocava a `030000db` por um SVG fixo nosso (as luzes de festa e o
+homem com a taça). Decisão (13/10/2026): a textura animada não tem substituta, e a animação aparece também com a
+camada HD (a textura original com o filtro bilinear e os mipmaps das imagens sem substituta). É o fiel e o mais
+simples: o SVG desenhava uma imagem que no PS2 nunca aparece e ficaria parado sobre um painel que no jogo se mexe; uma
+silhueta vetorial animada exigiria redesenhar 348 quadros. O SVG saiu do gerador (`tools/ui_hd_assets.py`) e do
+repositório; as duas folhas de SVG do `nf_vector_check` (`tests/data/vector/svg_*.png`) foram refeitas pelo Direct2D.
+
+Onde aparece: no estilo Original, a pausa e o fim de missão (o jogo pausado: o `Mission_Update` chama
+`GS_PauseGame(1)`). No estilo Modern o painel do jogo não é desenhado (os menus Modern escondem o 2D da câmera 7); a
+animação roda por baixo do mesmo jeito, sem mudar nada na imagem. O menu principal (07000048) não tem as texturas nem
+o item.
+
+Captura: `--menu-style original --level 07000012 --input "none:1 enter:0.2" --wait 2` e `--wait 4` mostram os quadros
+28 e 88 (a pausa abre em ~1,05 s; 30 quadros por segundo), com e sem `--hd-ui`. O relatório da captura tem a linha
+`fundo_pausa quadro Q proximo P decodificados D trocas T preparos R textura X guardas G` (o último quadro decodificado,
+-1 sem nenhum desde a carga; o próximo; os quadros desde o boot; as trocas de textura pedidas ao backend; os preparos
+da carga; a entrada de `Tex` da `030000db`; as guardas). O `nf_loader_check` termina com `fundo animado da pausa: 33
+fases, 33 ciclos de 348 quadros, bytes lidos 88638-88638 de itens com 88640-90528, quadros na pausa dos menus 495,
+guardas 0`: em cada fase, depois do teste dos menus, 696 ticks pausados do quadro 0 voltam ao começo.
+
+Divergências (guardas, `PsiWomanStats::guards`, todas zero nos dados do jogo): sem o item, sem uma das texturas ou com
+tamanhos que não são os do disco o PS2 leria fora (a `030000db` nem é conferida contra nulo), e um RLE que passaria do
+fim do quadro ou do item para a decodificação. `PS2FramesToSkip`, que o port não escreve (fica 0), vale 1, como no
+`psi_input`.
+
+Testes: `tests/test_woman.cpp` (um RLE feito à mão sobre um fogo sintético: o quadro e a fonte que anda, um quadro a
+cada dois ticks e um por tick a 30, o ciclo de 348 que volta ao primeiro, a paleta do fogo e os pixels zerados na
+carga, as guardas, a paleta CSM1 do `decode_texture_frame`); a cena `textura_trocada` do `nf_render_check`
+("macOS: o renderizador Metal").
+
+### A CI e a conferência (13/10/2026)
+
+A CI (`ci/portable-pause`, no repositório privado): uma rodada, `38343263802`, verde. Linux GCC e clang: 846 testes, 0
+falhas, a separação da plataforma 0. macOS 14 ARM64: 848 testes, 0 falhas; as folhas de SVG refeitas dentro das
+tolerâncias (`svg_pequeno` 0,54 de diferença média, `svg_grande` 0,24); a cena `textura_trocada` do Metal a 53,75 dB do
+Direct3D 11 do RTX 5090 (máx 22, nenhum pixel a mais de 32), o mesmo que o Direct3D 11 do Radeon integrado (53,97 dB):
+o limite fica em 47 dB, a regra de 6 dB abaixo do menor; as outras cenas como antes. Os minutos de macOS: 1 min 38 s de
+relógio (2 cobrados ×10 no plano: 20), dentro do orçamento de ~4 minutos; a documentação foi com `[skip ci]`.
+
+No Windows (a main em ea3ebd6, exportada com `git archive` e compilada ao lado com o hash fixo do build; os dados da
+cópia principal):
+
+| Conferência | Resultado |
+|-------------|-----------|
+| `nf_tests` | x86 843, x64 846, headless 843, 0 falhas |
+| `tools/check_platform.py`, `tools/decomp_status.py` | 0 usos do sistema fora dos backends; nenhum marcador errado (o `psi` com 81 de 91 funções) |
+| `nf_level_check .` | 35 fases, 0 não resolvidas, em x86 e x64 |
+| `nf_loader_check .` | igual ao da main (endereços mascarados) menos: `hd=` +1 em cada fase (a textura preta com a paleta do fogo, que o pacote do PCSX2 tem), o `psiDecompressWoman` fora das listas de stubs, `texturas com substituta HD` +33 e a linha nova `fundo animado da pausa: 33 fases, 33 ciclos de 348 quadros, ... guardas 0`; o x64 igual ao x86 |
+| capturas fora da pausa Original (07000012 aos 9 s com o WAV, 07000012 aos 2 s, a cena de abertura de 07000001 aos 11,7 s, o menu principal Modern, um quadro de filme, a pausa Modern aos 2, 2,5 e 4 s) | PNG e WAV idênticos byte a byte aos da main; os relatórios só com a linha `fundo_pausa` a mais, `substitutas 60` (61) na linha `ui_hd` e os tempos de relógio |
+| a pausa Original a 1920 x 1080 aos 2 s e aos 4 s, com e sem `--hd-ui` | os quadros 28 e 88 da animação (imagens diferentes); o x64 igual ao x86 em todas as capturas |
+| `nf_render_check --compare tests/data/render` | as 31 cenas de antes iguais byte a byte às referências; a nova é a referência |
+| `nf_vector_check --compare tests/data/vector` | 0 em todos os casos depois das folhas de SVG refeitas (sem o SVG da silhueta elas mudam de leiaute) |
+| `--renderer d3d9ff` na pausa | a animação também pelo espelho do Direct3D 9 |
 
 ## Opções do PC no menu
 
@@ -1742,8 +2825,9 @@ missão é lento de propósito (`docs/design.md`, "Movimento").
   --open-menu-page 40000060 --menu-tab interface --input "none:1.2 down:0.1 none:0.3 down:0.1 none:0.3 space:0.1
   none:0.4 escape:0.1 none:0.4 escape:0.1 none:0.6 enter:0.1" --wait 15`; a
   confirmação: `--input "none:1 enter:0.2 none:0.6 down:0.1 none:0.3 space:0.1" --wait 2.8`.
-- O fim de missão: `--input "none:10 space:0.3" --wait 13.5` (o menu abre em ~10,1 s; `--wait 10.45` e `11` mostram
-  o aparecer); REPLAY: `"none:10 space:0.3 none:2.5 space:0.3" --wait 16` (`recomecos 1`, vida cheia).
+- O fim de missão: `--input "none:17 space:0.3" --wait 19.5` (o jogador parado morre aos ~15,3 s com o ajuste da fase;
+  antes do `ReadTuningVars` eram `none:10` e o menu abria em ~10,1 s); REPLAY: `"none:17 space:0.3 none:2.5 space:0.3"
+  --wait 23` (`recomecos 1`, vida cheia).
 - O resultado: `--win 1 --shot-level 07000048 --wait 2`; as estatísticas com `--input "none:1 e:0.1"`; CONTINUE com
   `--input "none:1.5 space:0.1" --shot-level 07000014` (a próxima missão).
 - `--input` também leva o controle (`pad_start`, `pad_rb`, `pad_a`...) e o mouse na tela virtual (`cmouse=x,y`,
@@ -2097,7 +3181,7 @@ passos valores linhas voltar`. Exemplos (07000012, 1024x576):
 ```
 --input "none:1 enter:0.2 none:0.5 mouse=256,228:0.6" --wait 2.5                       # passa por RESTART
 --input "none:1 enter:0.2 none:0.5 mouse=212,119:0.3 mouse=212,119+lmb:0.1 none:0.5" --wait 3   # clica OBJECTIVES
---input "none:10 space:0.3 none:2 mouse=256,204:0.3 mouse=256,204+lmb:0.1 none:4" --wait 17     # REPLAY: recomecos 1
+--menu-style original --input "none:17 space:0.3 none:2 mouse=256,204:0.3 mouse=256,204+lmb:0.1 none:4" --wait 24   # REPLAY: recomecos 1
 --open-menu-page 40000060 --menu-tab video --input "none:1 mouse=166,119:0.3 mouse=166,119+lmb:0.1 none:0.4" --wait 2   # aba GRAPHICS
 --open-menu-page 40000060 --menu-tab controls --input "none:1 mouse=300,167:0.2 mouse=300,167+lmb:0.2 mouse=395,167+lmb:0.6" --wait 2   # arrasta a barra
 --open-menu-page 40000060 --menu-tab keys --input "none:1 mouse=150,220:0.3 mouse=150,220+lmb:0.1 none:0.3 f:0.1 none:0.6" --wait 2.5   # "F -> Turn left"
@@ -2249,7 +3333,9 @@ As opções do jogo valem na próxima missão e vão para o perfil quando o codi
 `nightfire.ini` para gravar (fora das capturas, ou com `--config`), uma opção mudada num menu também vai para ele na
 hora; as legendas, a vibração, o estilo e a inversão do controle, a mira automática, a mira sempre visível, agachar e
 mirar, a troca de arma, os itens piscando, o HUD e os volumes (seções `[controls]`, `[ui]` e `[game]`). Na partida o
-`.ini` vale por cima dos padrões do jogo; um codinome do cartão lido traz as opções dele (sem mudar o `.ini`); "New
+`.ini` vale por cima dos padrões do jogo; um codinome do cartão lido traz as opções dele (sem mudar o `.ini`), menos os volumes da música e dos efeitos que o
+`.ini` conhece: esses são da máquina e ganham dos do codinome (antes, abaixar o volume nas opções e escolher um codinome
+gravado voltava o volume ao do codinome); "New
 Codename", "Play without saving" e "Default" pegam as do `.ini`. O arquivo só recebe as opções que o jogador mudou (num
 menu do jogo, na aba CONTROLS da pausa, no "Controller Setup" ou nas opções do PC): gravar outra coisa (a
 sensibilidade do mouse, uma tecla) não escreve o estilo, a inversão e a vibração em vigor. Antes o `pad_style` ia
@@ -2714,7 +3800,7 @@ abertura da 07000001 no meio do preto: `esmaecimento 1 | camera 4 ... alfa 119 .
 | O quê | Comando (`--fixed-video-hz 60 --screenshot ...`) | Relatório |
 |-------|----------------------------------------------------|-----------|
 | começo de fase | `--level 07000012 --wait 0.3` | `esmaecimento 1 \| camera 0 cor 000000 alfa 153 estado 1` |
-| recomeço depois da morte | `--level 07000012 --input "none:10 space:0.3 none:2.5 space:0.3" --wait 13.6` | `camera 6 ... alfa 152`, `recomecos 1` |
+| recomeço depois da morte | `--level 07000012 --input "none:17 space:0.3 none:2.5 space:0.3" --wait 20.6` | `camera 6 ... alfa 149`, `recomecos 1` (sem `--fixed-video-hz`) |
 | fim da abertura | `--level 07000001 --wait 35.3` | `camera 4 ... alfa 121`, `camera_script 06000087` |
 | clarão do tremor | `--level 07000016 --channel f5 --input "none:5 pad_rx=0.8:5" --wait 7.5` | `camera 0 cor ffffff alfa 95`, `clarao borrao 95 resta 150.0 total 150.0 rastro 104` |
 | debaixo d'água | `--level 07000016 --at 2.27,-2.0,-94.70,0.0 --input "none:1.0 mlook=0,500:0.4 W:2.5" --wait 4` | `agua ... submerso 1`, `rastro 92` |
@@ -3163,7 +4249,7 @@ nightfire.exe --level 07000014 --at 47.45,1.1,35.6,0 --input "none:0.5 E:0.1 non
 # mancha: seguindo (holofotes 2/2/0/0), o alarme 0x37 ligado e o brilho de frente para a câmera
 nightfire.exe --level 07000006 --at 6.40,41.01,-43.95,-1.23 --channel 3d --channel 3e --channel 3f --channel 40 --wait 6 --fixed-video-hz 60 --screenshot out/shots/holofote.png
 # 07000015: a mina de laser da porta, mirada com o mouse e um tiro de besta: a explosão (dano 80, raio 15) leva o
-# jogador de 100 a 32,9 de vida
+# jogador de 100 a 59,8 de vida (com o ajuste da fase: x 0,6 no Agent; 32,9 antes do ReadTuningVars)
 nightfire.exe --level 07000015 --at 13.49,41.4,73.68,-2.338 --input "none:0.5 mlook=0,277:1 none:0.3 lmb:0.1 none:2" --wait 2.25 --fixed-video-hz 60 --screenshot out/shots/mina.png
 ```
 
@@ -3190,8 +4276,9 @@ jogador" (a mira automática, o laser e o relógio), "Corpos rígidos" e "Colis�
   esperar o cano apontar (20 graus) antes do tiro, como no PS2. No jogo de um jogador só os personagens miram assim (o
   corpo do jogador mira só no multijogador). `--no-torso-aim` (depuração) desliga, para comparar.
 - **A mira automática** (`Check_AutoAim`): a opção "Auto aim" (GAMEPLAY no Modern, Advanced Options no Original; ligada
-  por padrão, como no PS2) agora age: a cruz, a arma e a bala vão para o peito do inimigo dentro de um cone de 10 graus
-  x a mira automática da arma x a distância (até 35 m), maior no Operative, nenhum no 00 Agent.
+  por padrão, como no PS2) agora age: a cruz, a arma e a bala vão para o peito do inimigo dentro de um cone (0,12 rad
+  de lado, 0,22 rad de altura, gravados pelo `ReadTuningVars` a cada carga) x a mira automática da arma x a distância
+  (até 25 m), maior no Operative (x 1,9), nenhum no 00 Agent.
 - **O laser e o relógio** (`Player_LaserPointer`, `Player_SetWatch`, `Draw_LaserBeam`, `Draw_TaserBeam`): o raio do
   laser do relógio do cano até onde acerta (o que queima os cadeados de laser já era dos projéteis), o mostrador e os
   ponteiros do relógio na hora da missão, a mira laser das pistolas melhoradas (o feixe fraco e o ponto vermelho) e o
@@ -3225,8 +4312,8 @@ olhos cabeca submerso ar ondulacao borrao`):
 # 0,5 grau (giro_tronco -0,037, inclinacao 0,098); com --no-torso-aim, por 6,3 graus
 nightfire.exe --level 07000012 --at 22.49,1.09,19.155,-1.68 --input "none:0.5 C:0.1" --wait 5 --fixed-video-hz 60 --screenshot out/shots/tronco.png
 # a mira automática: o mesmo lugar, cinco tiros pelo controle simulado (RT); com [game] auto_aim = on num --config,
-# 2 acertos (1 abatido); com off, 0 (o main antes: 0). Aos 4,62 s a cruz está no peito do guarda agachado (alvo 2,
-# tela 0,092 -0,208) e o tiro acertou; desligada, a cruz fica acima da cabeça
+# 1 acerto (1 abatido), com o cone que o ReadTuningVars grava e também com o do .data; com off, 0 (o main antes: 0).
+# Aos 4,62 s a cruz está no peito do guarda agachado (alvo 2) e o tiro acertou; desligada, a cruz fica acima da cabeça
 nightfire.exe --config out/aa_on.ini --level 07000012 --at 22.49,1.09,19.155,-1.68 --input "none:4.5 pad_rt:0.1 none:0.3 pad_rt:0.1 none:0.3 pad_rt:0.1 none:0.3 pad_rt:0.1 none:0.3 pad_rt:0.1" --wait 7 --fixed-video-hz 60 --screenshot out/shots/mira_auto.png
 # o laser do relógio no cadeado de 07000008 ("2", o segundo aparelho, põe o laser, arma 78): o raio do relógio ao
 # cadeado, o mostrador com os ponteiros (relogio 3); o main não desenhava raio nem ponteiros

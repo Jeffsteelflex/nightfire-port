@@ -51,6 +51,9 @@ std::map<int, Texture> decode_textures(ByteView item, const std::vector<Block>& 
 // 0x80, paletas de 256 cores no arranjo CSM1). Devolve false se o tamanho dos pixels não bate com
 // o cabeçalho (casos raros ainda não entendidos).
 bool decode_texture(int width, int height, int frames, bool bpp8, ByteView pixels, ByteView palette, Texture& out);
+// O mesmo para um quadro de uma textura que o jogo reescreve durante a partida (o fundo animado da pausa): o resultado de
+// decode_texture com frames = 1, escrito em `out` sem soltar a memória dele (depois da primeira vez, nada é alocado).
+bool decode_texture_frame(int width, int height, bool bpp8, ByteView pixels, ByteView palette, Texture& out);
 
 // Normal e cor como a VU1 as recebe (docs/formats.md, "Microprograma da VU1"): a normal é o inteiro do
 // UNPACK V4-8 / 128, como a rotina de luz a usa (não normalizada: cerca de 127/128 de comprimento); a

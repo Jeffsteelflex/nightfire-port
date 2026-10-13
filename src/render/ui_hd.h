@@ -51,6 +51,10 @@ enum class UiHdAnchor : uint8_t {
 // Uma fonte do jogo (1 NFont2, 2 SerpLight, 3 Medium) e a fonte vetorial que a substitui.
 struct UiHdFont {
     std::wstring family = L"Bahnschrift";
+    // No macOS (render/ui_vector_cg.mm), que não tem a Bahnschrift: as famílias do sistema a tentar, a primeira que
+    // existir ("family_macos" no map.json, um nome ou uma lista). A family vale antes se estiver nas fontes do usuário
+    // (hd_ui/fonts) e depois desta lista. O Windows só usa a family, como sempre.
+    std::vector<std::wstring> family_macos{L"DIN Alternate", L"DIN Condensed"};
     int weight = 400;       // DWRITE_FONT_WEIGHT (100..950)
     int stretch = 5;        // DWRITE_FONT_STRETCH (1..9; 5 normal)
     bool italic = false;

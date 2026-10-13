@@ -59,14 +59,16 @@ struct weapon_definition_tag {
     float light_range;           // 0x58
     uint32_t projectile;         // 0x5c modelo do projétil (entidade 02xxxxxx; 0 sem modelo)
     uint8_t unknown_60[8];
-    // 0x68, pelo uso: 8 BLData::gun_flag8; 0x10 a variante tem munição própria; 0x40 luneta (mirar
-    // esconde a arma); 0x100 recarrega bala a bala; 0x200 e 0x40000 alternam duas animações (recarga,
-    // tiro); 0x400 tiro em duas fases (anim_fire_alt); 0x800 modelo em weapon_definition_tag::
-    // datum_entity; 0x8000 segurar o gatilho não repete; 0x10000 a bala sai entre o olho e o cano;
-    // 0x20000 lança um objeto (tipo 5) que volta a ser munição; 0x80000 sorteia anim_fire_alt;
-    // 0x100000 tiro contínuo enquanto segura. Nos projéteis: 0x4000 o projétil explode quando
-    // atingido, 0x40000 a cápsula sai do osso 5 (com alt_hand zerado), 0x400000 sem dispersão para
-    // drones e para o jogador mirando.
+    // 0x68, pelo uso: 8 BLData::gun_flag8; 0x10 sem munição troca para a variante (id + alt) que a tenha
+    // (Player_HandleHasNoAmmo), e a munição apanhada enche primeiro o pente vazio (Player_EquipAmmo); 0x40 luneta
+    // (mirar esconde a arma); 0x100 recarrega bala a bala; 0x200 e 0x40000 alternam duas animações (recarga,
+    // tiro); 0x400 tiro sustentado: o estado de tiro dura enquanto o gatilho está apertado e há munição, e ao soltar
+    // toca anim_fire_alt (estado 8); 0x800 modelo em weapon_definition_tag::datum_entity; 0x8000 segurar o gatilho
+    // não repete; 0x10000 a bala sai entre o olho e o cano; 0x20000 o detonador (Player_WeaponInitBullet: os
+    // projéteis vivos da classe do jogador recebem -10 no pavio e a mão volta à arma da classe); 0x80000 sorteia
+    // anim_fire_alt; 0x100000 repete o tiro enquanto segura (a animação de tiro de novo quando acaba). Nos
+    // projéteis: 0x4000 o projétil explode quando atingido, 0x40000 a cápsula sai do osso 5 (com alt_hand zerado),
+    // 0x400000 sem dispersão para drones e para o jogador mirando.
     uint32_t flags;
     // 0x6c: 0x40 solta cartucho; 0x80 raio do taser; 0x100 raio laser; 0x400 tiro em duas fases;
     // 0x800 o raio da mira usa a máscara 0x208 em vez de 0x20a. Para os projéteis (Bullet_*,
@@ -142,6 +144,8 @@ extern float Autoaim_LockOnMul;
 extern float Autoaim_EasyMul;
 extern float Autoaim_NormalMul;
 extern float Autoaim_HardMul;
+// A vida mínima ao recomeçar (Player_RamLoad) por dificuldade; ReadTuningVars grava 50 nas três a cada carga.
+extern float ContinueHealthBoostEasy, ContinueHealthBoostMedium, ContinueHealthBoostHard;
 extern obj_tag* Seconds;  // os ponteiros do relógio (Player_SetWatch)
 extern obj_tag* Minutes;
 extern obj_tag* Hours;

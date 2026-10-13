@@ -235,7 +235,7 @@ extern uint8_t debug_scanmode;
 extern uint8_t debug_clipmode;  // 0x0030cb5e (C_CHCHFLY_Handler; nada mais lê)
 extern uint8_t benchmark;
 
-// Constantes de giro (o .data do ACTION.ELF; ReadTuningVars pode mudá-las).
+// Constantes de giro (ReadTuningVars as grava a cada carga: a mira 0,1275/0,136; os outros valores são os do .data).
 extern float Plr_AimSpeed_X, Plr_AimSpeed_Y, Plr_AimTurnSpeed_X, Plr_AimTurnSpeed_Y;
 extern float Plr_ScopeSpeed_X, Plr_ScopeSpeed_X_Mul, Plr_ScopeSpeed_X_Steps;
 extern float Plr_ScopeSpeed_Y, Plr_ScopeSpeed_Y_Mul, Plr_ScopeSpeed_Y_Steps;
@@ -279,8 +279,9 @@ void Player_SetFlashBang(BLData* b, float ticks, uint8_t level);  // o clarão: 
 void Player_HandlePain(obj_tag* obj, BLData* b, float damage, uint16_t type, int16_t location);
 uint32_t Player_CheckForDeath(obj_tag* obj, uint32_t type);
 void Player_HandleDeath(obj_tag* obj);
-// Multiplicadores do dano que o jogador recebe (copiados do ELF na partida): pela dificuldade no modo
-// história; no multijogador, o geral e pelo lugar do acerto.
+// Multiplicadores do dano que o jogador recebe (copiados do ELF na partida e regravados por ReadTuningVars a cada
+// carga): pela dificuldade no modo história (por grupo de fases: 07000012 0,5/0,6/1,0); no multijogador, o geral e
+// pelo lugar do acerto.
 extern float Plr_DMod_Multi, Plr_DMod_Head, Plr_DMod_LowerLimb, Plr_DMod_UpperLimb;
 extern float Plr_DMod_Easy, Plr_DMod_Normal, Plr_DMod_Hard;
 

@@ -72,8 +72,14 @@ static_assert(sizeof(PlayerInput_tag) == 0x158);
 
 extern PlayerInput_tag PlayerSetting[4];
 extern uint8_t gAnalogStickMappingFunction[129];
+// As combinações de botões (0x00316ff0; DList de 10 nós de 0x18 bytes, refeita por Input_Ready a cada carga; só
+// Input_Check4Combo, ainda não portada, a leria).
+struct DLISTINFO_tag;
+extern DLISTINFO_tag ComboKeysList;
 
 void Input_Init();
+// Descongela o jogo, zera as ações e refaz ComboKeysList (no heap do jogo: precisa de Mem_Init antes).
+void Input_Ready();
 void Input_Update();
 uint16_t Input_Action(int16_t player, uint32_t action, uint16_t mask);
 float Input_Actionf(int16_t player, uint32_t action, uint16_t mask);

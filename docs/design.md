@@ -5,7 +5,8 @@ em INTERFACE nos dois estilos):
 
 - **Modern** (o padrão): um sistema de desenho próprio do port, inspirado nos menus de *007 First Light* (IO
   Interactive, 2026), desenhado com Direct2D e DirectWrite na resolução da janela, sempre (não depende da camada
-  2D em alta definição). Este documento é a referência dele.
+  2D em alta definição); no macOS, com CoreGraphics e CoreText, o mesmo desenho (`render/ui_vector_cg.mm`; `port.md`,
+  "macOS: o desenho vetorial"). Este documento é a referência dele.
 - **Original**: os menus do jogo como foram portados e a página de opções do PC em abas, com as peças do jogo
   (`engine/menu_pc_options.h`). Sem Direct2D, o Modern não abre e o Original vale.
 
@@ -83,7 +84,9 @@ linha `moderno` do relatório das capturas). Cores em `#rrggbb` ou `#rrggbbaa`.
 
 **Rajdhani** (OFL, `hd_ui/fonts_ofl/rajdhani`: Light 300, Regular 400, Medium 500, SemiBold 600, Bold 700),
 carregada numa coleção privada do DirectWrite (nada é instalado no sistema); sem os arquivos, a Bahnschrift.
-A faixa de dados usa a Consolas. Nunca itálico.
+A faixa de dados usa a Consolas. Nunca itálico. No macOS, os mesmos arquivos da Rajdhani (pelo CoreText, sem instalar:
+as larguras dão as mesmas do Windows); sem eles, a DIN Alternate (o mesmo desenho DIN da Bahnschrift); a faixa de dados
+usa a Menlo (~8% mais larga que a Consolas).
 
 | Estilo | Tamanho | Peso | Espaço entre letras | Caixa | Uso |
 |--------|---------|------|---------------------|-------|-----|

@@ -279,6 +279,13 @@ uint32_t GeoPrim_Draw(uint32_t geoprim, DmaBuffer& out, const DrawContext& ctx, 
             if (anim) tar += anim * uint32_t(ctx.frame) * 0x60;
             out.copy(W(p) + 3, size_t(n) * 4);
             p += (3 + n) * 4;
+            if (tar < 0x10000) {
+                // Só do port: um TAR que o carregador não resolveu (um símbolo GAME:: que o port ainda não
+                // fornece). O PS2 leria a imagem do endereço baixo; aqui vai o TAR padrão (sem textura), contado
+                // como fonte nula.
+                tar = tar_create("\0\0\0\0", true, true);  // liberado com os outros em tar_images_reset
+                out.note_null_source();
+            }
             uint64_t* end = TAR_WritePacket(tar + 4, reinterpret_cast<uint64_t*>(out.cur()));
             out.advance(size_t(reinterpret_cast<uint8_t*>(end) - out.cur()));
             break;

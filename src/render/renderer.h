@@ -271,6 +271,10 @@ public:
     void reset_resources();
     // Textura no índice "slot" (o índice da tabela Tex do jogo); só o primeiro quadro.
     void set_texture(int slot, const Texture& texture);
+    // Troca o conteúdo da textura do slot sem criá-la de novo (o nível 0 e os mipmaps refeitos): uma textura que o jogo
+    // reescreve durante a partida (o fundo animado da pausa, platform/psi_woman.h). Num slot vazio ou com outro tamanho é
+    // um set_texture. A substituta HD do slot deixa de valer (uma imagem fixa não acompanha a animação).
+    void update_texture(int slot, const Texture& texture);
     // Substituta em alta definição para o slot (arquivo DDS: BC1, BC2, BC3, BC7 ou RGBA8). Sem
     // mipmaps no arquivo, a textura é copiada para RGBA8 e ganha mipmaps gerados na GPU.
     bool set_texture_dds(int slot, const std::wstring& path);

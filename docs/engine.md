@@ -508,8 +508,10 @@ objetos tocados. Usar (`Player_Activate`, pela ação 14) procura objetos numa e
 metro à frente dos olhos e aciona portas, interruptores, cadeados...
 
 Dano e morte. Um tiro que acerta o jogador passa por `MP_RegisterBulletHit` (fora do multijogador
-todo acerto vale) e `Player_HandlePain`: o dano é multiplicado pela dificuldade (`Plr_DMod_*` do ELF:
-fácil 0,75, normal 1, difícil 1,25, o nível 4 em dobro), o colete (`BLData::armour`) absorve o que
+todo acerto vale) e `Player_HandlePain`: o dano é multiplicado pela dificuldade (`Plr_DMod_*`, que o
+`ReadTuningVars` grava a cada carga pelo grupo de fases: 07000012 0,5/0,6/1,0, o castelo 0,6/0,7/1,0...; os do .data,
+fácil 0,75, normal 1, difícil 1,25, só valem antes da primeira carga; ver "O ajuste das fases"; o nível 4 em dobro), o
+colete (`BLData::armour`) absorve o que
 puder dos tiros (quedas e danos contínuos vão direto para a vida), e o resto sai da vida; a trapaça de
 invencível (`CheatInfo` +0) mantém a vida. Cada ferimento soma um vermelho na tela
 (`BLData::pain_flash`, dano x 21,3 até 128 por vez, até 255). Uma vez por tick
@@ -577,10 +579,12 @@ Mira automática. `Player_AutoAim` (de `Player_Weapon`, a cada tick), com a opç
 0x50/0x51, o gancho, a opção não importa e os candidatos são os objetos 0x51, até o alcance da arma). Ficam de fora: o
 objeto desligado (+0xfc), o drone morto, da classe 0xb, no estado 1 ou que não é inimigo (`Drone_tag::side` 1; no
 multijogador, o do mesmo time), o próprio jogador e os mortos. O ponto mirado é a coluna (osso 2) do drone ou do
-jogador, ou a posição do objeto, até o melhor encontrado (`Autoaim_Range`, 35 m, no começo). O cone (as constantes
-`Autoaim_*` do .sdata) é 10 graus (`Autoaim_Angle_H/V`) x a mira automática da arma (`weapon_definition_tag` +0x14, em
-%: 100 nas pistolas, 40 a 85 nos rifles) x (1 - distância / 35) x o fator da dificuldade (Operative 1,25, Agent 1, 00
-Agent 0: sem mira automática), 1 inteiro com o gancho e o dobro para o alvo atual (`Autoaim_LockOnMul`). Dentro dele
+jogador, ou a posição do objeto, até o melhor encontrado (`Autoaim_Range`, 25 m, no começo). O cone (as constantes
+`Autoaim_*`, que o `ReadTuningVars` grava a cada carga; as do .sdata, 10 graus, 35 m, x 2 e x 1,25, só valem antes da
+primeira) é de 0,12 rad de lado e 0,22 rad de altura (`Autoaim_Angle_H/V`) x a mira automática da arma
+(`weapon_definition_tag` +0x14, em %: 100 nas pistolas, 40 a 85 nos rifles) x (1 - distância / 25) x o fator da
+dificuldade (Operative 1,9, Agent 1, 00 Agent 0: sem mira automática), 1 inteiro com o gancho e x 1,4 para o alvo atual
+(`Autoaim_LockOnMul`). Dentro dele
 (giro por atan2 contra `obj_tag::rot.y`, inclinação por asin contra `BLData::pitch`) e com linha de visada, o alvo vira
 `BLData::aim_target` e a posição dele na tela (`View_3DPoint2Screen`) vai para a mira suavizada (`aim_cur_x/y`, em
 quartos da tela; `Player_AutoAim` corta pela metade no mesmo tick), que a cruz do HUD, a arma (`Player_PositionGun`)
@@ -602,6 +606,39 @@ triângulos soltos nem partículas. Com uma arma da pele do relógio (0x500004b:
 `Player_SetWatch` põe o mostrador (anexo 2, entidade 0x20008f9) e cria os três ponteiros (0x2000876/7/8), girados em
 volta de x pela hora: a hora de partida da missão (9:00 em 07000001-04, 19:30 em 05-08, 22:30 em 09-0b, 8:00 em
 0c-0d, 6:00 em 11-13 e 4a, 4:00 em 14-16) mais o cronômetro da missão; com outra arma eles são apagados.
+
+### O ajuste das fases (portado, `src/engine/resetmap.cpp`)
+
+`ReadTuningVars` (0x1d3a80, 0xe00 bytes) roda a cada carga, no fim do `ResetMap_Load` (depois de criar os objetos e
+antes do `Player_Start`). Apesar do nome não lê arquivo nenhum: são constantes do código, montadas em registradores e
+gravadas nas globais. Sempre: a velocidade da mira e do giro do jogador (`Plr_AimSpeed_X/Y` 0,1275/0,136, contra
+0,15/0,16 do .data; os outros `Plr_AimTurnSpeed_*`, `Plr_ScopeSpeed_*`, `Plr_NoAimTurnSpeed_*` iguais ao .data), a
+vida mínima ao recomeçar (`ContinueHealthBoost*`, 50) e a mira automática (`Autoaim_*`: ver "Armas do jogador").
+Depois um `switch` por `GameState.level_file` (tabela de saltos em 0x305160, 07000001 a 0700004c) grava, por grupo de
+fases, os 32 valores dos personagens e o dano que o jogador recebe:
+
+| Fases | dano recebido (`Plr_DMod_Easy/Normal/Hard`) | precisão dos personagens (`DroneFiring_Accuracy_*`) | outros |
+|---|---|---|---|
+| 07000001-04 (Henderson) | 0,5 / 0,7 / 1,2 | 0,5 / 0,7 / 1,0 | o conjunto padrão |
+| 07000005-08 (castelo) | 0,6 / 0,7 / 1,0 | 0,8 / 0,9 / 1,3 | |
+| 07000009-0b (torre) | 0,6 / 0,8 / 1,0 | 0,8 / 1,0 / 1,0 | |
+| 0700000c-0d (usina) | 0,4 / 0,7 / 1,2 | 0,6 / 0,8 / 1,2 | alvo que acabou de parar: 1 s e 0,1; capitães x 1,5 no dano e na precisão |
+| 07000011-13, 0700004a (segunda torre) | 0,5 / 0,6 / 1,0 | 0,7 / 0,8 / 1,0 | dano que o jogador causa 1,5 / 1,2 / 1,0 |
+| 07000014-16 (base) | 0,4 / 0,6 / 1,0 | 0,5 / 0,7 / 1,0 | |
+| 0700001b (estação) | 0,6 / 0,7 / 1,0 | 0,6 / 0,8 / 1,2 | dano que o jogador causa 1 / 1 / 1 |
+| 07000021-29, 4b, 4c (multijogador) | não grava: `Plr_DMod_Multi/Head` 4, `LowerLimb/UpperLimb` 0,8 | 0,8 / 1,0 / 1,5 | dano causado 2 / 1,5 / 0,5, capacete 0,5, "de perto" 4 m |
+
+O conjunto padrão dos personagens (Henderson e a base o gravam inteiro; os outros mudam só o que a tabela diz): o dano
+que o jogador causa por dificuldade 1,5 / 1 / 0,8 e por parte do corpo cabeça x 10, pernas 0,75, braços e tronco 1 (o
+.data tem cabeça x 100 e 2 / 1,5 / 0,5); as armaduras capacete 1 (.data 0,5), combate 0,25, jaqueta 0,5, colete 0,75; o
+ritmo das rajadas 15 / 45 / 60 ticks entre 4 e 30 m; 2 s de visão antes de acertar; os fatores do alvo que começou a
+andar (0,25), anda (0,75) e parou (1); "de perto" a 3 m (.data 4) com precisão e dano x 2, pelas costas x 2; os capitães
+x 2. As fases fora do `switch` (o menu principal, as cenas 0700000e-10, as de teste, os pacotes 071xxxxx) ficam com os
+valores da carga anterior. A divisão "conjunto padrão + diferenças" é a do nightfire-cxbx (NightfireResearch); cada
+valor foi conferido store a store na desmontagem, e o `nf_loader_check` roda o `ReadTuningVars` do ELF no interpretador
+MIPS para 0x07000000-0x0700004f e três outros códigos, com as 65 globais envenenadas dos dois lados, e compara bit a bit
+(`ajuste das fases (ReadTuningVars): 83 de 83 conferem com o ELF`). A página de depuração `P_TWEAKS` muda as mesmas
+globais; a carga seguinte as regrava, como no PS2.
 
 ### Itens (portado, `src/engine/pickup.cpp`)
 
@@ -1185,6 +1222,23 @@ ninguém no mapa). Sem tocar em nada, em 2 s nascem personagens em 07000005, 0c,
 modelos, sorteados). Cenas que desligam a IA (`Drone_EnableAll(0)`) param os geradores também (no
 teste forçado do `nf_loader_check`, em 07000008 e 0700001b).
 
+Lacunas fechadas em 12/10/2026 (a lista do estudo do nightfire-cxbx, docs/cxbx.md 3.1, cada uma portada do MIPS):
+`NDrone2_NavNodeCache` (0x155cd8), a cada tick do `Drone_InitComms`, põe em `NPCGlobals.player_target` os pés do
+jogador, a sala, o objeto e a máscara 0x1000000 e chama `AINetwork_BuildAITarget`, que refaz os nós quando o jogador
+andou 2 m: as rotas A* até o jogador passam a existir e o `DSTATE_DroneStuck` vê o `frame` dele avançar;
+`DroneFunc_HandleExplosives` (0x1435f0), no fim do `NDrone2_ControlSTANDARD`, manda a mensagem 0x21
+(`DroneFunc_ConsiderExplosive`: fugir) para o primeiro ponto de atenção de tipo 2 (granadas e afins, e as nuvens de
+fumaça) dentro do raio dele, se o personagem reage a granadas (propriedade 0x3b ou 0x3a), o vê (0,7 ou mais) e tem linha
+de visão; o primeiro no raio encerra a busca mesmo sem ser visto, como no original; `Drone_MessageObjVicinity`
+(0x13a438) manda uma mensagem a cada personagem a até `radius` m de um objeto, e a do clarão (0x18, a granada de luz, 20
+m) só a quem o vê pelo osso 5: os estados `StunGrenade*`; `Occlude_Create/Update` (0x17ea80) fazem a nuvem da granada
+de fumaça (tipo 0x2a, modelo 0x2000273, 20 s ou 40 s na classe 0x69), que vira dois pontos de atenção de raio 3 e marca
+as ligações da rede com 0x200; `Drone_FellOutMap` (0x13a878) desliga e apaga quem sai de todas as salas; os controles
+por tipo (`DroneTypeSettings` +8) da Zoe (0x14b058: o canal 1 liga o 0x9b; com ele ligado e o jogador a mais de 10 m
+dela, `DroneFunc_SetMissionFailReason(0xf)`, o canal 99), dos ninjas (os olhos, `NDrone2_CreateNinjaEyes`, ainda stub)
+e dos astronautas (o padrão). O parâmetro 13 do posicionamento é o script da morte especial (`Drone_tag::death_script`,
+tocado pelo `NDrone2_DSTATE_SpecialDeath_Anim`), não um script de entrada.
+
 Portado: criação, carga, inicialização, modos e tipos, propriedades, a camada de animação, a máquina
 de estados, o controle por tick, a rede de navegação, os estados acima, a visão, o corpo (movimento,
 colisão, gravidade, olhar, dano), as armas, os gatilhos, os geradores e todos os estados menos os dos
@@ -1373,7 +1427,9 @@ vida (fora do multijogador, o jogador morre ao nascer nessas fases, como no PS2)
 vida zerada, 1 s); senão `Mission_MonitorObjectives` anuncia os objetivos (`Text_AddMsg`) quando a
 fase deles chega ou o canal que os revela liga, cumpre os comuns quando o canal liga e fracassa os
 "não deixe acontecer" quando o canal liga (canal 99); os canais 0x60/0x61 (alarmes) e os de
-07000016/0700001b também fracassam a missão com um rótulo de falha; tudo satisfeito liga o canal 100.
+07000016/0700001b também fracassam a missão com um rótulo de falha; tudo satisfeito liga o canal 100 (peculiaridade
+mantida: o "tudo satisfeito" é um AND com o byte cru de cada canal, 0x1828b4 `lbu` e 0x1828c0 `and`, então um canal
+com valor par conta como não cumprido).
 Canal 99: estado 2, 5 s de mensagem; canal 100: estado 6, 4 s, e `ResetMap_LevelToLoad(LevelToEndTo)`
 (o menu 07000048 ou o filme do fim da missão, 073xxxxx, que volta a ele) com um fade. Fracassada, o
 original abre o menu de fim de missão (`P_ENDMISSION_Handler`: recomeçar a fase, recomeçar a missão,
@@ -1383,10 +1439,10 @@ O menu de fim de missão é o do jogo (ver "Menus", abaixo): `Mission_Update` o 
 (`MenuManager_Create(0x80000004, 0x40000042, ...)`) e pausa o jogo. Depois de uma missão cumprida, o pacote do
 menu (07000048) mostra o resultado (página 0x40000036) e o "continuar" dele vai ao mapa das missões
 (0x4000001c, `P_NFMAP_Handler`), com a missão seguinte liberada (ver "Menu principal").
-Na prática: em 07000012 os inimigos acertam o jogador parado a partir de ~6 s (a vida no HUD vai de 7/7
-a 2/7 em ~2 s), ele morre aos ~9 s, a cortina desce e, com Enter ou Espaço (a ação 25), a missão
-fracassa e o menu "Mission Failed" aparece; REPLAY recomeça a fase com a vida cheia (`--input "none:10
-space:0.3 none:2.5 space:0.3" --wait 16`: `recomecos 1`). Em 0700000d, o exemplo de antes, quem atirava
+Na prática: em 07000012 os inimigos acertam o jogador parado a partir de ~6 s (com o ajuste da fase, x 0,6 do dano no
+Agent, a vida está em 41, 3/7 no HUD, aos 9 s), ele morre aos ~15,3 s (aos ~8,4 s antes do `ReadTuningVars`), a
+cortina desce e, com Enter ou Espaço (a ação 25), a missão fracassa e o menu "Mission Failed" aparece; REPLAY recomeça
+a fase com a vida cheia (`--input "none:17 space:0.3 none:2.5 space:0.3" --wait 23`: `recomecos 1`). Em 0700000d, o exemplo de antes, quem atirava
 logo no começo eram modelos de geradores, que agora saem do mapa na carga.
 
 ### Estatísticas e pontuação (portadas, `src/engine/player_stats.cpp`)
@@ -2244,13 +2300,16 @@ As provas (`seguranca:` na linha `campanha:`, depois das da travessia; o jogador
   projétil, outra explosão): a explosão do script do parâmetro 5 com o dano do parâmetro 0 e o raio do 1 (o original
   tem `Explode_Create` inline: o port chama `Explode_Create` com os mesmos valores, a mina como causadora). As de
   07000015 são minas de laser presas às paredes (dano 80, raio 10 ou 15): andando, o jogador passa rente a uma sem
-  acertá-la; um tiro a explode (a captura de docs/port.md: a besta, a explosão leva o jogador de 100 a 32,9), e o
+  acertá-la; um tiro a explode (a captura de docs/port.md: a besta, a explosão leva o jogador de 100 a 59,8 com o
+  ajuste da fase, x 0,6 no Agent; 32,9 antes do `ReadTuningVars`), e o
   jogador posto no centro dela também (a prova).
 - **Atirador** (0xd2, objeto 0x4e): com o canal do parâmetro 0 ligado, um tiro da arma do parâmetro 1 pela frente (para
   baixo se a classe da arma for 0x3b) e some. 07000001, 07000015, 0700004a.
 - **Inversor** (0x41, objeto 0x53 sem modelo nem sala): com o canal do parâmetro 0 ligado, desliga a cada tick o do 1.
 - **Tremor** (`Apocalypse`, 0x4a, objeto 0x54 sem sala): com o canal do parâmetro 0 ligado (uma vez basta), por
-  parâmetro 1 segundos: a vibração (parâmetro 2), o sacudir da câmera 0 (3: `viewer_tag::shake`) e o clarão (4:
+  parâmetro 1 segundos: a vibração (parâmetro 2), o sacudir da câmera 0 (3: `viewer_tag::shake`; o `Camera_Update`
+  soma à posição dela `Rand_FRand_MVar2_Vec`, entre -tremor/60 m e 0 em cada eixo, a cada tick: ~1,5 cm por quadro no
+  tremor de 07000016, com três sorteios do `Rand` por tick) e o clarão (4:
   `Player_SetFlashBang`, que o port agora tem: o borrão e o esmaecimento branco que `Player_Update` conduz),
   proporcionais ao que falta. 07000014-16, 0700001b.
 

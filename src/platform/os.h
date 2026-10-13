@@ -6,7 +6,7 @@
 // escrever por faixa os arquivos grandes do disco), os leitores de CD/DVD, o relógio de alta resolução e a espera do
 // limite de quadros, a memória virtual (o heap do jogo; a arena da versão de 64 bits), o console e a caixa de erro (a
 // linha de comando chega pelo ponto de entrada, platform/entry.h). Este cabeçalho não traz nada do sistema: os tipos são os do C++ (os identificadores de arquivo são
-// void*), e cada plataforma tem o seu backend (os_win32.cpp: Win32, a mesma API de sempre; o do macOS é a etapa 3).
+// void*), e cada plataforma tem o seu backend (os_win32.cpp: Win32, a mesma API de sempre; os_posix.cpp e os_macos.mm no macOS).
 //
 // Caminhos: std::wstring, como em todo o port (no Windows, UTF-16; no macOS o backend converte de/para UTF-8 nas
 // chamadas do sistema). kPathSep é o separador do sistema: os caminhos montados pelo port usam ele (no Windows, '\\'
@@ -61,12 +61,33 @@ inline std::wstring join(const std::wstring& dir, const std::wstring& rel) {
 
 // O executável em uso (o caminho completo).
 std::wstring exe_path();
+// O pacote de aplicativo em que o executável está (no macOS ".../Nightfire PC.app", quando o executável é o
+// Contents/MacOS/<nome> de um pacote: os recursos ficam em Contents/Resources, docs/port.md "macOS: o pacote e a
+// instalação"); vazio fora de um pacote, e sempre no Windows (sem alocar).
+std::wstring bundle_dir();
+// A conta do bundle_dir sobre um caminho com '/' (testada em toda plataforma): ".../X.app/Contents/MacOS/<nome>" dá
+// ".../X.app"; outro caminho, vazio.
+inline std::wstring bundle_of_exe(const std::wstring& exe) {
+    static constexpr wchar_t kTail[] = L"/Contents/MacOS/";
+    const size_t tail = std::char_traits<wchar_t>::length(kTail);
+    const size_t slash = exe.find_last_of(L'/');
+    if (slash == std::wstring::npos || slash + 1 >= exe.size() || slash + 1 < tail) return {};
+    const size_t app_end = slash + 1 - tail;
+    if (exe.compare(app_end, tail, kTail) != 0) return {};
+    if (app_end <= 4 || exe.compare(app_end - 4, 4, L".app") != 0) return {};
+    return exe.substr(0, app_end);
+}
 // A pasta atual do processo.
 std::wstring current_dir();
 // O caminho absoluto (sem resolver links); o próprio caminho se o sistema recusar.
 std::wstring full_path(const std::wstring& path);
 // A pasta de dados locais do usuário (%LOCALAPPDATA% no Windows; vazia se o sistema não der).
 std::wstring local_data_dir();
+// A pasta dos arquivos do jogador que o programa grava (as opções, os saves; platform/settings.h, psi_card.h), com o
+// separador no fim: no Windows a do executável, como sempre (o port é "portátil"); no macOS
+// ~/Library/Application Support/<app>/, criada se faltar (o executável fica dentro do pacote .app, que não é lugar de
+// gravar; docs/port.md, "macOS: os backends"). Vazia se o sistema não der o executável.
+std::wstring user_files_dir(const wchar_t* app);
 // Uma variável de ambiente (false: não existe).
 bool get_env(const wchar_t* name, std::wstring* value);
 
@@ -133,10 +154,33 @@ private:
 
 // ---------------------------------------------------------------- leitores de CD/DVD
 
-// As raízes dos leitores de CD/DVD ("D:\", "E:\"...; no macOS, os volumes ópticos montados).
+// As raízes dos leitores de CD/DVD ("D:\", "E:\"...; no macOS os volumes montados com o sistema de arquivos de um CD/DVD
+// e os volumes locais de /Volumes com um disco de PS2 na raiz, como uma imagem montada pelo Finder).
 std::vector<std::wstring> optical_drives();
 // A raiz ("D:\") é de um leitor de CD/DVD.
 bool is_optical_drive(const std::wstring& root);
+
+// As raízes de `roots` (com o separador no fim) que têm o arquivo `marker` ("SYSTEM.CNF": um disco de PS2), na ordem.
+inline std::vector<std::wstring> roots_with(const std::vector<std::wstring>& roots, const wchar_t* marker) {
+    std::vector<std::wstring> out;
+    for (std::wstring r : roots) {
+        if (r.empty()) continue;
+        if (r.back() != kPathSep && r.back() != L'/') r += kPathSep;
+        if (exists(r + marker)) out.push_back(r);
+    }
+    return out;
+}
+// O mesmo com as pastas de dentro de `dir`, em ordem de nome (o /Volumes do macOS; os testes, uma pasta temporária).
+inline std::vector<std::wstring> folders_with(const std::wstring& dir, const wchar_t* marker) {
+    std::vector<std::wstring> roots;
+    for (const DirEntry& e : list_dir(dir)) {
+        if (e.dir) roots.push_back(join(dir, e.name));
+    }
+    for (size_t i = 1; i < roots.size(); ++i) {  // em ordem de nome (list_dir dá a do sistema)
+        for (size_t j = i; j > 0 && roots[j] < roots[j - 1]; --j) roots[j].swap(roots[j - 1]);
+    }
+    return roots_with(roots, marker);
+}
 
 // ---------------------------------------------------------------- teclado
 

@@ -747,6 +747,41 @@ void DroneFunc_ConsiderExplosive(DCVars_tag* dcv, obj_tag* obj, int16_t state) {
     Drone_SM_SetState(dcv->sm, 0x86, 0);
 }
 
+// [decomp] 0x001435f0 DroneFunc_HandleExplosives
+// No fim de cada NDrone2_ControlSTANDARD, fora do multijogador e enquanto o personagem não reagiu a um explosivo
+// (explosive_seen): percorre os pontos de atenção (Drone_BuildDynamicAwarePoints) e para no primeiro de tipo 2
+// (granadas e afins, e as nuvens de fumaça) a menos do raio dele, se o personagem reage a granadas (propriedade 0x3b
+// ou 0x3a); se ele vê o objeto (visibilidade >= 0,7 e linha de visão pelo osso 5), manda a si mesmo a mensagem 0x21
+// (DroneFunc_ConsiderExplosive: foge). Peculiaridades mantidas: os pontos de tipo 1 (o projétil da arma 0x36) só
+// consultam as propriedades 0x34 e 0x36 e seguem adiante; o primeiro de tipo 2 no raio encerra a busca mesmo sem
+// visibilidade.
+void DroneFunc_HandleExplosives(DCVars_tag* dcv) {
+    if (bots_on()) return;
+    Drone_tag* d = dcv->drone;
+    if (d->explosive_seen != 0) return;
+    obj_tag* obj = dcv->obj;
+    NPCGLOBALS_tag* n = &NPCGlobals;
+    const DroneAwarePoint_tag* found = nullptr;
+    for (uint32_t i = 0; i < n->aware_count; ++i) {
+        const DroneAwarePoint_tag& p = n->aware_points[i];
+        if (p.kind == 1) {
+            if (behaviour_util_getProperty(0x34, dcv->drone->behaviour) != 0) {
+                behaviour_util_getProperty(0x36, dcv->drone->behaviour);
+            }
+            continue;
+        }
+        if (p.kind != 2) continue;
+        if (behaviour_util_getProperty(0x3b, dcv->drone->behaviour) == 0 &&
+            behaviour_util_getProperty(0x3a, dcv->drone->behaviour) == 0) {
+            continue;
+        }
+        if (!(Vec_SqDist3D(&obj->pos, &p.pos) < p.radius * p.radius)) continue;
+        if (0.7f <= DroneVision_ObjectVisibility(d, p.obj) && NDrone2_CanSeeObject(d, p.obj, 5, 0) != 0) found = &p;
+        break;
+    }
+    if (found != nullptr) Drone_SM_SendMsgSelf(0x21, nf::p32_u(found->obj), 0, 0, dcv);
+}
+
 // [decomp] 0x00145150 NDrone2_SeenAndAttacking
 // Conta, uma vez por volta da música (MusicVars), os inimigos que viram o jogador há pouco e estão
 // atacando; com bastantes (ou um "visto atacando"), liga a música de combate (evento 2).

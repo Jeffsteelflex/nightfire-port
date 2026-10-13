@@ -211,6 +211,29 @@ TEST(disc_iso9660_reads_a_hand_built_image) {
     CHECK(d->folder() == dir.wstring());
 }
 
+TEST(disc_cdr_image_opens_like_an_iso) {
+    // O "DVD/CD master" do Utilitário de Disco do macOS (.cdr) é o mesmo ISO 9660 em setores de 2048 bytes: open_disc o
+    // abre como imagem pelo conteúdo, com qualquer nome; a procura o considera fora do Windows (disc_image_extension).
+    IsoImage img = build_image();
+    const fs::path dir = temp_dir("cdr");
+    write_bytes(dir / "Nightfire.cdr", img.bytes);
+    std::string error;
+    const std::shared_ptr<nf::DiscSource> d = nf::open_disc((dir / "Nightfire.cdr").wstring(), &error);
+    CHECK(d != nullptr && d->kind() == nf::DiscKind::Image);
+    if (d == nullptr) return;
+    CHECK(read_disc(*d, "PS2/ENGLISH/A.TXT") == "hi");
+    CHECK(nf::check_disc(*d, nf::DiscTitle{"SLUS-20579", "teste", {"ACTION.ELF", "FILES.BIN"}, {}, {}}).ok());
+    {
+        const std::wstring ext = (dir / "Nightfire.cdr").extension().wstring();
+        CHECK(ext == L".cdr");
+#if defined(_WIN32)
+        CHECK(!nf::disc_image_extension(ext));
+#else
+        CHECK(nf::disc_image_extension(ext));
+#endif
+    }
+}
+
 TEST(disc_iso9660_refuses_broken_images) {
     std::vector<nf::DiscEntry> files;
     std::string error;

@@ -25,22 +25,89 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+
+#include "driving/physics/obb.h"
 #include "platform/ptr32.h"
 
 namespace drv {
 
 struct RigidBodyInfo;
 struct WWorldPos;
+struct WCollider;
 
-// Os atributos do dono que a física lê (a estrutura que a entrada +0x1d4 da tabela virtual do PhysicsObject
-// devolve; só os campos usados, nos deslocamentos do PS2).
-struct PhysicsAttributes {
-    float lever_scale = 0;       // +0x60: InitLevers grava 1.5 num veículo sem geometria de colisão
-    int32_t special_mode = 0;    // +0xc0: 1 = sem gravidade nem forças iniciais (o dono move o corpo)
-    int32_t skip_ground = 0;     // +0xc4: CollideWithGround não faz nada
-    int32_t alt_layout = 0;      // +0xc8: rodas traseiras no eixo (InitLevers) e a restituição do veículo
-    int32_t heavy_ground = 0;    // +0xcc: gravidade x 0,2 a mais e o chão 10 m mais fundo (TempGetHeightInformation)
+// Os atributos de física de um veículo (a estrutura "CarPhysics" de 0x100 bytes que o sistema de atributos guarda em
+// cada coleção "pvehicle" e que a entrada +0x1d4 da tabela virtual do dono devolve: PVehicle::GetPhysics). Cada campo
+// tem o nome do atributo que o preenche (PVehicle::InitializeGlobals 0x1968f8 registra a chave e o deslocamento; os
+// nomes vieram do nightfire-cxbx, NightfireResearch, e os deslocamentos foram conferidos no PS2).
+struct CarPhysics {
+    int32_t is_4x4;                          // +0x00 IS_4X4
+    int32_t is_rally;                        // +0x04 IS_RALLY
+    float speed_cutoff_reverse;              // +0x08 SPEED_CUTOFF_REVERSE
+    float speed_cutoff_rate_reverse;         // +0x0c SPEED_CUTOFF_RATE_REVERSE
+    float wheel_force_app_scale;             // +0x10 WHEEL_FORCE_APP_SCALE
+    float max_acc;                           // +0x14 MAXACC
+    float max_rev_acc;                       // +0x18 MAXREVACC
+    float max_brake;                         // +0x1c MAXBRAKE
+    float max_steering;                      // +0x20 MAXSTEERING
+    float mod_steer_speed;                   // +0x24 MODSTEERSPEED
+    float min_steer;                         // +0x28 MINSTEER
+    float fric_mod_speed;                    // +0x2c FRIC_MOD_SPEED
+    float fric_mod_range;                    // +0x30 FRIC_MOD_RANGE
+    float fric_mod_min;                      // +0x34 FRIC_MOD_MIN
+    float yaw_stability_factor;              // +0x38 YAW_STABILITY_FACTOR
+    float nose_jump_angle;                   // +0x3c NOSE_JUMP_ANGLE
+    float friction_limit_front;              // +0x40 FRICTIONLIMITFRONT
+    float friction_limit_rear;               // +0x44 FRICTIONLIMITREAR
+    float tyre_grip_factor;                  // +0x48 TYREGRIPFACTOR
+    float slope_scale;                       // +0x4c SLOPE_SCALE
+    float spring_stiffness_front;            // +0x50 SPRING_STIFFNESS_FRONT
+    float spring_stiffness_rear;             // +0x54 SPRING_STIFFNESS_REAR
+    float spring_damping_front;              // +0x58 SPRING_DAMPING_FRONT
+    float spring_damping_rear;               // +0x5c SPRING_DAMPING_REAR
+    float spring_rest_length;                // +0x60 SPRING_REST_LENGTH (InitLevers grava 1,5 num veículo sem
+                                             //       geometria de colisão)
+    float spring_compression_limit;          // +0x64 SPRING_COMPRESSION_LIMIT
+    float spring_compression_limit_draw;     // +0x68 SPRING_COMPRESSION_LIMIT_DRAW
+    float wheel_radius;                      // +0x6c WHEEL_RADIUS
+    float braking_friction;                  // +0x70 BRAKING_FRICTION
+    float accel_frw_ratio;                   // +0x74 ACCEL_FRW_RATIO
+    float coast_frw_ratio;                   // +0x78 COAST_FRW_RATIO
+    float brake_frw_ratio;                   // +0x7c BRAKE_FRW_RATIO
+    float reverse_frw_ratio;                 // +0x80 REVERSE_FRW_RATIO
+    float handbrake_frw_ratio;               // +0x84 HANDBRAKE_FRW_RATIO
+    float rev_handbrake_frw_ratio;           // +0x88 REV_HANDBRAKE_FRW_RATIO
+    float front_slipping_scale;              // +0x8c FRONT_SLIPPING_SCALE
+    float rear_slipping_scale;               // +0x90 REAR_SLIPPING_SCALE
+    float slipping_range;                    // +0x94 SLIPPING_RANGE
+    float handbrake_force;                   // +0x98 HANDBRAKE_FORCE
+    float total_handbrake_friction_scale;    // +0x9c TOTAL_HANDBRAKE_FRICTION_SCALE
+    float handbrake_rw_fric_scale;           // +0xa0 HANDBRAKE_RW_FRIC_SCALE
+    float wheel_spin_scale;                  // +0xa4 WHEELSPINSCALE
+    float ws_speed;                          // +0xa8 WS_SPEED
+    float ws_accel;                          // +0xac WS_ACCEL
+    float counter_steer_scale;               // +0xb0 COUNTER_STEER_SCALE
+    float counter_steer_scale_limit;         // +0xb4 COUNTER_STEER_SCALE_LIMIT
+    int32_t num_blend_steps;                 // +0xb8 NUM_BLEND_STEPS
+    int32_t is_sub;                          // +0xbc IS_SUB
+    int32_t sub_physics;                     // +0xc0 SUB_PHYSICS: 1 = sem gravidade nem forças iniciais (o dono
+                                             //       move o corpo)
+    int32_t no_world_collisions;             // +0xc4 NO_WORLD_COLLISIONS: CollideWithGround não faz nada
+    int32_t is_snowmobile;                   // +0xc8 IS_SNOWMOBILE: rodas traseiras no eixo (InitLevers) e a
+                                             //       restituição do veículo
+    int32_t is_boat;                         // +0xcc IS_BOAT: gravidade x 0,2 a mais e o chão 10 m mais fundo
+    float gear_limit[6];                     // +0xd0 GEAR_LIMITR, GEAR_LIMIT1..5
+    float gear_ratio[6];                     // +0xe8 GEAR_RATIOR, GEAR_RATIO1..5
 };
+static_assert(sizeof(CarPhysics) == 0x100);
+static_assert(offsetof(CarPhysics, spring_rest_length) == 0x60 && offsetof(CarPhysics, num_blend_steps) == 0xb8 &&
+              offsetof(CarPhysics, is_boat) == 0xcc && offsetof(CarPhysics, gear_ratio) == 0xe8);
+using PhysicsAttributes = CarPhysics;
+
+// Um ponto de colisão do modelo (x, y, z, w), como a tabela que GetCollisionGeometry devolve. Com o nome, a função
+// virtual que devolve um ponteiro para eles se declara sem o declarador de ponteiro para vetor, que o GCC não aceita
+// seguido de override.
+using CollisionPoint = float[4];
 
 // O dono de um corpo rígido (port: o PhysicsObject do DRIVING.ELF, só os métodos que a física chama).
 class PhysicsObject {
@@ -54,7 +121,7 @@ public:
     virtual const char* name() { return ""; }
     // PhysicsObject::GetCollisionGeometry: os pontos de colisão do modelo (count = 0: nenhum, usa a caixa) e a altura a
     // somar no y de cada um.
-    virtual const float (*collision_geometry(uint32_t& count, float& y_offset))[4] {
+    virtual const CollisionPoint* collision_geometry(uint32_t& count, float& y_offset) {
         count = 0;
         y_offset = 0;
         return nullptr;
@@ -88,6 +155,32 @@ public:
     // 12 num choque com algum objeto, em cada corpo que não é o parado que leva o impulso todo (salvo com um veículo
     // vivo).
     virtual void play_animation(uint32_t /*id*/) {}
+    // Tabela virtual +0x2c (Simulate): o passo do objeto, que Simulation::SimulateGame chama depois de mover os corpos
+    // (o carro: os controles e as forças das rodas para o próximo passo).
+    virtual void simulate() {}
+
+    // As entradas que os choques (driving/physics/collide.h) chamam. O deslocamento na tabela do PS2 é 8 x (a entrada
+    // do Xbox + 1) + 4; os nomes são os do PBondCar (o nightfire-cxbx, NightfireResearch). Os padrões são os do
+    // PhysicsObject de um objeto sem dono do jogo por trás (nada acontece; o dano conta como pendente).
+    // +0x14 SetInShock(float): o susto de um choque com outro corpo (CollideWithObject).
+    virtual void set_in_shock(float /*shock*/) {}
+    // +0x1c ApplyDamage(COORD3 &de, COORD3 &para, float dano, float divisão, int tipo, sig): o dano de um choque (tipo
+    // 1), do ponto de contato `from` ao centro `to`; devolve as bandeiras (vão ao evento ECollision).
+    virtual int32_t apply_damage(const float from[3], const float to[3], float amount, float split, int32_t kind);
+    // +0x64 GetSplinePath(): um carro guiado por um trilho da IA não leva dano do mundo.
+    virtual uint32_t spline_path() { return 0; }
+    // +0x1ac AddDamageByPlayer(float) e +0x1b4 GetDamageByPlayerTimer().
+    virtual void add_damage_by_player(float /*damage*/) {}
+    virtual int32_t damage_by_player_timer() { return 0; }
+    // +0x1e0 SetAgainstWallFlag(bool): o carro do jogador encostado numa parede (CollideWithWorld).
+    virtual void set_against_wall(bool /*against*/) {}
+    // +0x22c GetIsInTwoWheelMode(): o carro em duas rodas tem a caixa dos choques estreita.
+    virtual bool in_two_wheel_mode() { return false; }
+    // +0x6c GetResetAvailable(): o carro pode ser reposto (capotado); a câmera do jogador troca para a de capotamento.
+    virtual int32_t reset_available() { return 0; }
+
+    // O PhysicsObject +0x60 do PS2: o WCollider do objeto (criado pela primeira colisão com os prédios).
+    std::shared_ptr<WCollider> collider;
 };
 
 // Um dono mínimo (port) para os corpos sem objeto do jogo por trás: atributos zerados, sem geometria, o seu próprio
@@ -96,7 +189,7 @@ class BasicOwner : public PhysicsObject {
 public:
     PhysicsAttributes* attributes() override { return &attr; }
     WWorldPos* world_pos() override { return pos_; }
-    PhysicsAttributes attr;
+    PhysicsAttributes attr{};
     void set_world_pos(WWorldPos* wp) { pos_ = wp; }
 
 private:
@@ -167,16 +260,19 @@ struct LeverParams {
 struct alignas(16) RigidBodyScratch {
     float levers[16][4];        // +0x000 as alavancas em contato (no mundo, relativas ao centro)
     float normals[16][4];       // +0x100 a normal e a penetração de cada uma
-    uint8_t unknown_200[0x160]; // +0x200 (não usado pelo que foi portado)
+    OBB body_box;               // +0x200 a caixa do corpo dos choques (CollideWithObject, CollideWithWorld)
+    OBB other_box;              // +0x2b0 a do outro corpo (CollideWithObject)
     float lever_block[3][4];    // +0x360 o que vai para a memória da VU0 27..29 (ResolveLeverForces)
     P32<RigidBody> vu0_body;    // +0x390 o corpo cujo resultado ainda está na VU0
     P32<RigidBodyInfo> vu0_info;  // +0x394
-    uint32_t unknown_398;
+    uint32_t body_box_valid;    // +0x398 body_box já montada nesta chamada
     uint8_t vu0_busy;           // +0x39c
     uint8_t pad[3];
 };
 static_assert(sizeof(RigidBodyScratch) == 0x3a0);
+static_assert(offsetof(RigidBodyScratch, body_box) == 0x200 && offsetof(RigidBodyScratch, other_box) == 0x2b0);
 static_assert(offsetof(RigidBodyScratch, lever_block) == 0x360);
+static_assert(offsetof(RigidBodyScratch, body_box_valid) == 0x398);
 static_assert(offsetof(RigidBodyScratch, vu0_busy) == 0x39c);
 
 // As constantes de ajuste da física (o bloco de .data 0x3390cc..0x339177 do DRIVING.ELF, com os valores iniciais
@@ -313,6 +409,24 @@ void ResolveMassScaledForce(RigidBody* rb, const float f[4]);
 void ResolveTorque(RigidBody* rb, const float t[4]);
 // [driving] 0x1f8588 RigidBody::SetAngularMomentum(COORD3 &): L = l girado pela orientação.
 void SetAngularMomentum(RigidBody* rb, const float l[4]);
+// [driving] 0x1f8168 RigidBody::ModifyAngularMomentum(COORD3 &): l (no referencial do corpo) girado para o mundo,
+// gravado de volta em l (só o xyz), e somado ao momento angular.
+void ModifyAngularMomentum(RigidBody* rb, float l[4]);
+// [driving] 0x1f8380 RigidBody::GetLocalAngularVelocity(void) e 0x1f8250 RigidBody::GetLocalAngularMomentum(void): a
+// velocidade e o momento angulares no referencial do corpo (o PS2 devolve o COORD3 por valor: o xyz).
+void GetLocalAngularVelocity(const RigidBody* rb, float out[3]);
+void GetLocalAngularMomentum(const RigidBody* rb, float out[3]);
+// [driving] 0x1f8830 RigidBody::ResolveMassScaledForce4(COORD4 &): o mesmo código de ResolveMassScaledForce.
+void ResolveMassScaledForce4(RigidBody* rb, const float f[4]);
+// [driving] 0x1f8888 RigidBody::ResolveMassScaledTorque(COORD3 &) e 0x1f88c8 ResolveMassScaledTorque4(COORD4 &):
+// torque += t * massa (acorda o corpo, sem limpar o bit 1 de +0x7c).
+void ResolveMassScaledTorque(RigidBody* rb, const float t[4]);
+void ResolveMassScaledTorque4(RigidBody* rb, const float t[4]);
+// [driving] 0x1f85c0 RigidBody::SetOrientation(COORD4 &): o quatérnio, a matriz e o tensor inverso no mundo.
+void SetOrientation(RigidBody* rb, const float q[4]);
+// [driving] 0x1f80d8 RigidBody::ApplyHeavyFriction(void): os momentos linear e angular vezes zero (v3scale pela FPU: o
+// zero leva o sinal de cada componente).
+void ApplyHeavyFriction(RigidBody* rb);
 // [driving] 0x1f7c60 RigidBody::ApplyInitialForcesAndTorques(void): zera força e torque, aplica a gravidade (e o
 // arrasto na água, os ajustes dos veículos) e o atrito de um corpo parado no chão.
 void ApplyInitialForcesAndTorques(RigidBody* rb);

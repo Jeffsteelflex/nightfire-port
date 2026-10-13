@@ -34,6 +34,8 @@ struct Renderer::Impl {
     void reset_resources();
     // Textura no índice "slot" (o índice da tabela Tex do jogo); só o primeiro quadro.
     void set_texture(int slot, const Texture& texture);
+    // O conteúdo novo da textura do slot (Renderer::update_texture).
+    void update_texture(int slot, const Texture& texture);
     // Substituta em alta definição para o slot (arquivo DDS: BC1, BC2, BC3, BC7 ou RGBA8). Sem
     // mipmaps no arquivo, a textura é copiada para RGBA8 e ganha mipmaps gerados na GPU.
     bool set_texture_dds(int slot, const std::wstring& path);

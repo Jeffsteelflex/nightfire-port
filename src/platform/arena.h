@@ -55,7 +55,7 @@ Stats stats();
 int run_on_game_stack(int (*fn)(void*), void* arg, size_t stack_bytes = size_t(16) << 20);
 // O backend da troca de pilha (arena_win32.cpp no Windows: os limites da pilha no TEB, a troca em MASM e o filtro de
 // exceções estruturadas): chama fn(arg) com a pilha entre limit (o fim de baixo) e top e devolve o resultado. No macOS
-// (etapa 3): uma thread com pthread_attr_setstack dentro da arena, esperada com join.
+// (arena_posix.cpp): uma thread com pthread_attr_setstack dentro da arena, esperada com join.
 int call_on_stack(int (*fn)(void*), void* arg, void* limit, void* top);
 
 #endif

@@ -32,6 +32,10 @@ struct PsiGfxBackend {
     int (*create_entity)(void* user, const celglist_tag* glist, const map_tag* map) = nullptr;
     // A tabela de texturas recomeçou e o heap vai ser reiniciado: descartar tudo.
     void (*reset)(void* user) = nullptr;
+    // Só do port: o jogo reescreveu os pixels (e a paleta) da textura Tex[index] durante a partida (o fundo animado da
+    // pausa, platform/psi_woman.h): um quadro, nos formatos do create_texture. O backend troca o conteúdo da textura.
+    void (*update_texture)(void* user, int index, const bmpheader_tag& header, const uint8_t* pixels,
+                           uint32_t pixels_bytes, const uint8_t* palette, uint32_t palette_bytes) = nullptr;
 };
 extern PsiGfxBackend g_psi_gfx_backend;
 

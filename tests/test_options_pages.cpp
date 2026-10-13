@@ -670,6 +670,21 @@ TEST(options_ini_rules_boot_default_profile_codename_and_change) {
     CHECK(PlayerSetting[0].auto_switch == 0 && PlayerSetting[0].style == 2);
     CHECK(!nf::game_options_sync());
     CHECK(!g.known[int(GameOption::AutoSwitch)] && g.value[int(GameOption::PadStyle)] == 4 && nf::controls().pad_style == 4);
+    // Exceção do PC: os volumes são da máquina. Um codinome gravado com a música em 15 e os efeitos em 25 não muda a
+    // música, que o .ini conhece (40); os efeitos, que ele não conhece, ficam os do codinome.
+    nf::g_controls_persist = false;
+    nf::set_game_option(GameOption::MusicVolume, 15);
+    nf::set_game_option(GameOption::EffectsVolume, 25);
+    nf::game_options_sync();
+    CHECK(save_profile("QUIET") == 7);
+    nf::set_game_option(GameOption::MusicVolume, 40);
+    nf::set_game_option(GameOption::EffectsVolume, 100);
+    nf::game_options_sync();
+    nf::g_controls_persist = true;
+    CHECK(load_profile("QUIET") == 7);
+    CHECK(SFXMusicGetVolume() == 40 && SFXGetVolume() == 25);
+    CHECK(!nf::game_options_sync());
+    CHECK(g.value[int(GameOption::MusicVolume)] == 40 && !g.known[int(GameOption::EffectsVolume)]);
     // O que vai para o arquivo: as chaves conhecidas de [controls], [ui] e [game], e só elas (a vibração, que ninguém
     // mudou, não é escrita).
     nf::Settings out;

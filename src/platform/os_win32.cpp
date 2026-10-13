@@ -41,6 +41,9 @@ std::wstring exe_path() {
     return std::wstring(buf, n);
 }
 
+// No Windows o programa não fica num pacote de aplicativo (o hd_ui e o resto ficam ao lado do executável).
+std::wstring bundle_dir() { return {}; }
+
 std::wstring current_dir() {
     wchar_t buf[MAX_PATH * 4];
     const DWORD n = GetCurrentDirectoryW(DWORD(std::size(buf)), buf);
@@ -61,6 +64,15 @@ std::wstring local_data_dir() {
     }
     std::wstring dir(base);
     CoTaskMemFree(base);
+    return dir;
+}
+
+// A pasta do executável, com a barra no fim: as mesmas contas (e as mesmas alocações) que settings.cpp e psi_card.cpp
+// faziam antes desta função.
+std::wstring user_files_dir(const wchar_t*) {
+    std::wstring dir = exe_path();
+    const size_t slash = dir.find_last_of(L"\\/");
+    dir = slash == std::wstring::npos ? std::wstring() : dir.substr(0, slash + 1);
     return dir;
 }
 

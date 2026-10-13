@@ -56,6 +56,12 @@ struct CarModel::Impl {
     Vec4 damage_zones[16];
     uint32_t shadow_colour[4] = {0x80303030, 0, 0, 0};
     uint32_t specular_tar = 0, reflection_tar = 0;
+    // Os símbolos do mundo (RCARPFile::RegisterSymbols 0x001a8930): o tempo das texturas animadas (RTimeData), a
+    // posição da câmera (RRenderer + 0x40) e o ReflStretch (0x3336d0), que o microprograma do Reflect não lê; o
+    // EnvironmentMap é o 'bref' (o TAR com o TFX em MODULATE).
+    Vec4 sim_step{}, camera_pos{}, refl_stretch{};
+    Vec4 light_sources[16]{};  // GAME::LightSources: *(RLightManager + 0x7c) (o bloco das luzes, MatDynamicTexture)
+    uint32_t environment_tar = 0;
     std::vector<std::string>* messages = nullptr;
 };
 
@@ -65,7 +71,7 @@ void CarModel::bounds(unsigned view, float lo[3], float hi[3]) const {
         hi[c] = -1e30f;
     }
     auto grow = [&](const CarPart& p, const float* m) {
-        if (!p.vertex_count) return;
+        if (!p.vertex_count && !p.bond_vertex_count) return;
         for (int k = 0; k < 8; ++k) {
             const float v[3] = {(k & 1) ? p.bbox_max[0] : p.bbox_min[0], (k & 2) ? p.bbox_max[1] : p.bbox_min[1],
                                 (k & 4) ? p.bbox_max[2] : p.bbox_min[2]};
@@ -88,6 +94,13 @@ void CarModel::bounds(unsigned view, float lo[3], float hi[3]) const {
     }
     if (lo[0] > hi[0])
         for (int c = 0; c < 3; ++c) lo[c] = hi[c] = 0.0f;
+}
+
+UGroup* CarModel::carp_root() const { return impl_->carp.data ? reinterpret_cast<UGroup*>(impl_->carp.data) : nullptr; }
+
+int CarModel::part_of_model(uint32_t model) const {
+    auto it = part_by_model_.find(model);
+    return it == part_by_model_.end() ? -1 : it->second;
 }
 
 // [driving] 0x001c8ba8 RSceneObj::GetViewDrawList
@@ -198,6 +211,11 @@ bool CarModel::load(const std::string& root, const std::string& viv, const std::
 }
 
 bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const std::string& name, std::string& error) {
+    return load_carp(disc, viv, "data\\car\\model\\" + name + ".crp", {"data\\car\\model\\" + name + ".ssh"}, name, error);
+}
+
+bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, const std::string& crp_key,
+                         const std::vector<std::string>& ssh_keys, const std::string& name, std::string& error) {
     Impl& I = *impl_;
     I.messages = &messages_;
     reset_registries();
@@ -257,7 +275,7 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
             textures_.push_back(std::move(t));
         }
     };
-    load_ssh(I.mission, "data\\car\\model\\" + name + ".ssh");
+    for (const std::string& key : ssh_keys) load_ssh(I.mission, key);
     load_ssh(I.mission, "data\\render\\common.ssh");
     load_ssh(I.mission, "data\\render\\ext.ssh");
     set_shape_lookup(
@@ -306,6 +324,8 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
     std::memset(I.reflection_info1.v, 0, 16);
     I.specular_tar = tar_create("carS", true, true);
     I.reflection_tar = tar_create("bref", true, true);
+    I.environment_tar = tar_create("bref", true, true);
+    ptr_at<uint32_t>(I.environment_tar)[4] &= 0xF9FFFFFFu;  // o TFX em MODULATE (puVar3[4] & 0xf9ffffff)
 
     // A função de resolução do dono (o ResolveEAGLReferences do jogo, 0x001a9440, com o que o port fornece).
     Resolver resolver = [&I](const char* sym, bool& found) -> uint32_t {
@@ -324,11 +344,17 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
         if (!std::strcmp(sym, "GAME::SpecularMap")) return I.specular_tar;
         if (!std::strcmp(sym, "GAME::ReflectionMap")) return I.reflection_tar;
         if (!std::strncmp(sym, "GAME::SwitchData[", 17)) return addr_of(I.switch_data[std::atoi(sym + 17) & 15].v);
-        if (!std::strcmp(sym, "GAME::SwitchData")) return addr_of(I.switch_data[0].v);
+        // Sem índice: a entrada 8 (0x4245a0 = 0x424520 + 8 x 16 no RegisterSymbols do PS2).
+        if (!std::strcmp(sym, "GAME::SwitchData")) return addr_of(I.switch_data[8].v);
         if (!std::strcmp(sym, "GAME::DamageZones") || !std::strcmp(sym, "EAGL::DamageZones"))
             return addr_of(I.damage_zones[0].v);
         if (!std::strcmp(sym, "EAGL::CarShadowColour")) return addr_of(I.shadow_colour);
         if (!std::strncmp(sym, "STATE::", 7)) return addr_of(RStateManager_GetGeoPrimState(sym + 7));
+        if (!std::strcmp(sym, "GAME::SimStep")) return addr_of(I.sim_step.v);
+        if (!std::strcmp(sym, "GAME::CameraPos") || !std::strcmp(sym, "EAGL::CameraPos")) return addr_of(I.camera_pos.v);
+        if (!std::strcmp(sym, "EAGL::ReflStretch")) return addr_of(I.refl_stretch.v);
+        if (!std::strcmp(sym, "GAME::LightSources")) return addr_of(I.light_sources[0].v);
+        if (!std::strcmp(sym, "EAGL::EnvironmentMap")) return I.environment_tar;
         found = false;
         return 0;
     };
@@ -355,9 +381,9 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
     // O CARP do carro: 'ELFd' (cabeçalho e .data) e 'ELFr' (o resto), ligados pelo tamanho do 'ELFd' (o RCARPFile,
     // 0x001a9600: DynamicLoader(elf, tamanho, rel, adiar o Resolve, ResolveEAGLReferences) e depois o Resolve).
     {
-        const int idx = I.mission.find("data\\car\\model\\" + name + ".crp");
+        const int idx = I.mission.find(crp_key);
         if (idx < 0) {
-            error = "sem data\\car\\model\\" + name + ".crp em " + viv;
+            error = "sem " + crp_key + " em " + viv;
             return false;
         }
         std::vector<uint8_t> b;
@@ -378,6 +404,21 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
         if ((reinterpret_cast<uintptr_t>(elf) & 15) != 0) messages_.push_back("o ELF do CARP não está alinhado a 16");
         I.model_loader = std::make_unique<DynamicLoader>(elf, elfd->size(), elfr ? I.carp.data + elfr->data : nullptr,
                                                          true, resolver);
+        if (resolve_carp_) {
+            // [driving] 0x001a9600 RCARPFile::Resolve: o arquivo no espaço "CARP", o modelo como o espaço "EAGL"
+            // (os símbolos definidos do objeto), CARP::ResolveSymbolicReferences e só então o Resolve do modelo.
+            UGroup* root = reinterpret_cast<UGroup*>(I.carp.data);
+            UGroup_Deserialize(root);
+            CarpSymbols symbols;
+            symbols.add_carp_file(root);
+            DynamicLoader* loader = I.model_loader.get();
+            symbols.add_namespace("EAGL", [loader](const char* name, uint32_t& size) -> uint32_t {
+                size = 0;
+                return loader->Find(name);
+            });
+            CARP_ResolveSymbolicReferences(root, symbols);
+            carp_misses_ = symbols.misses;
+        }
         I.model_loader->Resolve();
     }
     for (const std::string& d : diagnostics()) messages_.push_back("carregador: " + d);
@@ -386,6 +427,28 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
 
     // O desenho: cada modelo (peça), cada grupo visível, cada primitiva; o VIF executa a cadeia e cada MSCNT é um lote.
     Vif1 vif;
+    const CarConstants render_constants = constants_;
+    if (verify_ && resolve_carp_) {
+        // Só para a conferência do mundo: constantes que não deixam as contas triviais (as matrizes identidade da carga
+        // deixariam a luz e o mapa de ambiente sem efeito): uma câmera em perspectiva como a MVP, quatro luzes
+        // pontuais perto do centro da pista, a névoa e a posição da câmera. O que se desenha não usa estes valores.
+        static const float kMvp[16] = {1.2f, 0.0f, 0.1f, 0.0f, 0.0f, 1.6f, 0.2f, 0.0f, 0.3f, -0.1f, 1.0f, 1.0f,
+                                       -40.0f, -10.0f, 150.0f, 160.0f};
+        std::memcpy(I.matrices[0], kMvp, sizeof kMvp);
+        for (int L = 0; L < 4; ++L) {
+            constants_.point_pos[0][L] = -300.0f + 160.0f * float(L);
+            constants_.point_pos[1][L] = 5.0f + float(L);
+            constants_.point_pos[2][L] = -200.0f + 90.0f * float(L);
+            constants_.point_pos[3][L] = 0.002f * float(L + 1);
+            for (int c = 0; c < 3; ++c) constants_.point_col[L][c] = 0.05f * float(1 + ((L + c) % 3));
+        }
+        constants_.fog[0] = 5.0f;
+        constants_.fog[2] = 600.0f;
+        constants_.fog[3] = 0.4f;
+        I.camera_pos.v[0] = -350.0f;
+        I.camera_pos.v[1] = 12.0f;
+        I.camera_pos.v[2] = -400.0f;
+    }
     constants_.write(vif.mem);
     const CarMethodLayout* layout = nullptr;
     std::string method_name;
@@ -405,9 +468,11 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
             vertices_.push_back(g);
         }
         std::vector<uint16_t> tris;
-        car_triangles(b, tris);
-        int tex[3] = {-1, -1, -1};
-        for (int p = 0; p < 3; ++p)
+        // O vidro: o vértice que fecha o triângulo vem primeiro (o provocador decide a face de trás no shader).
+        const bool glass = !fallback && b.layout->kind == kCarGlass;
+        car_triangles(b, tris, glass);
+        int tex[kCarMaxPasses] = {-1, -1, -1, -1};
+        for (int p = 0; p < kCarMaxPasses; ++p)
             if (b.pass[p].has_tex0) {
                 const int id = int(b.pass[p].tex0 & 0x3FFF);
                 tex[p] = id < int(textures_.size()) ? id : -1;
@@ -417,16 +482,22 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
                           d->part == part_index &&
                           std::memcmp(d->props, b.props, 16) == 0 && std::memcmp(d->texture, tex, sizeof tex) == 0 &&
                           d->pass[0].prim == b.pass[0].prim && d->pass[0].alpha == b.pass[0].alpha &&
-                          d->pass[0].test == b.pass[0].test && d->pass[1].alpha == b.pass[1].alpha;
+                          d->pass[0].test == b.pass[0].test && d->pass[1].alpha == b.pass[1].alpha &&
+                          d->pass[1].test == b.pass[1].test &&
+                          std::memcmp(d->switch_data, b.switch_data, 16) == 0 &&
+                          std::memcmp(d->switch_param, b.switch_param, 16) == 0;
         if (!same) {
             CarDraw nd;
             nd.method = method;
             nd.passes = passes;
             nd.fallback = fallback;
+            nd.layout = fallback ? nullptr : b.layout;
+            std::memcpy(nd.switch_data, b.switch_data, 16);
+            std::memcpy(nd.switch_param, b.switch_param, 16);
             nd.part = part_index;
             nd.first_index = uint32_t(indices_.size());
             std::memcpy(nd.props, b.props, 16);
-            for (int p = 0; p < 3; ++p) nd.pass[p] = b.pass[p];
+            for (int p = 0; p < kCarMaxPasses; ++p) nd.pass[p] = b.pass[p];
             std::memcpy(nd.texture, tex, sizeof tex);
             draws_.push_back(nd);
             d = &draws_.back();
@@ -451,6 +522,47 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
     // passam pela conversão do passo 1 da família (u16 x I1 - 32, u8 x I2 - 1) e tudo vai em float ao mesmo vertex
     // shader, com a passada base da família (a luz e a névoa). Só para o protótipo mostrar a peça inteira; marcado como
     // substituto nos relatórios.
+    // A família MatBond do mundo (mat_bond.h): os vértices depois do passo 1, as duas passadas (a textura e o ambiente).
+    const BondMethodLayout* bond_layout = nullptr;
+    auto add_bond_batch = [&](const BondBatch& b, const std::string& method) {
+        const uint32_t base = uint32_t(bond_vertices_.size());
+        for (const BondVertexIn& v : b.v) bond_vertices_.push_back(bond_convert(*b.layout, v));
+        std::vector<uint16_t> tris;
+        bond_triangles(b, tris);
+        int tex[kCarMaxPasses] = {-1, -1, -1, -1};
+        for (int p = 0; p < 2; ++p)
+            if (b.pass[p].has_tex0) {
+                const int id = int(b.pass[p].tex0 & 0x3FFF);
+                tex[p] = id < int(textures_.size()) ? id : -1;
+            }
+        const int passes = b.layout->passes;
+        CarDraw* d = draws_.empty() ? nullptr : &draws_.back();
+        const bool same = d && d->family == 1 && d->passes == passes && d->method == method && d->part == part_index &&
+                          std::memcmp(d->texture, tex, sizeof tex) == 0 && d->pass[0].prim == b.pass[0].prim &&
+                          d->pass[0].alpha == b.pass[0].alpha && d->pass[0].test == b.pass[0].test &&
+                          d->pass[0].clamp == b.pass[0].clamp && d->pass[1].alpha == b.pass[1].alpha &&
+                          d->pass[1].prim == b.pass[1].prim;
+        if (!same) {
+            CarDraw nd;
+            nd.method = method;
+            nd.family = 1;
+            nd.passes = passes;
+            nd.part = part_index;
+            nd.first_index = uint32_t(bond_indices_.size());
+            nd.pass[0] = b.pass[0];
+            nd.pass[1] = b.pass[1];
+            std::memcpy(nd.texture, tex, sizeof tex);
+            draws_.push_back(nd);
+            d = &draws_.back();
+        }
+        for (uint16_t t : tris) bond_indices_.push_back(base + t);
+        d->index_count += uint32_t(tris.size());
+        ++stats_.batches;
+        stats_.vertices += b.count;
+        stats_.triangles += int(tris.size() / 3);
+        stats_.method_batches[method]++;
+        stats_.method_triangles[method] += int(tris.size() / 3);
+    };
     const RenderMethodInfo* cur_method = nullptr;
     auto fallback_batch = [&](uint32_t top) {
         CarBatch b;
@@ -563,10 +675,17 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
                 messages_.push_back(b);
             }
             layout = car_method_layout(method_name.c_str());
+            bond_layout = layout ? nullptr : bond_method_layout(method_name.c_str());
             return;
         }
         if (kind != Vif1::kMscnt) return;
-        if (layout) {
+        if (bond_layout) {
+            BondBatch b;
+            if (bond_decode_batch(vif.mem, top, *bond_layout, b)) {
+                if (verify_ && cur_method) bond_verify_batch(cur_method->code, vif.mem, top, b, bond_verify_stats_);
+                add_bond_batch(b, method_name);
+            }
+        } else if (layout) {
             CarBatch b;
             if (car_decode_batch(vif.mem, top, *layout, b)) {
                 if (verify_ && cur_method) car_verify_batch(cur_method->code, vif.mem, top, b, verify_stats_);
@@ -588,8 +707,11 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
         if (!s.defined || std::strcmp(s.type, "Model") != 0) continue;
         CarPart part;
         part.name = s.name;
+        part.address = s.addr;
         part.first_vertex = uint32_t(vertices_.size());
+        part.first_bond_vertex = uint32_t(bond_vertices_.size());
         part_index = int(parts_.size());
+        part_by_model_[s.addr] = part_index;
         const std::vector<ModelGroup> groups = Model_Groups(s.addr);
         part.groups = int(groups.size());
         for (const ModelGroup& g : groups) {
@@ -614,20 +736,28 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
             }
         }
         part.vertex_count = uint32_t(vertices_.size()) - part.first_vertex;
+        part.bond_vertex_count = uint32_t(bond_vertices_.size()) - part.first_bond_vertex;
+        const bool any = part.vertex_count || part.bond_vertex_count;
         for (int c = 0; c < 3; ++c) {
-            part.bbox_min[c] = part.vertex_count ? 1e30f : 0.0f;
-            part.bbox_max[c] = part.vertex_count ? -1e30f : 0.0f;
+            part.bbox_min[c] = any ? 1e30f : 0.0f;
+            part.bbox_max[c] = any ? -1e30f : 0.0f;
         }
         for (uint32_t i = part.first_vertex; i < vertices_.size(); ++i)
             for (int c = 0; c < 3; ++c) {
                 part.bbox_min[c] = std::min(part.bbox_min[c], vertices_[i].pos[c]);
                 part.bbox_max[c] = std::max(part.bbox_max[c], vertices_[i].pos[c]);
             }
+        for (uint32_t i = part.first_bond_vertex; i < bond_vertices_.size(); ++i)
+            for (int c = 0; c < 3; ++c) {
+                part.bbox_min[c] = std::min(part.bbox_min[c], bond_vertices_[i].pos[c]);
+                part.bbox_max[c] = std::max(part.bbox_max[c], bond_vertices_[i].pos[c]);
+            }
         stats_.groups += part.groups;
         stats_.geoprims += part.geoprims;
         parts_.push_back(part);
     }
     stats_.models = int(parts_.size());
+    constants_ = render_constants;
 
     // As instâncias do objeto articulado ('in' do grupo 'Arti', carp.h): cada uma põe uma peça no carro.
     if (const CarpGroup* arti = I.carp_dir.group(carp_tag("Arti"))) {

@@ -44,11 +44,14 @@ std::wstring widen(const std::string& s) { return std::wstring(s.begin(), s.end(
 
 }  // namespace
 
-// hd_ui: a pasta pedida, ou a primeira que tiver map.json entre a do executável e as de cima (o repositório,
-// a partir de build/Release), a dos dados e a atual.
+// hd_ui: a pasta pedida, ou a primeira que tiver map.json entre a dos recursos do pacote (o Contents/Resources do
+// "Nightfire PC.app" do macOS; os::bundle_dir é vazio no Windows, que não ganha candidato nem alocação), a do executável
+// e as de cima (o repositório, a partir de build/Release), a dos dados e a atual.
 std::wstring UiHdApp::find_dir(const std::wstring& option, const std::wstring& data_dir) {
     if (!option.empty()) return option;
     std::vector<std::wstring> candidates;
+    const std::wstring bundle = os::bundle_dir();
+    if (!bundle.empty()) candidates.push_back(os::join(bundle, L"Contents/Resources/hd_ui"));
     std::wstring dir = os::exe_path();
     for (int up = 0; up < 4; ++up) {
         const size_t cut = dir.find_last_of(L"\\/");

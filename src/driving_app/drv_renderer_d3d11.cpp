@@ -31,6 +31,7 @@ namespace {
 const char kShader[] = R"HLSL(
 cbuffer Object : register(b2) {
     row_major float4x4 world;      // a matriz da peça (gpModelMatrix = instância x carro): p' = p x M
+    int4 obj_flags;                // x: 1 sem névoa (RFog::DisableFog), 2 sem luzes pontuais (o céu)
 };
 cbuffer Frame : register(b0) {
     row_major float4x4 view_proj;  // a câmera do PC
@@ -44,12 +45,18 @@ cbuffer Frame : register(b0) {
     float4 refl;                   // VU 0x55 (ReflectionInfo2)
     float4 damage[16];             // VU 0x56-0x65
     float4 fog_color;              // FOGCOL do GS (0..255)
+    float4 camera_pos;             // GAME::CameraPos (o mapa de ambiente do MatBondReflectTexturePacked)
+    row_major float4x4 view;       // a vista do PC (a ModelView do vidro = world x view)
 };
 cbuffer Draw : register(b1) {
     float4 props;   // LightingProperties
-    int4 mode;      // x passada (0, 1, 2), y textura ligada, z névoa (FGE), w substituto
+    int4 mode;      // x o STQ da passada (0 base, 1 especular, 2 reflexo), y textura ligada, z névoa (FGE), w substituto
     int4 gs;        // x TFX, y TCC, z teste de alfa (0 sem, 1 só quem passa, 2 só quem falha), w ATST
     float4 gs2;     // x AREF
+    int4 mode2;     // x o alfa (0 o 128, 1 o w da zona de dano, 2 int(127 - w): o vidro), y a face de trás (o vidro),
+                    // z o passo das luzes (MatCarTextureSwitchPacked)
+    float4 sw;      // SwitchData
+    float4 swp;     // SwitchParam
 };
 Texture2D tex : register(t0);
 SamplerState smp : register(s0);
@@ -68,6 +75,7 @@ struct VSOut {
     noperspective float2 uva : TEXCOORD1;  // as das passadas 2 e 3 (Q = 1: afim na tela, como o GS)
     noperspective float4 col : COLOR0;     // Gouraud do GS: linear na tela, 0..255
     noperspective float fogf : FOG;
+    nointerpolation float kill : KILL;     // o vidro: o ADC da face de trás do vértice que fecha o triângulo (o provocador)
 };
 
 VSOut vs_main(VSIn i) {
@@ -99,6 +107,15 @@ VSOut vs_main(VSIn i) {
     c4 = c4 + point_col[2].xyz * att.z;
     c4 = c4 + point_col[3].xyz * att.w;
     col = trunc(min(c4, 255.0));
+    // As luzes: a cor e o alfa puxados para (s.z, s.z, s.z, s.y) x 255 x k.x por s.w.
+    float alpha_sw = 128.0;
+    if (mode2.z != 0) {
+        float4 target = (float4(sw.zzz, sw.y) * 255.0) * swp.x;
+        float4 v = float4(col, 128.0) * (1.0 - sw.w) + target * sw.w;
+        v = trunc(min(v, 255.0));
+        col = v.rgb;
+        alpha_sw = v.a;
+    }
     // 5. transformação (a do PC) e a névoa do microprograma
     precise float4 clip = mul(float4(pw, 1.0), view_proj);
     o.pos = clip;
@@ -106,7 +123,23 @@ VSOut vs_main(VSIn i) {
     o.fogf = 255.0 - fog.w * (ww - fog.x);
     o.uvp = i.stq;  // interpolado com perspectiva: (soma de s/w) / (soma de z/w), como S/Q no GS
     o.uva = i.stq.xy;
-    o.col = float4(col, 128.0);
+    // O alfa: o 128 da cor de partida; no vidro o w cru da zona de dano (passada 1) ou int(127 - w) (as outras). O GS lê
+    // só os 8 bits de baixo do A do RGBAQ.
+    float alpha = alpha_sw;
+    if (mode2.x != 0) {
+        int zw = asint(z.w);
+        alpha = float((mode2.x == 1 ? zw : int(trunc(float(zw) * -1.0 + 127.0))) & 0xFF);
+    }
+    o.col = float4(col, alpha);
+    o.kill = 0.0;
+    if (mode2.y != 0) {
+        // A face de trás do vidro: n' e p' na câmera (n' = M0 n.x + M1 n.y + M2 n.z, p' = p x M), d = (z + x) + y.
+        float3 nw = world[0].xyz * n.x + world[1].xyz * n.y + world[2].xyz * n.z;
+        float3 nc = view[0].xyz * nw.x + view[1].xyz * nw.y + view[2].xyz * nw.z;
+        float3 pc = mul(float4(pw, 1.0), view).xyz;
+        float dd = (nc.z * pc.z + nc.x * pc.x) + nc.y * pc.y;
+        o.kill = dd >= 0.0 ? 1.0 : 0.0;
+    }
     if (mode.x == 1) {  // 6. o especular: mapa esférico das normais
         float4 E[3];
         [unroll] for (int k3 = 0; k3 < 3; ++k3)
@@ -114,14 +147,52 @@ VSOut vs_main(VSIn i) {
                      spec_mat[3] * world[k3].w) * refl.z;
         float4 e = E[0] * n.x + E[1] * n.y + E[2] * n.z;
         o.uva = e.xy + 0.5;
-        o.col = float4(trunc(props.z * alpha_f).xxx, 128.0);
+        o.col = float4(trunc(props.z * alpha_f).xxx, alpha);
     } else if (mode.x == 2) {  // 7. o reflexo
         float3 v = p * refl.x + n;
         float4 a = (world[0] * refl.y) * v.x + (world[1] * refl.y) * v.y + (world[2] * refl.y) * v.z;
         o.uva = float2(a.x + 0.5, a.z + 0.5);
         float gate = max(a.y, 0.0) * 100000.0;
-        o.col = float4(trunc(min(props.w * alpha_f, gate)).xxx, 128.0);
+        o.col = float4(trunc(min(props.w * alpha_f, gate)).xxx, alpha);
     }
+    return o;
+}
+
+// A família MatBond do mundo (driving/mat_bond.h): a cor do vértice + as luzes pontuais, a transformação, a névoa e,
+// no Reflect, a STQ do mapa de ambiente (passo 2). As duas passadas usam a STQ com perspectiva (S/Q no GS).
+struct BondIn {
+    float4 pos : POSITION;
+    float3 stq : TEXCOORD0;
+    float4 col : COLOR0;
+};
+VSOut vs_bond(BondIn i) {
+    VSOut o;
+    float3 pw = mul(float4(i.pos.xyz, 1.0), world).xyz;
+    float3 col = i.col.rgb;
+    if ((obj_flags.x & 2) == 0) {
+        float4 dx = point_pos[0] - pw.x, dy = point_pos[1] - pw.y, dz = point_pos[2] - pw.z;
+        float4 att = max((dx * dx + dy * dy + dz * dz) * -point_pos[3] + 255.0, 0.0);
+        float3 c = col + point_col[0].xyz * att.x;
+        c = c + point_col[1].xyz * att.y;
+        c = c + point_col[2].xyz * att.z;
+        c = c + point_col[3].xyz * att.w;
+        col = trunc(min(c, 255.0));
+    }
+    precise float4 clip = mul(mul(i.pos, world), view_proj);  // o w da posição (1 nos "Packed"), como o MADDw
+    o.pos = clip;
+    float ww = min(max(clip.w, fog.x), fog.z);
+    float fscale = (obj_flags.x & 1) ? 0.0 : fog.w;
+    o.fogf = 255.0 - fscale * (ww - fog.x);
+    float3 stq = i.stq;
+    if (mode.w == 1) {  // o mapa de ambiente: a direção da câmera (5 m abaixo) ao ponto, x 0,4375
+        float3 d = pw - (camera_pos.xyz - float3(0.0, 5.0, 0.0));
+        d = d * (1.0 / sqrt(dot(d, d))) * 0.4375;
+        stq = float3(0.5 + d.x, 0.5 + d.z, 1.0);
+    }
+    o.uvp = stq;
+    o.uva = stq.xy;
+    o.col = float4(col, i.col.a);
+    o.kill = 0.0;
     return o;
 }
 
@@ -137,6 +208,7 @@ bool alpha_test(float a, int atst, float aref) {
 }
 
 float4 ps_main(VSOut i) : SV_Target {
+    if (i.kill > 0.5) discard;
     float4 cv = i.col;
     float4 c = cv;
     if (mode.y != 0) {
@@ -161,6 +233,7 @@ float4 ps_main(VSOut i) : SV_Target {
 
 struct ObjectCB {
     float world[16];
+    int32_t flags[4];
 };
 struct FrameCB {
     float view_proj[16];
@@ -174,12 +247,17 @@ struct FrameCB {
     float refl[4];
     float damage[16][4];
     float fog_color[4];
+    float camera_pos[4];
+    float view[16];
 };
 struct DrawCB {
     float props[4];
     int32_t mode[4];
     int32_t gs[4];
     float gs2[4];
+    int32_t mode2[4];
+    float sw[4];
+    float swp[4];
 };
 
 void mat_identity(float m[16]) {
@@ -203,27 +281,66 @@ struct DrvRenderer::Impl {
     ComPtr<ID3D11Texture2D> color_ms, color, depth;
     ComPtr<ID3D11RenderTargetView> rtv;
     ComPtr<ID3D11DepthStencilView> dsv;
-    ComPtr<ID3D11VertexShader> vs;
+    ComPtr<ID3D11VertexShader> vs, vs_bond;
     ComPtr<ID3D11PixelShader> ps;
-    ComPtr<ID3D11InputLayout> layout;
-    ComPtr<ID3D11Buffer> vb, ib, cb_frame, cb_draw, cb_object;
-    std::vector<ComPtr<ID3D11ShaderResourceView>> textures;
+    ComPtr<ID3D11InputLayout> layout, layout_bond;
+    ComPtr<ID3D11Buffer> cb_frame, cb_draw, cb_object;
+    // Um modelo enviado: os buffers das duas famílias, as texturas e os desenhos de cada peça.
+    struct ModelGpu {
+        ComPtr<ID3D11Buffer> vb, ib, bvb, bib;
+        std::vector<ComPtr<ID3D11ShaderResourceView>> textures;
+        std::vector<std::vector<size_t>> by_part;
+        float center[3] = {0, 0, 0}, radius = 1;
+    };
+    std::map<const CarModel*, ModelGpu> models;
     std::map<uint32_t, ComPtr<ID3D11SamplerState>> samplers;
     std::map<uint64_t, ComPtr<ID3D11BlendState>> blends;
     std::map<uint32_t, ComPtr<ID3D11DepthStencilState>> depths;
     ComPtr<ID3D11RasterizerState> raster;
     int width = 0, height = 0, samples = 1;
-    float center[3] = {0, 0, 0}, radius = 1;
     bool windowed = false;
 
     bool make_targets(std::string& error);
     ID3D11SamplerState* sampler(uint64_t clamp);
     ID3D11BlendState* blend(uint64_t alpha, bool abe, int mask);
     ID3D11DepthStencilState* depth_state(uint64_t test, bool zwrite);
+    void render(const DrvScene& scene, DrvRenderStats& stats);
 };
 
 DrvRenderer::DrvRenderer() : d_(new Impl) {}
 DrvRenderer::~DrvRenderer() { delete d_; }
+int DrvRenderer::width() const { return d_->width; }
+int DrvRenderer::height() const { return d_->height; }
+
+void drv_mat_mul(const float a[16], const float b[16], float o[16]) { mat_mul(a, b, o); }
+
+void drv_look_at(const float eye[3], const float at[3], float view[16]) {
+    float z[3] = {at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]};
+    const float zl = std::sqrt(z[0] * z[0] + z[1] * z[1] + z[2] * z[2]);
+    for (float& v : z) v /= zl > 0 ? zl : 1.0f;
+    float x[3] = {z[2], 0.0f, -z[0]};  // (0, 1, 0) x z
+    const float xl = std::sqrt(x[0] * x[0] + x[2] * x[2]);
+    if (xl > 1e-6f) {
+        x[0] /= xl;
+        x[2] /= xl;
+    } else {
+        x[0] = 1.0f;
+        x[2] = 0.0f;
+    }
+    const float y[3] = {z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]};
+    const float m[16] = {x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, 0, 0, 0, 1};
+    std::memcpy(view, m, 64);
+    for (int c = 0; c < 3; ++c) {
+        const float* ax = c == 0 ? x : c == 1 ? y : z;
+        view[12 + c] = -(ax[0] * eye[0] + ax[1] * eye[1] + ax[2] * eye[2]);
+    }
+}
+
+void drv_perspective(float fov_y_deg, float aspect, float zn, float zf, float proj[16]) {
+    const float ys = 1.0f / nf::fm::tan(fov_y_deg * 3.14159265f / 360.0f), xs = ys / aspect;
+    const float p[16] = {xs, 0, 0, 0, 0, ys, 0, 0, 0, 0, zf / (zf - zn), 1, 0, 0, -zn * zf / (zf - zn), 0};
+    std::memcpy(proj, p, 64);
+}
 
 bool DrvRenderer::Impl::make_targets(std::string& error) {
     color_ms.Reset();
@@ -329,13 +446,15 @@ bool DrvRenderer::init(void* window, const DrvRenderOptions& opt, std::string& e
     }
     if (!I.make_targets(error)) return false;
 
-    ComPtr<ID3DBlob> vsb, psb, err;
+    ComPtr<ID3DBlob> vsb, vbb, psb, err;
     if (FAILED(D3DCompile(kShader, sizeof kShader - 1, "car.hlsl", nullptr, nullptr, "vs_main", "vs_5_0", 0, 0, &vsb, &err)) ||
+        FAILED(D3DCompile(kShader, sizeof kShader - 1, "car.hlsl", nullptr, nullptr, "vs_bond", "vs_5_0", 0, 0, &vbb, &err)) ||
         FAILED(D3DCompile(kShader, sizeof kShader - 1, "car.hlsl", nullptr, nullptr, "ps_main", "ps_5_0", 0, 0, &psb, &err))) {
         error = err ? std::string(static_cast<const char*>(err->GetBufferPointer()), err->GetBufferSize()) : "D3DCompile";
         return false;
     }
     I.dev->CreateVertexShader(vsb->GetBufferPointer(), vsb->GetBufferSize(), nullptr, &I.vs);
+    I.dev->CreateVertexShader(vbb->GetBufferPointer(), vbb->GetBufferSize(), nullptr, &I.vs_bond);
     I.dev->CreatePixelShader(psb->GetBufferPointer(), psb->GetBufferSize(), nullptr, &I.ps);
     static_assert(offsetof(CarGpuVertex, stq) == 12 && offsetof(CarGpuVertex, normal) == 24 &&
                   offsetof(CarGpuVertex, dmgvec) == 36 && offsetof(CarGpuVertex, dmgnrm) == 52 &&
@@ -350,6 +469,17 @@ bool DrvRenderer::init(void* window, const DrvRenderOptions& opt, std::string& e
     };
     if (FAILED(I.dev->CreateInputLayout(el, 6, vsb->GetBufferPointer(), vsb->GetBufferSize(), &I.layout))) {
         error = "CreateInputLayout";
+        return false;
+    }
+    static_assert(offsetof(BondVertexWork, stq) == 16 && offsetof(BondVertexWork, col) == 28 &&
+                  sizeof(BondVertexWork) == 44);
+    const D3D11_INPUT_ELEMENT_DESC eb[] = {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    };
+    if (FAILED(I.dev->CreateInputLayout(eb, 3, vbb->GetBufferPointer(), vbb->GetBufferSize(), &I.layout_bond))) {
+        error = "CreateInputLayout (mundo)";
         return false;
     }
     D3D11_BUFFER_DESC bd{};
@@ -373,27 +503,29 @@ bool DrvRenderer::init(void* window, const DrvRenderOptions& opt, std::string& e
 
 bool DrvRenderer::upload(const CarModel& car, std::string& error) {
     Impl& I = *d_;
-    if (car.vertices().empty() || car.indices().empty()) {
+    if (car.indices().empty() && car.bond_indices().empty()) {
         error = "modelo sem vértices";
         return false;
     }
-    D3D11_BUFFER_DESC bd{};
-    bd.Usage = D3D11_USAGE_IMMUTABLE;
-    bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    bd.ByteWidth = UINT(car.vertices().size() * sizeof(CarGpuVertex));
-    D3D11_SUBRESOURCE_DATA sd{car.vertices().data(), 0, 0};
-    if (FAILED(I.dev->CreateBuffer(&bd, &sd, &I.vb))) {
-        error = "vertex buffer";
+    Impl::ModelGpu& g = I.models[&car];
+    g = Impl::ModelGpu();
+    auto make = [&](const void* data, size_t bytes, UINT bind, ComPtr<ID3D11Buffer>& out) {
+        if (!bytes) return true;
+        D3D11_BUFFER_DESC bd{};
+        bd.Usage = D3D11_USAGE_IMMUTABLE;
+        bd.BindFlags = bind;
+        bd.ByteWidth = UINT(bytes);
+        D3D11_SUBRESOURCE_DATA sd{data, 0, 0};
+        return SUCCEEDED(I.dev->CreateBuffer(&bd, &sd, &out));
+    };
+    if (!make(car.vertices().data(), car.vertices().size() * sizeof(CarGpuVertex), D3D11_BIND_VERTEX_BUFFER, g.vb) ||
+        !make(car.indices().data(), car.indices().size() * 4, D3D11_BIND_INDEX_BUFFER, g.ib) ||
+        !make(car.bond_vertices().data(), car.bond_vertices().size() * sizeof(BondVertexWork), D3D11_BIND_VERTEX_BUFFER,
+              g.bvb) ||
+        !make(car.bond_indices().data(), car.bond_indices().size() * 4, D3D11_BIND_INDEX_BUFFER, g.bib)) {
+        error = "vertex/index buffer";
         return false;
     }
-    bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    bd.ByteWidth = UINT(car.indices().size() * 4);
-    sd.pSysMem = car.indices().data();
-    if (FAILED(I.dev->CreateBuffer(&bd, &sd, &I.ib))) {
-        error = "index buffer";
-        return false;
-    }
-    I.textures.clear();
     for (const CarTexture& t : car.textures()) {
         D3D11_TEXTURE2D_DESC td{};
         td.Width = UINT(t.width);
@@ -412,13 +544,17 @@ bool DrvRenderer::upload(const CarModel& car, std::string& error) {
             I.dev->CreateShaderResourceView(tex.Get(), nullptr, &srv);
             I.ctx->GenerateMips(srv.Get());
         }
-        I.textures.push_back(srv);
+        g.textures.push_back(srv);
     }
+    g.by_part.assign(car.parts().size(), {});
+    for (size_t i = 0; i < car.draws().size(); ++i)
+        if (car.draws()[i].part >= 0 && size_t(car.draws()[i].part) < g.by_part.size())
+            g.by_part[size_t(car.draws()[i].part)].push_back(i);
     float lo[3], hi[3];
     car.bounds(unsigned(std::max(0, I.opt.view)), lo, hi);
-    for (int c = 0; c < 3; ++c) I.center[c] = 0.5f * (lo[c] + hi[c]);
+    for (int c = 0; c < 3; ++c) g.center[c] = 0.5f * (lo[c] + hi[c]);
     const float dx = hi[0] - lo[0], dy = hi[1] - lo[1], dz = hi[2] - lo[2];
-    I.radius = 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
+    g.radius = 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
     return true;
 }
 
@@ -514,38 +650,180 @@ ID3D11DepthStencilState* DrvRenderer::Impl::depth_state(uint64_t test, bool zwri
     return s.Get();
 }
 
-void DrvRenderer::draw(const CarModel& car, float yaw, float pitch, float dist) {
-    Impl& I = *d_;
+void DrvRenderer::Impl::render(const DrvScene& scene, DrvRenderStats& st) {
+    ctx->ClearRenderTargetView(rtv.Get(), scene.clear);
+    ctx->ClearDepthStencilView(dsv.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
+    D3D11_VIEWPORT vp{0, 0, float(width), float(height), 0, 1};
+    ctx->RSSetViewports(1, &vp);
+    ID3D11RenderTargetView* r = rtv.Get();
+    ctx->OMSetRenderTargets(1, &r, dsv.Get());
+    ctx->RSSetState(raster.Get());
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->PSSetShader(ps.Get(), nullptr, 0);
+    ID3D11Buffer* cbs[3] = {cb_frame.Get(), cb_draw.Get(), cb_object.Get()};
+    ctx->VSSetConstantBuffers(0, 3, cbs);
+    ctx->PSSetConstantBuffers(0, 3, cbs);
+
+    FrameCB f{};
+    mat_mul(scene.view, scene.proj, f.view_proj);
+    const CarConstants& k = scene.k;
+    std::memcpy(f.point_pos, k.point_pos, sizeof f.point_pos);
+    std::memcpy(f.point_col, k.point_col, sizeof f.point_col);
+    std::memcpy(f.fog, k.fog, 16);
+    std::memcpy(f.light_dir_t, k.light_dir_t, sizeof f.light_dir_t);
+    std::memcpy(f.light_col, k.light_col, sizeof f.light_col);
+    std::memcpy(f.ambient, k.ambient, 16);
+    if (scene.spec_from_view) {
+        // O SpecularMat: a rotação da câmera (as normais na vista; ver car_model.h).
+        for (int rr = 0; rr < 4; ++rr)
+            for (int c = 0; c < 4; ++c) f.spec_mat[rr][c] = (rr < 3 && c < 3) ? scene.view[rr * 4 + c] : (rr == c ? 1.0f : 0.0f);
+    } else {
+        std::memcpy(f.spec_mat, k.spec_mat, sizeof f.spec_mat);
+    }
+    std::memcpy(f.refl, k.refl_info2, 16);
+    std::memcpy(f.damage, k.damage, sizeof f.damage);
+    for (int c = 0; c < 3; ++c) f.fog_color[c] = scene.fog_color[c];
+    std::memcpy(f.camera_pos, scene.eye, 16);
+    std::memcpy(f.view, scene.view, 64);
+    D3D11_MAPPED_SUBRESOURCE map;
+    ctx->Map(cb_frame.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map);
+    std::memcpy(map.pData, &f, sizeof f);
+    ctx->Unmap(cb_frame.Get(), 0);
+
+    const float blend_factor[4] = {1, 1, 1, 1};
+    int bound_family = -1;
+    const ModelGpu* bound_model = nullptr;
+    for (const DrvItem& item : scene.items) {
+        auto mit = models.find(item.model);
+        if (mit == models.end()) continue;
+        const ModelGpu& g = mit->second;
+        if (item.part < 0 || size_t(item.part) >= g.by_part.size()) continue;
+        if (opt.only_part >= 0 && item.part != opt.only_part) continue;
+        ObjectCB ob{};
+        std::memcpy(ob.world, item.world, 64);
+        ob.flags[0] = ((item.flags & DrvItem::kNoFog) ? 1 : 0) | ((item.flags & DrvItem::kNoPointLights) ? 2 : 0);
+        ctx->Map(cb_object.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map);
+        std::memcpy(map.pData, &ob, sizeof ob);
+        ctx->Unmap(cb_object.Get(), 0);
+        ++st.instances;
+        for (size_t di : g.by_part[size_t(item.part)]) {
+            const CarDraw& dr = item.model->draws()[di];
+            if (dr.fallback && !opt.fallback) continue;
+            if (bound_family != dr.family || bound_model != &g) {
+                // Os buffers e o shader da família (MatCar ou MatBond) do modelo.
+                ID3D11Buffer* vb = dr.family == 1 ? g.bvb.Get() : g.vb.Get();
+                UINT stride = dr.family == 1 ? sizeof(BondVertexWork) : sizeof(CarGpuVertex), offset = 0;
+                ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+                ctx->IASetIndexBuffer(dr.family == 1 ? g.bib.Get() : g.ib.Get(), DXGI_FORMAT_R32_UINT, 0);
+                ctx->IASetInputLayout(dr.family == 1 ? layout_bond.Get() : layout.Get());
+                ctx->VSSetShader(dr.family == 1 ? vs_bond.Get() : vs.Get(), nullptr, 0);
+                bound_family = dr.family;
+                bound_model = &g;
+            }
+            // As passadas na ordem do microprograma: MatCar base, especular, reflexo (o vidro: DmgTexture, Texture,
+            // especular, reflexo); MatBond o ambiente (bit 1, pass[1]) e depois a textura (bit 0, pass[0]).
+            int order[kCarMaxPasses] = {0, 1, 2, 3};
+            int norder = kCarMaxPasses;
+            if (dr.family == 1) {
+                order[0] = 1;
+                order[1] = 0;
+                norder = 2;
+            }
+            const bool glass = dr.layout && dr.layout->kind == kCarGlass;
+            for (int oi = 0; oi < norder; ++oi) {
+                const int p = order[oi];
+                if (!((dr.passes >> p) & 1)) continue;
+                const int stq_kind = dr.layout ? car_pass_stq(*dr.layout, p) : p;
+                if (dr.family == 0 && stq_kind == 1 && !opt.spec) continue;
+                if (dr.family == 0 && stq_kind == 2 && !opt.refl) continue;
+                if (dr.family == 1 && p == 1 && !opt.refl) continue;
+                const eagl::GsRegs& gr = dr.pass[p];
+                const uint64_t prim = gr.has_prim ? gr.prim : 0x18;
+                const bool tme = (prim >> 4) & 1, fge = (prim >> 5) & 1, abe = (prim >> 6) & 1;
+                const int tex = dr.texture[p];
+                DrawCB c{};
+                std::memcpy(c.props, dr.props, 16);
+                c.mode[0] = dr.family == 1 ? 0 : stq_kind;
+                c.mode2[0] = dr.layout ? car_pass_alpha(*dr.layout, p) : 0;
+                c.mode2[1] = glass ? 1 : 0;
+                c.mode2[2] = dr.layout && dr.layout->kind == kCarSwitch ? 1 : 0;
+                std::memcpy(c.sw, dr.switch_data, 16);
+                std::memcpy(c.swp, dr.switch_param, 16);
+                c.mode[1] = (tme && tex >= 0 && tex < int(g.textures.size()) && g.textures[size_t(tex)]) ? 1 : 0;
+                c.mode[2] = fge ? 1 : 0;
+                c.mode[3] = dr.family == 1 ? p : (dr.fallback ? 1 : 0);
+                c.gs[0] = int((gr.tex0 >> 35) & 3);
+                c.gs[1] = int((gr.tex0 >> 34) & 1);
+                const uint64_t test = gr.has_test ? gr.test : 0x50000;
+                const bool ate = test & 1;
+                const int atst = int(test >> 1) & 7;
+                const int afail = int(test >> 12) & 3;
+                c.gs[3] = atst;
+                c.gs2[0] = float((test >> 4) & 0xFF);
+                const bool zmsk = gr.has_zbuf && ((gr.zbuf >> 32) & 1);
+                ID3D11ShaderResourceView* srv = c.mode[1] ? g.textures[size_t(tex)].Get() : nullptr;
+                ctx->PSSetShaderResources(0, 1, &srv);
+                ID3D11SamplerState* s = sampler(gr.has_clamp ? gr.clamp : 0);
+                ctx->PSSetSamplers(0, 1, &s);
+                // Sem teste de alfa: um desenho. Com teste: quem passa grava tudo; quem falha segue o AFAIL (0 nada, 1 só
+                // o quadro, 2 só o Z, 3 só o RGB).
+                const int sub_count = ate && afail != 0 ? 2 : 1;
+                for (int sub = 0; sub < sub_count; ++sub) {
+                    c.gs[2] = !ate ? 0 : sub == 0 ? 1 : 2;
+                    int mask = D3D11_COLOR_WRITE_ENABLE_ALL;
+                    // O céu sem gravar Z: RSky::Draw (0x001ece18) chama EAGL::RenderContext::SetZWritesEnable(false)
+                    // (0x002913f8) antes das instâncias e (true) depois.
+                    bool zwrite = !zmsk && !(item.flags & DrvItem::kSky);
+                    if (sub == 1) {
+                        if (afail == 1) zwrite = false;
+                        else if (afail == 2) mask = 0;
+                        else if (afail == 3) {
+                            mask = D3D11_COLOR_WRITE_ENABLE_RED | D3D11_COLOR_WRITE_ENABLE_GREEN | D3D11_COLOR_WRITE_ENABLE_BLUE;
+                            zwrite = false;
+                        }
+                    }
+                    ctx->Map(cb_draw.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map);
+                    std::memcpy(map.pData, &c, sizeof c);
+                    ctx->Unmap(cb_draw.Get(), 0);
+                    const float fix = float((gr.alpha >> 32) & 0xFF) / 128.0f;
+                    const float bf[4] = {fix, fix, fix, fix};
+                    ctx->OMSetBlendState(blend(gr.alpha, abe, mask), gr.has_alpha ? bf : blend_factor, 0xFFFFFFFF);
+                    ctx->OMSetDepthStencilState(depth_state(test, zwrite), 0);
+                    ctx->DrawIndexed(dr.index_count, dr.first_index, 0);
+                    ++st.draw_calls;
+                    if (dr.family == 1) ++st.bond_calls;
+                }
+                if (dr.family == 0) ++st.pass_calls[p];
+                if (dr.fallback) ++st.fallback_calls;
+            }
+        }
+    }
+    if (samples > 1) ctx->ResolveSubresource(color.Get(), 0, color_ms.Get(), 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+}
+
+void DrvRenderer::draw_scene(const DrvScene& scene) {
     const std::string adapter_name = stats_.adapter;
     stats_ = DrvRenderStats();
     stats_.adapter = adapter_name;
-    const float clear[4] = {0.18f, 0.20f, 0.23f, 1.0f};
-    I.ctx->ClearRenderTargetView(I.rtv.Get(), clear);
-    I.ctx->ClearDepthStencilView(I.dsv.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
-    D3D11_VIEWPORT vp{0, 0, float(I.width), float(I.height), 0, 1};
-    I.ctx->RSSetViewports(1, &vp);
-    ID3D11RenderTargetView* rtv = I.rtv.Get();
-    I.ctx->OMSetRenderTargets(1, &rtv, I.dsv.Get());
-    I.ctx->RSSetState(I.raster.Get());
-    I.ctx->IASetInputLayout(I.layout.Get());
-    I.ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    UINT stride = sizeof(CarGpuVertex), offset = 0;
-    ID3D11Buffer* vb = I.vb.Get();
-    I.ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
-    I.ctx->IASetIndexBuffer(I.ib.Get(), DXGI_FORMAT_R32_UINT, 0);
-    I.ctx->VSSetShader(I.vs.Get(), nullptr, 0);
-    I.ctx->PSSetShader(I.ps.Get(), nullptr, 0);
-    ID3D11Buffer* cbs[3] = {I.cb_frame.Get(), I.cb_draw.Get(), I.cb_object.Get()};
-    I.ctx->VSSetConstantBuffers(0, 3, cbs);
-    I.ctx->PSSetConstantBuffers(0, 3, cbs);
+    d_->render(scene, stats_);
+}
 
+void DrvRenderer::draw(const CarModel& car, float yaw, float pitch, float dist) {
+    Impl& I = *d_;
+    auto mit = I.models.find(&car);
+    if (mit == I.models.end()) return;
+    const Impl::ModelGpu& g = mit->second;
+    DrvScene scene;
+    scene.clear[0] = 0.18f;
+    scene.clear[1] = 0.20f;
+    scene.clear[2] = 0.23f;
+    scene.clear[3] = 1.0f;
     // A matriz do carro: gira em torno do eixo vertical (y) pelo centro da caixa.
-    FrameCB f{};
     float t[16], rot[16], world[16];
     mat_identity(t);
-    t[12] = -I.center[0];
-    t[13] = -I.center[1];
-    t[14] = -I.center[2];
+    t[12] = -g.center[0];
+    t[13] = -g.center[1];
+    t[14] = -g.center[2];
     mat_identity(rot);
     rot[0] = nf::fm::cos(yaw);
     rot[2] = -nf::fm::sin(yaw);
@@ -553,62 +831,23 @@ void DrvRenderer::draw(const CarModel& car, float yaw, float pitch, float dist) 
     rot[10] = nf::fm::cos(yaw);
     mat_mul(t, rot, world);
     // A câmera: olha a origem de uma distância em função do raio, inclinada de `pitch` (mão esquerda, y para cima).
-    const float d = I.radius * 2.2f * dist;
+    const float d = g.radius * 2.2f * dist;
     const float eye[3] = {0.0f, d * nf::fm::sin(pitch), -d * nf::fm::cos(pitch)};
-    float zaxis[3] = {-eye[0], -eye[1], -eye[2]};
-    const float zl = std::sqrt(zaxis[0] * zaxis[0] + zaxis[1] * zaxis[1] + zaxis[2] * zaxis[2]);
-    for (float& v : zaxis) v /= zl;
-    float xaxis[3] = {zaxis[2], 0.0f, -zaxis[0]};  // up x z
-    const float xl = std::sqrt(xaxis[0] * xaxis[0] + xaxis[2] * xaxis[2]);
-    xaxis[0] /= xl;
-    xaxis[2] /= xl;
-    const float yaxis[3] = {zaxis[1] * xaxis[2] - zaxis[2] * xaxis[1], zaxis[2] * xaxis[0] - zaxis[0] * xaxis[2],
-                            zaxis[0] * xaxis[1] - zaxis[1] * xaxis[0]};
-    float view[16] = {xaxis[0], yaxis[0], zaxis[0], 0, xaxis[1], yaxis[1], zaxis[1], 0, xaxis[2], yaxis[2], zaxis[2], 0,
-                      0,        0,        0,        1};
-    for (int c = 0; c < 3; ++c) {
-        const float* ax = c == 0 ? xaxis : c == 1 ? yaxis : zaxis;
-        view[12 + c] = -(ax[0] * eye[0] + ax[1] * eye[1] + ax[2] * eye[2]);
-    }
-    const float zn = std::max(0.01f, d - I.radius * 1.5f), zf = d + I.radius * 1.5f;
-    const float ys = 1.0f / nf::fm::tan(I.opt.fov_deg * 3.14159265f / 360.0f), xs = ys * float(I.height) / float(I.width);
-    float proj[16] = {xs, 0, 0, 0, 0, ys, 0, 0, 0, 0, zf / (zf - zn), 1, 0, 0, -zn * zf / (zf - zn), 0};
-    mat_mul(view, proj, f.view_proj);
-    const CarConstants& k = car.constants();
-    std::memcpy(f.point_pos, k.point_pos, sizeof f.point_pos);
-    std::memcpy(f.point_col, k.point_col, sizeof f.point_col);
-    std::memcpy(f.fog, k.fog, 16);
-    std::memcpy(f.light_dir_t, k.light_dir_t, sizeof f.light_dir_t);
-    std::memcpy(f.light_col, k.light_col, sizeof f.light_col);
-    std::memcpy(f.ambient, k.ambient, 16);
-    // O SpecularMat: a rotação da câmera (as normais na vista; ver car_model.h).
-    for (int r = 0; r < 4; ++r)
-        for (int c = 0; c < 4; ++c) f.spec_mat[r][c] = (r < 3 && c < 3) ? view[r * 4 + c] : (r == c ? 1.0f : 0.0f);
-    std::memcpy(f.refl, k.refl_info2, 16);
-    std::memcpy(f.damage, k.damage, sizeof f.damage);
-    f.fog_color[0] = f.fog_color[1] = f.fog_color[2] = 128.0f;
-    D3D11_MAPPED_SUBRESOURCE map;
-    I.ctx->Map(I.cb_frame.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map);
-    std::memcpy(map.pData, &f, sizeof f);
-    I.ctx->Unmap(I.cb_frame.Get(), 0);
-
-    const float blend_factor[4] = {1, 1, 1, 1};
+    const float at[3] = {0.0f, 0.0f, 0.0f};
+    drv_look_at(eye, at, scene.view);
+    const float zn = std::max(0.01f, d - g.radius * 1.5f), zf = d + g.radius * 1.5f;
+    drv_perspective(I.opt.fov_deg, float(I.width) / float(I.height), zn, zf, scene.proj);
+    scene.k = car.constants();
+    scene.fog_color[0] = scene.fog_color[1] = scene.fog_color[2] = 128.0f;
     // As peças nas instâncias do objeto articulado (gpModelMatrix = instância x carro), na ordem do CARP; sem
     // instâncias, cada peça uma vez com a matriz do carro.
-    std::vector<std::vector<size_t>> by_part(car.parts().size());
-    for (size_t i = 0; i < car.draws().size(); ++i)
-        if (car.draws()[i].part >= 0 && size_t(car.draws()[i].part) < by_part.size())
-            by_part[size_t(car.draws()[i].part)].push_back(i);
-    struct Placed {
-        int part;
-        float m[16];
-    };
-    std::vector<Placed> placed;
     if (car.instances().empty()) {
-        for (size_t p = 0; p < by_part.size(); ++p) {
-            Placed pl{int(p), {}};
-            std::memcpy(pl.m, world, 64);
-            placed.push_back(pl);
+        for (size_t p = 0; p < g.by_part.size(); ++p) {
+            DrvItem it;
+            it.model = &car;
+            it.part = int(p);
+            std::memcpy(it.world, world, 64);
+            scene.items.push_back(it);
         }
     } else {
         // A lista da vista (RVehicle::SetViewDrawList: a 1 é a de fora); sem ela, todas as instâncias.
@@ -619,80 +858,14 @@ void DrvRenderer::draw(const CarModel& car, float yaw, float pitch, float dist) 
             if (ii >= car.instances().size()) continue;
             const CarInstance& inst = car.instances()[ii];
             if (inst.part < 0) continue;
-            Placed pl{inst.part, {}};
-            mat_mul(inst.matrix, world, pl.m);
-            placed.push_back(pl);
+            DrvItem it;
+            it.model = &car;
+            it.part = inst.part;
+            mat_mul(inst.matrix, world, it.world);
+            scene.items.push_back(it);
         }
     }
-    for (const Placed& pl : placed) {
-        if (I.opt.only_part >= 0 && pl.part != I.opt.only_part) continue;
-        ObjectCB ob;
-        std::memcpy(ob.world, pl.m, 64);
-        I.ctx->Map(I.cb_object.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map);
-        std::memcpy(map.pData, &ob, sizeof ob);
-        I.ctx->Unmap(I.cb_object.Get(), 0);
-        ++stats_.instances;
-        for (size_t di : by_part[size_t(pl.part)]) {
-            const CarDraw& dr = car.draws()[di];
-            if (dr.fallback && !I.opt.fallback) continue;
-            for (int p = 0; p < 3; ++p) {
-                if (!((dr.passes >> p) & 1)) continue;
-                if (p == 1 && !I.opt.spec) continue;
-                if (p == 2 && !I.opt.refl) continue;
-                const eagl::GsRegs& g = dr.pass[p];
-                const uint64_t prim = g.has_prim ? g.prim : 0x18;
-                const bool tme = (prim >> 4) & 1, fge = (prim >> 5) & 1, abe = (prim >> 6) & 1;
-                const int tex = dr.texture[p];
-                DrawCB c{};
-                std::memcpy(c.props, dr.props, 16);
-                c.mode[0] = p;
-                c.mode[1] = (tme && tex >= 0 && tex < int(I.textures.size()) && I.textures[size_t(tex)]) ? 1 : 0;
-                c.mode[2] = fge ? 1 : 0;
-                c.mode[3] = dr.fallback ? 1 : 0;
-                c.gs[0] = int((g.tex0 >> 35) & 3);
-                c.gs[1] = int((g.tex0 >> 34) & 1);
-                const uint64_t test = g.has_test ? g.test : 0x50000;
-                const bool ate = test & 1;
-                const int atst = int(test >> 1) & 7;
-                const int afail = int(test >> 12) & 3;
-                c.gs[3] = atst;
-                c.gs2[0] = float((test >> 4) & 0xFF);
-                const bool zmsk = g.has_zbuf && ((g.zbuf >> 32) & 1);
-                ID3D11ShaderResourceView* srv = c.mode[1] ? I.textures[size_t(tex)].Get() : nullptr;
-                I.ctx->PSSetShaderResources(0, 1, &srv);
-                ID3D11SamplerState* s = I.sampler(g.has_clamp ? g.clamp : 0);
-                I.ctx->PSSetSamplers(0, 1, &s);
-                // Sem teste de alfa: um desenho. Com teste: quem passa grava tudo; quem falha segue o AFAIL (0 nada, 1 só
-                // o quadro, 2 só o Z, 3 só o RGB).
-                const int sub_count = ate && afail != 0 ? 2 : 1;
-                for (int sub = 0; sub < sub_count; ++sub) {
-                    c.gs[2] = !ate ? 0 : sub == 0 ? 1 : 2;
-                    int mask = D3D11_COLOR_WRITE_ENABLE_ALL;
-                    bool zwrite = !zmsk;
-                    if (sub == 1) {
-                        if (afail == 1) zwrite = false;
-                        else if (afail == 2) mask = 0;
-                        else if (afail == 3) {
-                            mask = D3D11_COLOR_WRITE_ENABLE_RED | D3D11_COLOR_WRITE_ENABLE_GREEN | D3D11_COLOR_WRITE_ENABLE_BLUE;
-                            zwrite = false;
-                        }
-                    }
-                    I.ctx->Map(I.cb_draw.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map);
-                    std::memcpy(map.pData, &c, sizeof c);
-                    I.ctx->Unmap(I.cb_draw.Get(), 0);
-                    const float fix = float((g.alpha >> 32) & 0xFF) / 128.0f;
-                    const float bf[4] = {fix, fix, fix, fix};
-                    I.ctx->OMSetBlendState(I.blend(g.alpha, abe, mask), g.has_alpha ? bf : blend_factor, 0xFFFFFFFF);
-                    I.ctx->OMSetDepthStencilState(I.depth_state(test, zwrite), 0);
-                    I.ctx->DrawIndexed(dr.index_count, dr.first_index, 0);
-                    ++stats_.draw_calls;
-                }
-                ++stats_.pass_calls[p];
-                if (dr.fallback) ++stats_.fallback_calls;
-            }
-        }
-    }
-    if (I.samples > 1) I.ctx->ResolveSubresource(I.color.Get(), 0, I.color_ms.Get(), 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+    draw_scene(scene);
 }
 
 void DrvRenderer::present() {

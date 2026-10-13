@@ -326,7 +326,7 @@ void GenerateImpulse(RigidBody* rb, CollisionInfo* out, const float n[4], const 
     if (world && rb->type == 1) {
         PhysicsObject* owner = GetOwner(rb);
         const PhysicsAttributes* attr = owner_attributes(owner);
-        if (owner && attr && attr->special_mode == 0 && owner->virtual_9c() != 1 && owner->virtual_1dc() != 0) {
+        if (owner && attr && attr->sub_physics == 0 && owner->virtual_9c() != 1 && owner->virtual_1dc() != 0) {
             float v70[4] = {};
             owner->virtual_134(v70);
             if (ee::lt(0.75f, ee::abs(v70[0]))) {
@@ -361,7 +361,7 @@ void GenerateImpulse(RigidBody* rb, CollisionInfo* out, const float n[4], const 
     std::memcpy(a4, ang, 16);
     if (world && rb->type < 4) {
         const PhysicsAttributes* attr = owner_attributes(GetOwner(rb));
-        if (attr && attr->special_mode == 0) {
+        if (attr && attr->sub_physics == 0) {
             ConvertToLocalAngularMomentum(rb, a4);
             a4[2] = ee::mul(a4[2], 0.2f);
         }
@@ -372,14 +372,14 @@ void GenerateImpulse(RigidBody* rb, CollisionInfo* out, const float n[4], const 
     }
     if (world && rb->type < 4) {
         const PhysicsAttributes* attr = owner_attributes(GetOwner(rb));
-        if (attr && attr->special_mode == 0) {
+        if (attr && attr->sub_physics == 0) {
             a4[1] = ee::mul(a4[1], 0.2f);
             ConvertFromLocalAngularMomentum(rb, a4);
         }
     }
     if (rb->type < 4) {
         const PhysicsAttributes* attr = owner_attributes(GetOwner(rb));
-        if (attr && attr->special_mode == 1) {
+        if (attr && attr->sub_physics == 1) {
             ConvertWorldToLocal(rb, a4);
             a4[2] = ee::mul(a4[2], ps2::ffloat(0x3e19999au));  // 0,15
             ConvertLocalToWorld(rb, a4);

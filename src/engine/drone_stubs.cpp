@@ -9,12 +9,11 @@
 
 NF_DRONE_STUB(NDrone2_CreateNinjaEyes, (obj_tag*))
 NF_DRONE_STUB(BodyGlow_Delete, (obj_tag*))
-NF_DRONE_STUB(DroneFunc_HandleExplosives, (DCVars_tag*))
-NF_DRONE_STUB(NDrone2_NavNodeCache, ())
 uint8_t Drone_bDontDraw = 0;
 alignas(4) uint8_t MusicVars[36];
 NF_DRONE_STUB(BOT_setGender, (Drone_tag*))
 NF_DRONE_STUB(BOT_postLoadInit, (Drone_tag*))
+NF_DRONE_STUB(BOT_fellOutMap, (obj_tag*))
 NF_DRONE_STUB(BOTWEAP_changeWeapon, (Drone_tag*, uint16_t))
 uint32_t BOT_validateStateChange(DCVars_tag*, uint32_t) {
     pending_call("BOT_validateStateChange");

@@ -1,8 +1,11 @@
 // Testes da visão e percepção da IA (engine/drone_vision.cpp) sem dados do jogo: personagens e salas
-// sintéticos, propriedades de comportamento montadas nas tabelas bitDescs/bitMasks.
+// sintéticos, propriedades de comportamento montadas nas tabelas bitDescs/bitMasks. No fim, o alvo das rotas até o
+// jogador (NDrone2_NavNodeCache), os explosivos à vista (DroneFunc_HandleExplosives), as mensagens às redondezas
+// (Drone_MessageObjVicinity), quem cai do mapa (Drone_FellOutMap) e o controle da Zoe.
 
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 #include "engine/ainetwork.h"
 #include "engine/build.h"
@@ -14,6 +17,7 @@
 #include "engine/hashtable.h"
 #include "engine/memory.h"
 #include "engine/mission.h"
+#include "engine/modules.h"
 #include "engine/npc.h"
 #include "engine/object.h"
 #include "engine/parsemap.h"
@@ -481,4 +485,199 @@ TEST(drone_vision_peek_sfx_skips_commands) {
     hashtable_additem(0x6000124, unknown);
     CHECK(AnimScriptPeekSfx(0x6000124) == 0);  // comando desconhecido antes do som
     CHECK(AnimScriptPeekSfx(0x6000125) == 0);  // sem script
+}
+
+// ---- NDrone2_NavNodeCache, DroneFunc_HandleExplosives, Drone_MessageObjVicinity, Drone_FellOutMap, o controle da Zoe
+
+namespace {
+
+struct Received {
+    uint32_t id;
+    uint32_t msg;
+    uint32_t data;
+};
+std::vector<Received> g_received;
+
+// Estado 0 (o global) de teste: anota as mensagens que não sejam o tick (3) nem entrar/sair (1/2).
+uint32_t record_msgs(DCVars_tag* dcv, Drone_tag*, obj_tag*, MsgObject* m) {
+    if (m->msg > 3) g_received.push_back({dcv->sm->id, m->msg, m->data});
+    return 1;
+}
+
+int received(const Drone_tag* d, uint32_t msg) {
+    int n = 0;
+    for (const Received& r : g_received) n += r.id == d->sm.id && r.msg == msg;
+    return n;
+}
+
+}  // namespace
+
+TEST(drone_nav_node_cache_follows_the_player) {
+    fresh();
+    FloorRoom room;
+    // Sem jogador: nada.
+    NDrone2_NavNodeCache();
+    CHECK(NPCGlobals.player_target.frame == 0 && NPCGlobals.player_target.obj == nullptr);
+    // O jogador (sem animação: os pés são a posição): o alvo das rotas até ele recebe a posição, a sala, o objeto e a
+    // máscara, e a busca dos nós roda (o quadro dela).
+    obj_tag* p = make_obj(3, 3, {4, 1, 5, 0}, room.cel);
+    glb_players[0] = p;
+    GameState.frame = 100;
+    NDrone2_NavNodeCache();
+    const AITarget_tag& t = NPCGlobals.player_target;
+    CHECK(t.pos.pos.x == 4.0f && t.pos.pos.y == 1.0f && t.pos.pos.z == 5.0f && t.pos.cel == room.cel);
+    CHECK(t.obj == p && t.mask == 0x1000000 && t.frame == 100 && t.last.pos.x == 4.0f);
+    // Andou 1 m: o alvo segue, mas a busca não se refaz; andou 2 m desde a última busca: refaz.
+    GameState.frame = 101;
+    p->pos.x = 5.0f;
+    NDrone2_NavNodeCache();
+    CHECK(t.pos.pos.x == 5.0f && t.frame == 100 && t.last.pos.x == 4.0f);
+    GameState.frame = 102;
+    p->pos.x = 6.5f;
+    NDrone2_NavNodeCache();
+    CHECK(t.pos.pos.x == 6.5f && t.frame == 102 && t.last.pos.x == 6.5f);
+    glb_players[0] = nullptr;
+    restore_tables();
+}
+
+TEST(drone_handle_explosives_flees_a_seen_grenade) {
+    fresh();
+    FloorRoom room;
+    NDrone2_StateFuncs[0] = record_msgs;
+    g_received.clear();
+    alignas(16) static BU_tag bu;
+    alignas(16) static weapon_definition_tag def;
+    std::memset(&bu, 0, sizeof(bu));
+    std::memset(&def, 0, sizeof(def));
+    def.id = 0x2c;  // granada: ponto de tipo 2, raio 12
+    bu.weapon = &def;
+    Drone_tag* d = make_drone(0, {0, 1, 0, 0}, room.cel, 1);
+    obj_tag* grenade = make_obj(3, 5, {0, 1, 6, 0}, room.cel);
+    grenade->data = &bu;
+    DynamicObjList.next = grenade;
+    grenade->next = nullptr;
+    Drone_BuildDynamicAwarePoints();
+    DCVars_tag dcv{d->obj, d, room.cel, &d->sm};
+    // Sem as propriedades de quem reage a granadas (0x3a/0x3b): nada.
+    DroneFunc_HandleExplosives(&dcv);
+    CHECK(received(d, 0x21) == 0);
+    // Com a 0x3b, vendo a granada a 6 m (raio 12): a mensagem 0x21 com o objeto.
+    set_prop(d, 0x3b);
+    DroneFunc_HandleExplosives(&dcv);
+    CHECK(received(d, 0x21) == 1 && g_received.back().data == nf::p32_u(grenade));
+    // Já reagiu a um explosivo: nada.
+    d->explosive_seen = 1;
+    DroneFunc_HandleExplosives(&dcv);
+    CHECK(received(d, 0x21) == 1);
+    d->explosive_seen = 0;
+    // Fora do raio, embaixo do piso (sem linha de visão) ou de costas (visibilidade < 0,7): nada.
+    grenade->pos = {0, 1, 13, 0};
+    Drone_BuildDynamicAwarePoints();
+    DroneFunc_HandleExplosives(&dcv);
+    grenade->pos = {0, -2, 6, 0};
+    Drone_BuildDynamicAwarePoints();
+    DroneFunc_HandleExplosives(&dcv);
+    grenade->pos = {0, 1, -6, 0};
+    Drone_BuildDynamicAwarePoints();
+    d->head_yaw = 0.0f;  // olha para +z: a granada fica atrás
+    DroneFunc_HandleExplosives(&dcv);
+    CHECK(received(d, 0x21) == 1);
+    // Peculiaridade: o primeiro ponto de tipo 2 no raio encerra a busca mesmo sem ser visto; a segunda granada, à
+    // vista, fica sem resposta.
+    alignas(16) static BU_tag bu2;
+    bu2 = bu;
+    obj_tag* seen = make_obj(4, 5, {0, 1, 3, 0}, room.cel);
+    seen->data = &bu2;
+    grenade->next = seen;
+    seen->next = nullptr;
+    Drone_BuildDynamicAwarePoints();
+    CHECK(NPCGlobals.aware_count == 2 && NPCGlobals.aware_points[0].obj == grenade);
+    DroneFunc_HandleExplosives(&dcv);
+    CHECK(received(d, 0x21) == 1);
+    // A nuvem de fumaça (tipo 0x2a) também é um ponto de tipo 2 (raio 3).
+    obj_tag* smoke = make_obj(5, 0x2a, {1, 1, 1, 0}, room.cel);
+    DynamicObjList.next = smoke;
+    smoke->next = nullptr;
+    Drone_BuildDynamicAwarePoints();
+    DroneFunc_HandleExplosives(&dcv);
+    CHECK(received(d, 0x21) == 2 && g_received.back().data == nf::p32_u(smoke));
+    // Com os bots ligados não roda.
+    uint32_t on = 1;
+    std::memcpy(MPSettings + 0x184, &on, 4);
+    DroneFunc_HandleExplosives(&dcv);
+    CHECK(received(d, 0x21) == 2);
+    DynamicObjList.next = nullptr;
+    restore_tables();
+}
+
+TEST(drone_message_obj_vicinity_reaches_who_is_near) {
+    fresh();
+    FloorRoom room;
+    NDrone2_StateFuncs[0] = record_msgs;
+    g_received.clear();
+    // O clarão embaixo do piso; um personagem embaixo com ele, outro em cima (o piso o esconde), outro longe.
+    obj_tag* flash = make_obj(5, 5, {0, -2, 0, 0}, room.cel);
+    Drone_tag* above = make_drone(0, {0, 1, 5, 0}, room.cel, 1);
+    Drone_tag* far = make_drone(1, {0, -3, 25, 0}, room.cel, 1);
+    Drone_tag* under = make_drone(2, {3, -3, 3, 0}, room.cel, 1);
+    // Uma mensagem qualquer: todos a até 20 m, com o dado.
+    Drone_MessageObjVicinity(0x30, flash, 20.0f, 7, 0);
+    CHECK(received(above, 0x30) == 1 && received(far, 0x30) == 0 && received(under, 0x30) == 1);
+    CHECK(g_received.back().data == 7);
+    // A do clarão (0x18): só quem vê o objeto.
+    Drone_MessageObjVicinity(0x18, flash, 20.0f, 0, 0);
+    CHECK(received(above, 0x18) == 0 && received(far, 0x18) == 0 && received(under, 0x18) == 1);
+    // Só personagens (tipo 2 ou 0x11) e o sistema ligado.
+    above->obj->type = 0x1c;
+    Drone_MessageObjVicinity(0x31, flash, 20.0f, 0, 0);
+    CHECK(received(under, 0x31) == 1 && received(above, 0x31) == 0);
+    Drone_bDisableSystem = 1;
+    Drone_MessageObjVicinity(0x32, flash, 20.0f, 0, 0);
+    CHECK(received(under, 0x32) == 0);
+    Drone_bDisableSystem = 0;
+    restore_tables();
+}
+
+TEST(drone_fell_out_map_is_switched_off_and_deleted) {
+    fresh();
+    Drone_tag* d = make_drone(0, {0, 1, 0, 0}, nullptr, 1);
+    d->flags = 0x801a0;
+    Drone_FellOutMap(d->obj);
+    CHECK((d->obj->life & 1) != 0 && (d->obj->flags & 0x30) == 0x30 && (d->flags & 0x180) == 0);
+    // Sem dados de personagem: só a remoção.
+    obj_tag* o = make_obj(3, 2, {0, 0, 0, 0}, nullptr);
+    Drone_FellOutMap(o);
+    CHECK((o->life & 1) != 0 && o->flags == 0);
+    restore_tables();
+}
+
+TEST(drone_zoe_control_channels_and_failure) {
+    fresh();
+    FloorRoom room;
+    Drone_tag* zoe = make_drone(0, {0, 1, 0, 0}, room.cel, 2);
+    obj_tag* p = make_obj(3, 3, {0, 1, 5, 0}, room.cel);
+    std::memset(&g_bloke, 0, sizeof(g_bloke));
+    p->data = &g_bloke;
+    g_bloke.health = 100.0f;
+    glb_players[0] = p;
+    std::memset(switch_channels, 0, 0x100);
+    GameState.frame = 500;
+    DCVars_tag dcv{zoe->obj, zoe, room.cel, &zoe->sm};
+    // O controle padrão roda depois (o alerta acima de 1 cai para 1).
+    zoe->alert = 5.0f;
+    NDrone2_ControlDTYPE_Zoe(&dcv);
+    CHECK(zoe->alert == 1.0f && switch_channels[0x9b] == 0 && switch_channels[99] == 0);
+    // O canal 1 liga o 0x9b (com o quadro); com o jogador a 5 m, a missão segue.
+    switch_channels[1] = 1;
+    NDrone2_ControlDTYPE_Zoe(&dcv);
+    CHECK(switch_channels[0x9b] == 1 && switch_channels_time[0x9b] == 500 && switch_channels[99] == 0);
+    // O jogador a mais de 10 m: a missão fracassa (canal 99).
+    switch_channels[1] = 0;
+    p->pos = {0, 1, 10.5f, 0};
+    GameState.frame = 501;
+    NDrone2_ControlDTYPE_Zoe(&dcv);
+    CHECK(switch_channels[99] == 1 && switch_channels_time[99] == 501 && switch_channels_time[0x9b] == 500);
+    std::memset(switch_channels, 0, 0x100);
+    glb_players[0] = nullptr;
+    restore_tables();
 }

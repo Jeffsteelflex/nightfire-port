@@ -29,6 +29,15 @@ src/*_posix.cpp
 src/*_posix.h
 src/*_macos.cpp
 src/*_macos.h
+src/*_macos.mm
+# O renderizador do macOS (etapa 3d; docs/port.md, "macOS: o renderizador Metal").
+src/*_metal.mm
+src/*_metal.h
+# O desenho vetorial do macOS (CoreGraphics e CoreText; docs/port.md, "macOS: o desenho vetorial").
+src/*_cg.mm
+# A ferramenta de comparação do desenho vetorial (nf_vector_check): o Direct2D de hoje por trás da interface do macOS, as
+# imagens de referência.
+tests/*_d2d.cpp
 
 [regras]
 # Os cabeçalhos do sistema e das APIs do Windows.
@@ -60,8 +69,9 @@ include dwmapi.h
 # Do MSVC: só nos ajudantes de compiler.h.
 include intrin.h src/platform/compiler.h
 include malloc.h
-# A matemática da câmera do laço (só cabeçalhos, portável: github.com/microsoft/DirectXMath).
-include directxmath.h src/app/app_main.cpp
+# A matemática da câmera do laço (só cabeçalhos, portável: github.com/microsoft/DirectXMath); o teste compara com ela a
+# cópia do port para fora do Windows (src/app/xmath_compat.h).
+include directxmath.h src/app/app_main.cpp tests/test_macos.cpp
 # Os cabeçalhos do POSIX, do macOS e do Linux (os backends *_posix, *_macos).
 include unistd.h
 include sys/*
@@ -89,6 +99,17 @@ include CoreAudio/*
 include AudioToolbox/*
 include GameController/*
 include objc/*
+include AudioUnit/*
+include ImageIO/*
+include CoreGraphics/*
+include CoreText/*
+include ApplicationServices/*
+include Carbon/*
+include CoreServices/*
+include IOKit/*
+include UniformTypeIdentifiers/*
+include CoreHaptics/*
+include dispatch/*
 # strcasecmp e strncasecmp (crt_compat.h, fora do MSVC).
 include strings.h src/platform/crt_compat.h
 # Os cabeçalhos internos dos backends.
@@ -97,6 +118,7 @@ include render/gpu_adapters_dxgi.h
 include render/movie_layer_d3d11.h
 include render/ui_hd_draw_d2d.h
 include render/ui_modern_draw_d2d.h
+include render/gpu_adapters_metal.h
 
 # Os tipos e as funções do Windows, do COM e das APIs gráficas e de som.
 token HWND
@@ -194,6 +216,24 @@ token dl_iterate_phdr
 token pthread_*
 token mach_*
 token _NSGetExecutablePath
+token dispatch_*
+token CGEvent*
+token CGDisplay*
+token CGAssociateMouseAndMouseCursorPosition
+token CGImage*
+token CGContext*
+token CGPath*
+token CGGradient*
+token CTFont*
+token CTLine*
+token CGSessionCopyCurrentDictionary
+token UCKeyTranslate
+token TISCopy*
+token AudioComponent*
+token AudioUnit*
+token AudioOutputUnit*
+token GCController*
+token NSApp
 token os_unfair_lock*
 token getcwd
 token readlink

@@ -160,9 +160,12 @@ void Mission_ObjectiveState(OBJ_STATE* out, uint16_t index) {
 // [decomp] 0x001827d8 Mission_MonitorObjectives
 // Um tick dos objetivos da missão (ver mission.h): anuncia, cumpre, fracassa; os canais 0x60/0x61 e
 // os de 07000016/0700001b fracassam a missão (canal 99) com um rótulo de falha; tudo satisfeito
-// liga o canal 100.
+// liga o canal 100. Peculiaridade mantida: o "tudo satisfeito" é um AND com o byte cru do canal (0x1828b4 lbu,
+// 0x1828c0 and; o 1 do começo só guarda o bit 0), então um canal com valor par (2, 4...) conta como não cumprido,
+// embora o caso 3 (anunciar "cumprido") aceite qualquer valor diferente de zero. Os objetivos invertidos usam
+// (byte == 0), que é 0 ou 1.
 void Mission_MonitorObjectives() {
-    bool all = true;
+    uint8_t all = 1;
     for (uint32_t i = 0; i < kMissionCount; i = uint16_t(i + 1)) {
         MISSIONDATA_tag& m = MissionData[i];
         if (m.base_map != BaseMap) continue;
@@ -171,8 +174,9 @@ void Mission_MonitorObjectives() {
             OBJECTIVE_tag& o = m.objectives[k];
             char* text = Txt_GetStringFromHeap(0);
             const bool inverted = (o.flags & 2) != 0;
-            const bool satisfied = inverted ? switch_channels[o.channel] == 0 : switch_channels[o.channel] != 0;
-            all = all && satisfied;
+            const uint8_t value = inverted ? uint8_t(switch_channels[o.channel] == 0) : switch_channels[o.channel];
+            const bool satisfied = value != 0;
+            all &= value;
             switch (o.state) {
                 case 0:
                     if (m.level <= GameState.level_file) {
@@ -231,7 +235,7 @@ void Mission_MonitorObjectives() {
         switch_channels[99] = 1;
         switch_channels_time[99] = GameState.frame;
     }
-    if (all) {
+    if (all != 0) {
         switch_channels[100] = 1;
         switch_channels_time[100] = GameState.frame;
         Music_Event(8, 1);

@@ -145,8 +145,13 @@ std::shared_ptr<DiscSource> open_disc(const std::wstring& path, std::string* err
 using DiscReader = std::function<size_t(uint64_t offset, void* dst, size_t n)>;
 bool parse_iso9660(const DiscReader& read, uint64_t image_size, std::vector<DiscEntry>* out, std::string* error);
 
-// As unidades de CD/DVD do PC ("D:\", "E:\"...), sem as caixas "insira um disco" do Windows.
+// As unidades de CD/DVD do PC ("D:\", "E:\"...), sem as caixas "insira um disco" do Windows; no macOS os volumes
+// ópticos e os de /Volumes com um disco de PS2 (platform/os.h).
 std::vector<std::wstring> optical_drives();
+// A extensão (minúscula, com o ponto) é a de uma imagem de disco que a procura considera: ".iso"; fora do Windows também
+// ".cdr" (o "DVD/CD master" do Utilitário de Disco do macOS, o mesmo ISO 9660). open_disc abre qualquer arquivo com o
+// ISO 9660, com qualquer nome.
+bool disc_image_extension(const std::wstring& ext);
 
 // ---------------------------------------------------------------- a versão
 

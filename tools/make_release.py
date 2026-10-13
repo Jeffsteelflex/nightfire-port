@@ -64,7 +64,21 @@ def find_redist():
     return None
 
 
-def check_tree(stage, secrets):
+def tracked_hd_ui():
+    """Os arquivos do hd_ui que vão para os jogadores: os que o git conhece (o hd_ui/fonts do usuário fica de fora),
+    caminhos com '/' a partir da raiz. A mesma lista no zip do Windows e no pacote do macOS (tools/make_release_mac.py
+    troca o Contents/Resources/hd_ui do pacote por ela; o CMakeLists.txt monta o da build com o mesmo git ls-files)."""
+    tracked = [p for p in git("ls-files", "hd_ui").splitlines() if p]
+    if not tracked:
+        sys.exit("git ls-files hd_ui não deu nada")
+    return tracked
+
+
+def check_tree(stage, secrets, large_ok=None):
+    """Os problemas da pasta montada: um arquivo ou uma pasta do disco, um arquivo grande que não é um dos de large_ok
+    (o padrão: LARGE_OK, os do Windows) e os textos de secrets [(o que é, o texto)] em UTF-8 ou UTF-16. O zip do macOS
+    (tools/make_release_mac.py) usa a mesma regra."""
+    large_ok = LARGE_OK if large_ok is None else large_ok
     problems = []
     for dirpath, dirnames, filenames in os.walk(stage):
         rel_dir = os.path.relpath(dirpath, stage)
@@ -77,7 +91,7 @@ def check_tree(stage, secrets):
             if any(fnmatch.fnmatch(low, p) for p in FORBIDDEN_NAMES):
                 problems.append("arquivo proibido: " + rel)
             size = os.path.getsize(os.path.join(dirpath, f))
-            if size > (4 << 20) and not any(fnmatch.fnmatch(low, p) for p in LARGE_OK):
+            if size > (4 << 20) and not any(fnmatch.fnmatch(low, p) for p in large_ok):
                 problems.append("arquivo grande demais para ser do port: %s (%d bytes)" % (rel, size))
             data = open(os.path.join(dirpath, f), "rb").read()
             for label, s in secrets:
@@ -122,10 +136,7 @@ def main():
     for dll in ("msvcp140.dll", "vcruntime140.dll"):
         copy(os.path.join(redist, dll), dll)
     # O hd_ui que o git conhece (a pasta fonts do usuário fica de fora).
-    tracked = [p for p in git("ls-files", "hd_ui").splitlines() if p]
-    if not tracked:
-        sys.exit("git ls-files hd_ui não deu nada")
-    for p in tracked:
+    for p in tracked_hd_ui():
         dst = os.path.join(stage, *p.split("/"))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(os.path.join(ROOT, *p.split("/")), dst)
