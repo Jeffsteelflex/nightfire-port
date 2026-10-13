@@ -3,7 +3,6 @@
 // os da camada 2D (Sprite_Create2 na SpriteList); sem arquivo de texto, só o rótulo 0 (uma string do
 // StringHeap) tem texto.
 
-#include <windows.h>
 
 #include <cstdio>
 #include <cstring>
@@ -11,6 +10,7 @@
 #include <vector>
 
 #include "engine/anim.h"
+#include "platform/keys.h"
 #include "engine/build.h"
 #include "engine/collide.h"
 #include "engine/game.h"
@@ -513,9 +513,9 @@ TEST(hud_ammo_after_fire_and_reload) {
     // A pilha de balas: 7 de 4 pixels sobre o fundo do pente inteiro.
     CHECK(w.spr(kHudAmmo, 5)->h == 28 && w.spr(kHudAmmo, 6)->h == 28);
     CHECK(w.spr(kHudAmmo, 5)->u == 10 && w.spr(kHudAmmo, 5)->w == 8);
-    w.press(VK_LBUTTON, true);
+    w.press(nf::key::LButton, true);
     w.tick();
-    w.press(VK_LBUTTON, false);
+    w.press(nf::key::LButton, false);
     w.tick();
     CHECK(w.b->weapons[2].rounds == 6);
     CHECK(w.ammo_text() == "6-20");

@@ -30,7 +30,7 @@
 //
 // Sem GPU: a tela recebe a entrada de cada quadro de vídeo (UiInput, montada pelo main a partir do estado do
 // teclado, do mouse e do controle), anda as animações em tempo real e monta uma lista de desenho (DrawList)
-// na tela virtual de 1920 x 1080 (modern_ui.h); o renderizador (render/ui_modern_draw.h) desenha. Os testes
+// na tela virtual de 1920 x 1080 (modern_ui.h); o renderizador (render/ui_modern_draw_d2d.h) desenha. Os testes
 // usam a mesma tela com comandos e cliques sintéticos.
 
 #include <cstdint>
@@ -193,6 +193,7 @@ private:
     void set_focus(int i, bool animate = true);
     void set_category(Cat c, bool animate = true);
     void ensure_visible(int i);
+    void reveal_open_list();  // ao abrir uma lista: ela inteira, ou a opção atual no meio se não couber
     float content_height() const;
     float view_height() const;
     float row_screen_y(int i) const;  // topo do item na tela virtual

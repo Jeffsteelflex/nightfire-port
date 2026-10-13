@@ -1,0 +1,151 @@
+# A build headless fora do Windows (etapa 3a do macOS; docs/port.md, "macOS: compilação e CI"): o código neutro, o
+# nf_tests e as ferramentas de conferência com o backend POSIX do sistema operacional (a arena e a pilha do jogo de
+# verdade) e os nulos no resto. Nenhum dado do jogo entra aqui (nem segredos, nem artefatos tirados do disco): o cache
+# guarda só os objetos compilados do código (ccache).
+#
+# Quando roda: um push no ramo ci/portable, ou à mão (workflow_dispatch, depois que este arquivo estiver no main). Nunca
+# a cada push no main. Um push novo no mesmo ramo cancela a rodada em andamento.
+#
+# Os minutos: no repositório privado o Linux conta 1x e o macOS 10x (e o plano gratuito tem poucos minutos de macOS).
+# Por isso o Linux vem primeiro (GCC e clang: a maior parte dos problemas de portabilidade aparece ali), e o macOS só
+# roda se o Linux passou; o ccache guarda os objetos entre as rodadas (uma rodada que muda poucos arquivos recompila só
+# eles).
+
+name: portable
+
+on:
+  push:
+    branches: ['ci/portable']
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: 'Rodar também o macOS (cada minuto conta 10 no plano gratuito)'
+        type: boolean
+        default: true
+
+concurrency:
+  group: portable-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHONIOENCODING: utf-8
+  CCACHE_MAXSIZE: 800M
+  CCACHE_COMPRESS: 'true'
+  NF_ARENA_INFO: "1"
+
+jobs:
+  linux:
+    name: Linux x86_64 (${{ matrix.cxx }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ferramentas
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ninja-build ccache
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+          cmake --version | head -n 1
+          ninja --version
+          ${{ matrix.cxx }} --version | head -n 1
+          nproc
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: ccache-linux-${{ matrix.cxx }}-${{ github.sha }}
+          restore-keys: ccache-linux-${{ matrix.cxx }}-
+      - name: Configurar
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNF_HEADLESS=ON
+          -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Compilar
+        # -k 0: todos os erros de uma vez (a Ninja para no primeiro por padrão).
+        run: |
+          cmake --build build --parallel -- -k 0
+          ccache --show-stats | head -n 12
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: ~/.ccache
+          key: ccache-linux-${{ matrix.cxx }}-${{ github.sha }}
+      - name: nf_tests
+        # Numa queda, a pilha traduzida em funções e linhas (tools/ci/symbolize.py).
+        run: |
+          set +e
+          ./build/nf_tests 2>&1 | tee nf_tests.txt
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then python3 tools/ci/symbolize.py nf_tests.txt build/nf_tests; fi
+          exit "$rc"
+      - name: Separação da plataforma
+        run: python3 tools/check_platform.py
+
+  macos:
+    name: macOS 14 arm64 (Apple clang)
+    needs: linux
+    if: github.event_name != 'workflow_dispatch' || inputs.macos
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Máquina e ferramentas
+        run: |
+          sw_vers
+          uname -m
+          sysctl -n machdep.cpu.brand_string
+          sysctl -n hw.ncpu
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install -q ninja ccache
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+          xcrun clang++ --version | head -n 1
+          cmake --version | head -n 1
+          ninja --version
+      - name: Metal no runner
+        run: |
+          xcrun clang -fobjc-arc -framework Foundation -framework Metal tools/ci/metal_probe.m -o "$RUNNER_TEMP/metal_probe"
+          "$RUNNER_TEMP/metal_probe"
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: ccache-macos-${{ github.sha }}
+          restore-keys: ccache-macos-
+      - name: Configurar
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNF_HEADLESS=ON
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Compilar
+        run: |
+          cmake --build build --parallel "$(sysctl -n hw.ncpu)" -- -k 0
+          ccache --show-stats | head -n 12
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: ~/.ccache
+          key: ccache-macos-${{ github.sha }}
+      - name: nf_tests
+        run: |
+          set +e
+          ./build/nf_tests 2>&1 | tee nf_tests.txt
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then python tools/ci/symbolize.py nf_tests.txt build/nf_tests; fi
+          exit "$rc"
+      - name: Separação da plataforma
+        run: python tools/check_platform.py
+      - name: Autotestes das ferramentas Python (sem dados do jogo)
+        run: |
+          python tools/vudis.py --test
+          python tools/xbox.py test
+          python tools/xbox_match.py test
+          python tools/driving_sym.py test
+          python tools/driving_data.py test
+          python tools/movies.py test
+          python tools/sound.py test
+          python tools/pcsx2_pine.py test

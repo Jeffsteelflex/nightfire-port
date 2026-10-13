@@ -1,7 +1,6 @@
 // Testes da travessia (engine/player_traverse.h): escada, tirolesa, corda, gancho, ícones de toque e a câmera de
 // acompanhamento, com um jogador num mundo sem geometria (como test_player.cpp).
 
-#include <windows.h>
 
 #include <cmath>
 #include <cstdio>
@@ -9,6 +8,7 @@
 #include <vector>
 
 #include "engine/anim.h"
+#include "platform/keys.h"
 #include "engine/build.h"
 #include "engine/collide.h"
 #include "engine/gameflow.h"
@@ -251,12 +251,12 @@ TEST(climb_jump_without_forward_lets_go_backwards) {
     w.player->rot.y = kPi;
     w.player->pos = {0.0f, 3.0f, 1.0f, 1.0f};
     Player_CollLadder(w.player, w.b, l);
-    key(VK_SPACE, true);
+    key(nf::key::Space, true);
     // Player_Climb sozinho: pular com o analógico parado solta, com a velocidade para trás (-0,2 / FRAME_RATE_DIV / 4).
     w.tick();
     CHECK(w.player->unknown_f6 == kPlrWalk);
     CHECK(w.b->traverse_wait == int8_t(FRAME_RATE));
-    key(VK_SPACE, false);
+    key(nf::key::Space, false);
 }
 
 TEST(zipline_grabs_upper_half_and_slides_down_the_wire) {
@@ -341,9 +341,9 @@ TEST(rope_hangs_moves_sideways_and_tires_out) {
     const _VECTOR e2{r->sphere.x - off.x, r->sphere.y, r->sphere.z - off.z, 1.0f};
     CHECK(dist_to_line(hand, e1, e2) < 0.1f);
     // Pular solta.
-    key(VK_SPACE, true);
+    key(nf::key::Space, true);
     w.tick();
-    key(VK_SPACE, false);
+    key(nf::key::Space, false);
     CHECK(w.player->unknown_f6 == kPlrWalk && w.b->traverse_wait == 0x1e);
 }
 
@@ -376,7 +376,7 @@ TEST(grapple_pulls_faster_each_tick_and_holds_while_firing) {
     obj_tag* target = w.thing(0x51, {0.0f, 12.0f, 0.0f, 0.5f}, 0.0f, 0.0f, 0);
     Player_SetGrapplePoint(w.b, &point, target);
     CHECK(w.player->unknown_f6 == kPlrGrapple && w.b->unknown_15c == 1 && w.b->grapple_wait == 0xf);
-    key(VK_LBUTTON, true);
+    key(nf::key::LButton, true);
     float last = Vec_Dist3D(&w.player->pos, &point);
     float speed = 0.0f;
     bool faster = true;
@@ -396,7 +396,7 @@ TEST(grapple_pulls_faster_each_tick_and_holds_while_firing) {
     // Segurando o gatilho fica pendurado; soltando, volta a andar.
     for (int t = 0; t < 10; ++t) w.tick();
     CHECK(w.b->unknown_15c == 2);
-    key(VK_LBUTTON, false);
+    key(nf::key::LButton, false);
     for (int t = 0; t < 3; ++t) w.tick();
     CHECK(w.player->unknown_f6 == kPlrWalk && w.b->unknown_15c == 0);
     CHECK(g_traverse_stats.grapples == 1);

@@ -62,27 +62,29 @@ page's subpages (damage and AI-firing tweaks, "Previews", the level list); `load
 saved profile (`LS_*`, IFF blocks, `BIN_PushBits/PullBits`); `sound` the EE sound module (`Sound_*`, the map's sound
 triggers) and `music` (`Music_Event`, `UpdateMusicalEvents`, the per-level `UpdateMFX_*`, the music triggers);
 structs in `menu.h`); runtime structs in `map_types.h`, `gamestate.h`, `object.h`, `view.h`, `player.h` (`BLData`, `PLRWEAPON_tag`), `player_weapon.h` (`weapon_definition_tag`), `anim.h` (`ANIMOBJ_tag`), `bullet.h` (`BU_tag`, `CASING_tag`), `script.h` (`SCRIPTINFO`, `SSTREAM`, `SCRIPTPLAYER_tag`, `SWITCH_tag`, `FUSEBOX_tag`); not-yet-ported callees declared in `modules.h`/`view.h` and stubbed in `modules_stubs.cpp` |
-| `src/platform` | Win32 window, raw input, `psi*` (PC implementation of the engine's platform interface: clock, heap, `psi_file` over `FILES.BIN`, `psi_gfx` load-time resources, `psi_draw` per-frame draw record incl. `psiDrawParticleList` sprites, loose world-space triangles
-(`psi_draw_triangles`), the lights, the fog pass and the screen fades (`psiFadeView`), `psi_loading` the load screen's blobs and hooks, `psi_shard` glass breakable data and shards, `psi_2d` the 2D draw record (`psiDrawSprites`, `psi_2d_viewport`), `psi_input` keyboard, mouse and pad merged into player 0's actions, `psi_pad` the virtual PS2 pad (libpad slots, styles, rumble), `gamepad` XInput behind `nf::PadSource`, `input_bindings` the rebindable commands and `[controls]`/`[bindings]`); `vu1` (CPU reference of the VU1 routines and the fog: vertex lighting, env-map ST, GS Z, fog factor); `pending.*` counts stub calls; `psi_card` the memory card (the game's `MemCard_*` state machine and `psi*`
+| `src/platform` | the platform interfaces, with no system headers or types (see "Platform interfaces and backends" in the conventions): `os.h` (paths, files, optical drives, clock and frame-cap wait, virtual memory, console, error box, command line), `keys.h` (key codes), `window.h`, `entry.h`, `file_dialog.h`, `gamepad.h`, `audio_device.h`, `movie_decoder.h`, `image_io.h`, `crash_report.h`, `compiler.h` and `crt_compat.h` (MSVC-only constructs), with the Windows backends `*_win32.cpp`, `gamepad_xinput.cpp`, `audio_device_xaudio2.cpp`, `movie_decoder_mf.cpp`, `image_io_wic.cpp` and the null ones `os_null.cpp`, `backends_null.cpp`, `crash_report_null.cpp` (`NF_HEADLESS`); the POSIX ones of the macOS/Linux headless build (stage 3a, see "macOS and Linux headless build" in the conventions): `os_posix.cpp`, `arena_posix.cpp` (the game stack in a pthread), `crash_report_posix.cpp` (sigaction + backtrace); `psi*` (PC implementation of the engine's platform interface: clock, heap, `psi_file` over `FILES.BIN`, `psi_gfx` load-time resources, `psi_draw` per-frame draw record incl. `psiDrawParticleList` sprites, loose world-space triangles
+(`psi_draw_triangles`), the lights, the fog pass and the screen fades (`psiFadeView`), `psi_loading` the load screen's blobs and hooks, `psi_shard` glass breakable data and shards, `psi_2d` the 2D draw record (`psiDrawSprites`, `psi_2d_viewport`), `psi_input` keyboard, mouse and pad merged into player 0's actions, `psi_pad` the virtual PS2 pad (libpad slots, styles, rumble), `gamepad` the pads behind `nf::PadSource` (XInput in `gamepad_xinput.cpp`), `input_bindings` the rebindable commands and `[controls]`/`[bindings]`); `vu1` (CPU reference of the VU1 routines and the fog: vertex lighting, env-map ST, GS Z, fog factor); `pending.*` counts stub calls; `psi_card` the memory card (the game's `MemCard_*` state machine and `psi*`
 save/load/enumerate/delete over `nf::PcCard`: a folder, `saves\` or `--save-dir`, or in memory); `psi_sound` the
 EE side of the sound driver (`SFX*`: command batches, `SFXUpdate`, volumes and mode), `sfx_iop` the IOP sound driver
 `SFX.IRX` ported (banks, items, voices, 3D, streams, music markers), `spu2` the SPU2 in software (PS-ADPCM, 48 voices,
-reverb, the core-0 data input of the movies), `audio_out` the output (XAudio2, a WAV or nothing, paced by VBlanks); `psi_movie` the movies (the game's `psi*Movie*` functions and the PC player under them), `pss` (GPU-free: the PSS demuxer, the "SS" PCM audio, the video units, the movie clock) and `movie_decoder` (the Windows MPEG-2 MFT through Media Foundation, NV12 to BGRA); `pc_gameplay` the port-only `[game] aim_style` and `wheel_slowmo`; `game_options` the game's own options (accessors by
-`nf::GameOption`) and their rule with `nightfire.ini`; `crash_report` prints the call stack of an unhandled exception (dbghelp + the Release PDB, looked for next to the executable). `disc_source` (the user's disc behind one interface: a folder of extracted files, an ISO 9660 image, a DVD drive, the personal copy; `DiscFile`, the version from `SYSTEM.CNF` (`check_disc`), the search `find_disc`) and `disc_pack` (the single-file personal copy: the files after the PE image, the index and footer, `inside_git_tree`). `ptr32` (`P32<T>`/`F32<Sig>`, the 4-byte pointer fields of game structures in both builds, and the `nf::p32_*` helpers), `arena` (x64 only: the 4 GB window from `__ImageBase`, the game heap, the replaced `operator new` in `arena_new.cpp`, the game stack with `arena_stack_x64.asm`) and `fmath` (`nf::fm::`, float math with the same results in x86 and x64). `settings` (`nightfire.ini`) and `video_settings` (PC video/UI options: ini keys, value lists, the
+reverb, the core-0 data input of the movies), `audio_out` the output (the system device of `audio_device.h`: XAudio2; a WAV or nothing, paced by VBlanks); `psi_movie` the movies (the game's `psi*Movie*` functions and the PC player under them), `pss` (GPU-free: the PSS demuxer, the "SS" PCM audio, the video units, the movie clock) and `movie_decoder` (the `Mpeg2Decoder` facade: the decoder choice, NV12 to BGRA and the frame queue; the system decoder is the Windows MPEG-2 MFT through Media Foundation in `movie_decoder_mf.cpp`), `mpeg2_decoder` (the port's own MPEG-2 video decoder, standard C++ written from ISO/IEC 13818-2, game-agnostic: `nf::Mpeg2VideoDecoder`, the `nf::mpeg2::` pieces the tests use); `pc_gameplay` the port-only `[game] aim_style` and `wheel_slowmo`; `game_options` the game's own options (accessors by
+`nf::GameOption`) and their rule with `nightfire.ini`; `crash_report` prints the call stack of an unhandled exception (`crash_report_win32.cpp`: dbghelp + the Release PDB, looked for next to the executable). `disc_source` (the user's disc behind one interface: a folder of extracted files, an ISO 9660 image, a DVD drive, the personal copy; `DiscFile`, the version from `SYSTEM.CNF` (`check_disc`), the search `find_disc`) and `disc_pack` (the single-file personal copy: the files after the PE image, the index and footer, `inside_git_tree`). `ptr32` (`P32<T>`/`F32<Sig>`, the 4-byte pointer fields of game structures in both builds, and the `nf::p32_*` helpers), `arena` (x64 only: the 4 GB window from `__ImageBase`, the game heap, the replaced `operator new` in `arena_new.cpp`, the game stack with `arena_win32.cpp` and `arena_stack_x64.asm`) and `fmath` (`nf::fm::`, float math with the same results in x86 and x64). `settings` (`nightfire.ini`) and `video_settings` (PC video/UI options: ini keys, value lists, the
 apply-and-confirm controller); `gpu_adapter` (the graphics adapter preference `[video] adapter` and the rule that picks
 one, GPU-free) and `bench_stats` (the `--bench` frame-time statistics); game-agnostic PS2 pieces: `ps2_float` (the EE FPU and VU float arithmetic bit for bit: no denormals, no inf/NaN, round toward zero), `vu_interp` (`ps2::VuMachine`, a VU0/VU1 interpreter: micro mode with Q/P/flag latencies, delay slots, the E bit and XGKICK capture, and macro mode) and `vu0_macro` (the VU vector ops with dest masks for ported VU0 macro code and hand-ported microcode). Built as `nf_platform`, which `nf_engine` links |
 | `src/driving` | the DRIVING.ELF port (namespace `drv`, library `nf_drv`, conventions in `drv.h`): `physics/` (`rigid_body` the RigidBody/RigidBodyInfo layouts and functions, `vu0_physics` the VU0_physics microprogram hand-ported plus the EE side that loads and collects it, `collision` GenerateImpulse and ResolveCollision with ModifyLevers/ScaleObjObjForces, `simulation` SimulateGame and ESimFrameUpdate's physics, `world` the ground interface and `FlatGround`), `real/vu0_math` (EA REAL matrix and quaternion routines); docs/driving.md section 11. The render (docs/driving.md section 10): `bigf` (BIGF + RefPack), `shps` (SHPS to RGBA), `carp` (the CARP UGroup tree, the `in` instances and the `vd` per-view draw lists), `eagl_loader` (`EAGL::DynamicLoader`), `eagl_model` (`EAGL::Model`, `GeoPrim::Construct/Draw`, the DMA buffer), `eagl_state` (`GeoPrimState`, `RStateManager`, `EAGL::TAR`), `vif` (DMA chain + VIF1 into a 16 KB VU memory), `mat_car` (the MatCar render-method family read from the VU1 microprogram: layouts, CPU reference), `mat_car_verify` (the original microprogram in `ps2::VuMachine` vs the reference), `render_method` (the census of the 115 methods), `car_model` (a car loaded, its batches, parts and instances); `src/driving_app` is `nf_driving` (D3D11 viewer, captures, `--check`, `--census`, `--verify`) |
-| `src/render` | Direct3D 11 renderer (resources by `Tex` slot / mesh id, draws a `DrawItem` list of rigid and GPU-skinned meshes, particle sprites, loose triangles (shards) and screen-space 2D quads, with the GS state, tweak, VU1 lighting and env map of each draw, plus the fog pass); `runtime_gfx` is the psi_gfx backend and turns the `psi_draw` frame record (camera 0, or 4 during a scripted scene) + provisional objects into the draw list (`frame_markers`, GPU-free in `nf_frame_interp`: where the fog pass and the list-2 depth clear go); `ui_hd*` the optional HD 2D layer (`ui_hd` GPU-free logic in `nf_ui_hd`, `ui_hd_draw` Direct2D/DirectWrite/WIC, `ui_hd_game` what it reads from the game, `ui_hd_app` the nightfire.exe glue); the renderer's PC options: the 3D scene in its own target at a render
-scale and/or with MSAA, then the 2D at window size; texture filter, VSync, DXGI exclusive fullscreen; `frame_interp` (`nf_frame_interp`, GPU-free and tested) the tick interpolation: the last two tick records, draw matching, cuts, the matrix/palette/camera maths, the instant mouse look, the frame-cap timing and `plan_tick` (the tick scheduler with the weapon wheel's slow motion); `movie_layer` the movie frame drawn first in the frame (black target, the image in the PS2 screen, Catmull-Rom); `gpu_adapters` the DXGI adapter enumeration (`--list-adapters`,
-`[video] adapter`) and the GPU timestamp queries of `--bench` live in `renderer`; `remix_d3d9` the optional Direct3D 9 fixed-function path for RTX Remix (`--renderer d3d9ff`, a prototype; docs/remix.md); `setup_app` the setup screen's loop in nightfire.exe (the Windows file picker, the DVD drives, the personal copy's thread) |
+| `src/render` | the renderer: `renderer.h` is a facade with no Direct3D types (`Renderer` over `Renderer::Impl`, `GpuImage`/`GpuImageRef` opaque textures), the Direct3D 11 backend is `renderer_d3d11.{h,cpp}` (resources by `Tex` slot / mesh id, draws a `DrawItem` list of rigid and GPU-skinned meshes, particle sprites, loose triangles (shards) and screen-space 2D quads, with the GS state, tweak, VU1 lighting and env map of each draw, plus the fog pass); `runtime_gfx` is the psi_gfx backend and turns the `psi_draw` frame record (camera 0, or 4 during a scripted scene) + provisional objects into the draw list (`frame_markers`, GPU-free in `nf_frame_interp`: where the fog pass and the list-2 depth clear go); `ui_hd*` the optional HD 2D layer (`ui_hd` GPU-free logic in `nf_ui_hd`, `ui_hd_draw_d2d` Direct2D/DirectWrite (PNG through `platform/image_io.h`), `ui_hd_game` what it reads from the game, `ui_hd_app` the nightfire.exe glue); the renderer's PC options: the 3D scene in its own target at a render
+scale and/or with MSAA, then the 2D at window size; texture filter, VSync, DXGI exclusive fullscreen; `frame_interp` (`nf_frame_interp`, GPU-free and tested) the tick interpolation: the last two tick records, draw matching, cuts, the matrix/palette/camera maths, the instant mouse look, the frame-cap timing and `plan_tick` (the tick scheduler with the weapon wheel's slow motion); `movie_layer_d3d11` the movie frame drawn first in the frame (black target, the image in the PS2 screen, Catmull-Rom); `gpu_adapters.h` the adapter enumeration (`--list-adapters`,
+`[video] adapter`; DXGI in `gpu_adapters_dxgi`) and the GPU timestamp queries of `--bench` live in `renderer`; `remix_d3d9` the optional Direct3D 9 fixed-function path for RTX Remix (`--renderer d3d9ff`, a prototype, Windows only: a neutral interface and factory, the class in the .cpp; docs/remix.md); `setup_app` the launcher's loop in nightfire.exe (the file picker of `platform/file_dialog.h`, the DVD drives, the personal copy's thread, the monitor's modes; PLAY returns the launcher's settings) |
 | `src/driving` | the driving missions' port (`DRIVING.ELF`, EA's engine; docs/driving.md): library `nf_drv` (its `.cpp` files are globbed), namespace `drv`, no dependency on `src/engine`; ported functions marked `// [driving] 0x<address> <Name>` (DRIVING.SYM / `out/ghidra_driving` names); the PS2 is the truth, the Xbox build only explains; tests in `tests/test_driving_*.cpp` (globbed into `nf_tests`); conventions in `src/driving/drv.h` |
 | `src/ui` | the Modern menu style (port-only, `nf_ui_modern`, GPU-free and tested): `modern_ui` (tokens, the 1920x1080 virtual canvas, motion curves and tweens, the draw list), `modern_kit` (the components), `modern_input` (the navigation input of the game-menu screens), `modern_options`
 (the Modern PC options screen), `modern_pause` (the Modern pause), `modern_end` (mission failed, results and the controller-disconnected warning),
-`modern_front` (the Modern front end), `modern_dossier` (the Modern dossier, a view of the front end), `modern_wheel` (the weapon wheel's drawing over the game), `modern_setup` (the first-run setup screen, before any disc); drawn by `src/render/ui_modern_draw` (Direct2D/DirectWrite) and wired to `nightfire.exe` by `src/render/ui_modern_app` |
+`modern_front` (the Modern front end), `modern_dossier` (the Modern dossier, a view of the front end), `modern_wheel` (the weapon wheel's drawing over the game), `modern_setup` (the pre-game launcher: when it shows, its rows and values, `store_launcher_settings`); drawn by `src/render/ui_modern_draw_d2d` (Direct2D/DirectWrite) and wired to `nightfire.exe` by `src/render/ui_modern_app` |
 | `hd_ui/` | the HD 2D layer's `map.json` (font mapping, image replacements) and its SVG assets (`svg/`, generated by `tools/ui_hd_assets.py`); `hd_ui/fonts/` is the user's font folder and is git-ignored; `hd_ui/fonts_ofl/rajdhani` (OFL) and `hd_ui/design/tokens.json` belong to the Modern menu style |
-| `src/main.cpp` | `nightfire.exe`: main loop modeled on the PS2 `main` + `GameFlow_Main` |
-| `tests/` | `nf_tests` (unit tests, no game data; `test_ptr32.cpp` the 64-bit pointer scheme; `test_disc.cpp` the disc sources, a hand-built ISO, the personal copy and the setup screen), `nf_disc_check` (two disc sources compared file by file, `disc_check.cpp`), `nf_level_check` and `nf_loader_check` (regressions on real data; `nf_loader_check <data> --miras` measures the guns' sight lines, `tests/sights_measure.cpp`), `nf_driving_check` (DRIVING.ELF's physics: the original VU0 microcode in the interpreter vs the hand port, the whole step both ways, the original EE code in the MIPS interpreter vs the C++ port; `driving_check.cpp`, `driving_check_ee.cpp`) |
-| `tools/` | Python tools (`make_release.py` the release zip, with `tools/release/README.txt` and `LICENSES.txt`; formats, exporters, analysis; `vudis.py` disassembles the VU0/VU1 microcode, `scripts.py` decodes the scene scripts, `morph.py` the faces' morph targets and face sequences, `movies.py` lists and demuxes the PSS movies; `driving_sym.py` reads `DRIVING/DRIVING.SYM` and matches it to `DRIVING.ELF`, `driving_data.py` lists and extracts the `DRIVING/` BIGF archives, `xbox.py` reads the Xbox disc image (XDVDFS: `.xiso` or a full image) and XBE headers, writes an equivalent PE32 for Ghidra (`pe`: flat layout, kernel thunk and XDK section labels) and disassembles NV2A vertex programs of Xbox EAGL render methods (`vsh`): the user's NTSC-U Xbox copy in `xbox/`, git-ignored, a reading reference for the driving code only; `xbox_match.py` matches `Driving.xbe` functions to `DRIVING.ELF` ones (strings, constants, call graph, vtables, globals); `vudis.py DRIVING.ELF --prog=N` and `--eagl <obj> <method>` read the driving VU0 programs and the EAGL VU1 render methods) and Ghidra scripts (`ghidra_driving.sh`: the separate `out/ghidra_driving` project for `DRIVING.ELF` and `BASE.ELF`; `ghidra_xbox.sh`: the `out/ghidra_xbox` project for the Xbox PE; `ApplySymbolTable.java` applies a name table; `ExportMatchFeatures.java` exports the matcher's per-function facts; `XboxVtables.java` finds MSVC vtables and creates their functions) |
+| `src/app` | `app_main.cpp`: `nightfire.exe`'s loop modeled on the PS2 `main` + `GameFlow_Main` (`nf_app_main`, platform-neutral; started by `platform/entry_win32.cpp`; the old `src/main.cpp`: "main.cpp" below means this file) |
+| `tests/` | `nf_tests` (unit tests, no game data; `test_platform.cpp` the platform separation check; `test_ptr32.cpp` the 64-bit pointer scheme; `test_determinism.cpp` XXH3 digests of what must repeat bit for bit on every platform (Windows reference values); `test_disc.cpp` the disc sources, a hand-built ISO, the personal copy and the launcher's disc rows; `test_launcher.cpp` the launcher: when it shows, rows, values, PLAY storing; `test_mpeg2.cpp` the port's MPEG-2 decoder with its own test encoder), `nf_disc_check` (two disc sources compared file by file, `disc_check.cpp`), `nf_movie_check` (the port's MPEG-2 decoder against the system's, frame by frame, on the 22 movies; `movie_check.cpp`), `nf_level_check` and `nf_loader_check` (regressions on real data; `nf_loader_check <data> --miras` measures the guns' sight lines, `tests/sights_measure.cpp`), `nf_driving_check` (DRIVING.ELF's physics: the original VU0 microcode in the interpreter vs the hand port, the whole step both ways, the original EE code in the MIPS interpreter vs the C++ port; `driving_check.cpp`, `driving_check_ee.cpp`) |
+| `tools/` | Python tools (`check_platform.py` the platform separation check with the rules of `platform_rules.txt`; `make_release.py` the release zip, with `tools/release/README.txt` and `LICENSES.txt`; formats, exporters, analysis; `vudis.py` disassembles the VU0/VU1 microcode, `scripts.py` decodes the scene scripts, `morph.py` the faces' morph targets and face sequences, `movies.py` lists and demuxes the PSS movies; `driving_sym.py` reads `DRIVING/DRIVING.SYM` and matches it to `DRIVING.ELF`, `driving_data.py` lists and extracts the `DRIVING/` BIGF archives, `xbox.py` reads the Xbox disc image (XDVDFS: `.xiso` or a full image) and XBE headers, writes an equivalent PE32 for Ghidra (`pe`: flat layout, kernel thunk and XDK section labels) and disassembles NV2A vertex programs of Xbox EAGL render methods (`vsh`): the user's NTSC-U Xbox copy in `xbox/`, git-ignored, a reading reference for the driving code only; `xbox_match.py` matches `Driving.xbe` functions to `DRIVING.ELF` ones (strings, constants, call graph, vtables, globals); `vudis.py DRIVING.ELF --prog=N` and `--eagl <obj> <method>` read the driving VU0 programs and the EAGL VU1 render methods) and Ghidra scripts (`ghidra_driving.sh`: the separate `out/ghidra_driving` project for `DRIVING.ELF` and `BASE.ELF`; `ghidra_xbox.sh`: the `out/ghidra_xbox` project for the Xbox PE; `ApplySymbolTable.java` applies a name table; `ExportMatchFeatures.java` exports the matcher's per-function facts; `XboxVtables.java` finds MSVC vtables and creates their functions) |
+| `tools/ci/` | CI helpers: `metal_probe.m` (does the macOS runner have a working Metal device), `symbolize.py` (a POSIX crash stack through addr2line/atos) |
+| `.github/workflows/portable.yml` | the CI of the macOS/Linux headless build (see "macOS and Linux headless build" in the conventions) |
 | `tools/viewer/` | three.js web viewer for exported `.glb` files |
 | `docs/formats.md` | every file format decoded so far |
 | `docs/engine.md` | ACTION.ELF architecture: boot, main loop, GameFlow, frame pipeline, code layers |
@@ -105,6 +107,12 @@ scale and/or with MSAA, then the 2D at window size; texture filter, VSync, DXGI 
   URL's user name selects the `gh auth token --user`; the GitHub CLI's active account here is a work account). Another
   device needs its own copy of the game files at the repo root and the Windows toolchain to build or run anything; a
   cloud session can only read and edit code and docs.
+- CI (user, 2026-10-12): there is no Mac; GitHub Actions on the private repository (`origin`, Actions enabled) compiles
+  and tests the macOS/Linux headless build (`.github/workflows/portable.yml`): push to the branch `ci/portable` to run
+  it (never every push to main). The GitHub CLI's active account here is a work account: prefix `gh` calls on the
+  private repo with `GH_TOKEN=$(gh auth token --hostname github.com --user <owner>)` (the owner is the user part of
+  origin's URL); never print the token. macOS minutes cost 10x and are limited on the free plan: get Linux green first.
+  No game data, secrets or disc-derived artifacts in CI.
 - Compiler: **Visual Studio Build Tools 2026** (MSVC 14.51, CMake, Ninja; x86 target) at
   `C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools`. VS 2022 Community has no C++ workload.
 - Ghidra 12.1.3 at `C:\Tools\ghidra_12.1.3_PUBLIC` with ghidra-emotionengine-reloaded v2.1.37
@@ -122,12 +130,18 @@ powershell.exe -NoProfile -Command "& cmd.exe /c '\"C:\Projects\Nightifire Port\
 ./build/x64/Release/nf_tests.exe          # x86's tests plus arena_* (window, allocator, game stack)
 ./build/x64/Release/nf_loader_check.exe . # must match x86's output (addresses masked); see docs/port.md "64 bits"
 ./build/Release/nf_tests.exe              # unit tests; optional name filter as first argument
+python tools/check_platform.py            # no system header, API or MSVC-only construct outside the backend files (also nf_tests "platform")
+powershell.exe -NoProfile -Command "& cmd.exe /c '\"C:\Projects\Nightifire Port\build.bat\" Release headless'"   # the neutral code + nf_tests with the null backends, no Windows API (build/headless/Release)
+# macOS (Apple clang) or Linux (GCC/clang), 64-bit headless with the POSIX backends; this machine cannot build it, the CI does:
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNF_HEADLESS=ON && cmake --build build && ./build/nf_tests
+git push origin HEAD:refs/heads/ci/portable   # runs .github/workflows/portable.yml: Linux GCC + clang, then (if green) macOS 14 arm64
 ./build/Release/nf_level_check.exe .      # loads all 35 levels from the real data; must report 0 unresolved
 ./build/Release/nf_loader_check.exe .     # loads all 36 packs with the ported original loader; must report 0 differences
 ./build/Release/nf_disc_check.exe "007 - Nightfire (USA).iso" .   # every file of the ISO against the extracted copy: 177 equal
 ./build/Release/nightfire.exe --disc "007 - Nightfire (USA).iso" --level 07000012 --screenshot out/shots/iso.png  # the disc from the ISO (also a drive "H:", a folder, a personal copy); report line `disco`
-./build/Release/nightfire.exe --setup --width 1920 --height 1080 --wait 1.5 --screenshot out/shots/setup.png  # the first-run setup screen (report line `configuracao`; without --setup it shows only when no disc is found)
-./build/Release/nightfire.exe --config out/s.ini --setup --setup-pick "007 - Nightfire (USA).iso" --setup-input "none:0.5 up:0.1 none:0.3 enter:0.1 none:0.5 enter:0.1" --input "none:4.5 enter:0.1" --wait 7 --screenshot out/shots/s.png  # setup: pick the ISO, store it in out/s.ini, Play, the front end
+./build/Release/nightfire.exe --setup --config out/l.ini --width 1920 --height 1080 --wait 1.5 --screenshot out/shots/launcher.png  # the pre-game launcher, PLAY focused (report lines `configuracao`, `tela_entrada`; --launcher is the same; captures never show it without one)
+./build/Release/nightfire.exe --setup --config out/l.ini --setup-input "none:0.5 right:0.1 none:0.1 down:0.1 none:0.1 down:0.1 none:0.1 enter:0.1 none:0.5" --wait 2 --screenshot out/shots/launcher_list.png  # the launcher: right enters the rows, down twice = Resolution, Enter opens its list
+./build/Release/nightfire.exe --config out/s.ini --setup --setup-pick "007 - Nightfire (USA).iso" --setup-input "none:0.5 right:0.1 none:0.3 enter:0.1 none:0.5 enter:0.1" --input "none:4.5 enter:0.1" --wait 7 --screenshot out/shots/s.png  # launcher: the Disc row picks the ISO (stored in out/s.ini), PLAY, the front end
 ./build/Release/nightfire.exe --pack-disc "007 - Nightfire (USA).iso" --out C:/somewhere/nightfire-personal.exe  # the single-file personal copy (refused inside a git tree)
 python tools/make_release.py --version 0.2       # the release zip from build/Release and build/x64/Release into the main checkout's out/release/
 ./build/Release/nightfire.exe --level 07000001
@@ -212,6 +226,9 @@ NF_SFX_LOG=out/sfx.log ./build/Release/nightfire.exe --level 07000001 --wait 15 
 ./build/Release/nightfire.exe --input "none:19 enter:0.1 none:8 enter:0.1" --movie 07330048 --movie-frame 90 --screenshot out/shots/bg.png  # the main menu over its background loop (Modern: behind the blur)
 ./build/Release/nightfire.exe --level 07000001 --intro-movie --movie-frame 900 --audio-dump out/audio/m1.wav --screenshot out/shots/m1b.png  # a movie's sound in a WAV (BVOL 0x2710: the file x 0.305)
 python tools/movies.py list       # the 22 movies (info <hash>, demux <hash> <dir>: the .m2v and the .wav into out/, test)
+./build/Release/nightfire.exe --movie-frame 48 --movie 07370048 --movie-decoder own --screenshot out/shots/ea_own.png  # the port's MPEG-2 decoder (auto|mf|own; [video] movie_decoder)
+./build/Release/nf_movie_check.exe .   # the port's MPEG-2 decoder vs the system's on all 22 movies, frame by frame: same counts, 0 errors, max |d| 10, mean Y 0.027
+./build/Release/nf_movie_check.exe . --movie 07370048 --where 79 --where-min 3   # the differing pixels of one frame (--dump <dir> --frames a-b: PNG and .yuv of both; --own-only; --ref-idct)
 python tools/sound.py analyse out/audio/a.wav --window 1   # peak/RMS/zero crossings per window; banks|sfx|wavbank|streams|streamwav|music|musicwav|sfxtable|irxsyms decode the disc's audio (into out/)
 ./build/Release/nightfire.exe --list-adapters        # the graphics adapters (index, name, vendor, VRAM, integrated/discrete, monitor) and what --adapter picks
 ./build/Release/nightfire.exe --level 07000012 --adapter integrated --screenshot out/shots/igpu.png  # a capture on the iGPU (report line video: adaptador 1 "AMD Radeon(TM) Graphics" integrated)
@@ -320,6 +337,72 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   functions, ~30 in game logic); an x86 build compiled with `/Gv` (an experiment, not in the repository) is
   bit-identical to x64 tick by tick (docs/port.md "64 bits"). Reads of stack garbage differ between the builds: give
   matrices and vectors whose whole value is used an initial value.
+- **Platform interfaces and backends** (stage 2 of macOS; docs/port.md "Plataforma: interfaces e backends" has the map,
+  the inventory and what stage 3 needs): everything Windows-specific sits behind headers with no system includes and no
+  system types, and the Windows backends keep calling exactly the APIs they called before (no SDL, no portable graphics
+  layer). Interfaces: `platform/os.h` (paths, files incl. ranged reads/writes of the disc sources, optical drives, the
+  layout character of a key, the high-resolution clock and the frame-cap wait, virtual memory for the heap and the x64
+  arena, `os::Mutex`, console, error box, process exit; backend `os_win32.cpp`), `platform/keys.h` (the
+  port's key codes = the Windows VK numbers; `window_win32.cpp` static_asserts them), `platform/window.h`
+  (`Window::native_handle`, `set_topmost`; `window_win32.cpp`), `platform/entry.h` (`nf_app_main(argc, argv)`;
+  `entry_win32.cpp` is the `wWinMain` of nightfire.exe and nf_driving.exe, with `CommandLineToArgvW`),
+  `platform/file_dialog.h` (`file_dialog_win32.cpp`), `platform/gamepad.h` (`system_pad_source`; `gamepad_xinput.cpp`), `platform/audio_device.h`
+  (`audio_device_xaudio2.cpp`; `audio_out.cpp` stays neutral), `platform/movie_decoder.h` (`movie_decoder_mf.cpp`'s
+  `open_system_mpeg2_decoder`; the decoder choice, the port's own decoder `mpeg2_decoder.cpp`, the IPU colour conversion
+  and the frame queue stay neutral; the null backends have no system decoder, so the port's decodes), `platform/image_io.h` (`image_io_wic.cpp`),
+  `platform/crash_report.h` (`crash_report_win32.cpp`), `platform/arena.h` `call_on_stack` (`arena_win32.cpp`: TEB, MASM,
+  SEH; the allocator is neutral), `render/renderer.h` (the `Renderer` facade over `Renderer::Impl`; `GpuImage` is an
+  opaque texture, `GpuImageRef` a counted one; backend `renderer_d3d11.{h,cpp}` with `movie_layer_d3d11`,
+  `ui_hd_draw_d2d`, `ui_modern_draw_d2d`, `gpu_adapters_dxgi`), `render/gpu_adapters.h`, `render/remix_d3d9.h` (interface +
+  factory; the D3D9 class only in `remix_d3d9.cpp`, Windows only), `driving_app/drv_renderer.h`
+  (`drv_renderer_d3d11.cpp`). MSVC-only constructs go through `platform/compiler.h` (`NF_DEBUGBREAK`, `NF_FORCEINLINE`,
+  `NF_NOINLINE`, `NF_FENV_ACCESS_ON`, `nf::RoundTowardZero`, `nf::ctz64`) and `platform/crt_compat.h` (`fopen_narrow`,
+  `NF_SSCANF`, `str_icmp`, `str_nicmp`, `str_copy_trunc`, `get_env_narrow`); `NF_IMAGE_BASE` (`platform/ptr32.h`) is
+  `__ImageBase` on Windows. The application loop is `src/app/app_main.cpp` (the old `src/main.cpp`; "main.cpp" in this
+  file means it) and uses only the interfaces; DirectXMath (header-only, MIT) stays there for the camera maths.
+  Rules for new code: no system header, API, type or MSVC-only construct outside the backend files (`*_win32.cpp`,
+  `*_d3d11.*`, `*_d2d.*`, `*_dxgi.*`, `*_xaudio2.cpp`, `*_mf.cpp`, `*_wic.cpp`, `*_xinput.cpp`, `render/remix_d3d9.cpp`);
+  `python tools/check_platform.py` and the nf_tests test `platform_code_stays_behind_the_interfaces` enforce it (rules in
+  `tools/platform_rules.txt`; a new exception goes there with its reason). Need something from the system: add it to
+  `os.h` (or a new interface) with the Windows backend and the null one (`os_null.cpp`). Keys are `nf::key::*`; paths are
+  `std::wstring` built with `os::join`/`os::kPathSep` (`\` on Windows, so reports do not change), files through
+  `os::open_file`, C++ streams through `std::filesystem::path`; wide printf formats use `%ls` (never `%hs`). On x86 a
+  short float-returning helper that was inline stays inline (an out-of-line float return goes through x87 `ST(0)`).
+  The x64 report's `arena` line counts every C++ allocation, so the interfaces keep the old allocation pattern (the two
+  `os::join` overloads allocate like `dir + L"\\name"` and `dir + L"\\" + name`, `image_io` writes without a copy, the
+  arguments reach `nf_app_main` as `argv`): it stays identical to before; a new per-frame or per-file allocation shows there.
+  `NF_HEADLESS` (`build.bat Release headless`, build/headless/Release, x86 only on Windows) builds the neutral
+  libraries, nf_tests and the console check tools against the null backends (`os_null.cpp`, `backends_null.cpp`,
+  `crash_report_null.cpp`): no Windows backend and no Windows library; its nf_tests imports only the C/C++ runtime and
+  the KERNEL32 functions the runtime itself uses.
+- **macOS and Linux headless build** (stage 3a of macOS; docs/port.md "macOS: compilação e CI"): off Windows CMake only
+  accepts `-DNF_HEADLESS=ON`, 64-bit (it turns `NF_ARCH64` on itself: P32, the arena, its `operator new`,
+  `NF_P32_CHECK`), with the POSIX backends `os_posix.cpp` (paths, files with `open`/`pread`, mounted ISO 9660/UDF volumes,
+  `clock_gettime`, `mmap`/`mprotect`, the arena window: `mach_vm_region` on macOS, `/proc/self/maps` on Linux, read
+  without allocating since it runs inside the first `operator new`; `os_unfair_lock` / a yielding spin lock;
+  `key_char`/`key_held` 0/false and `show_error` to stderr until the window of stage 3c), `arena_posix.cpp`
+  (`call_on_stack` = a pthread with `pthread_attr_setstack` on the arena's stack, joined; a `sigaltstack` per thread) and
+  `crash_report_posix.cpp` (`sigaction` for SEGV/BUS/ILL/FPE/ABRT, `backtrace_symbols_fd`, the image base for
+  `tools/ci/symbolize.py`), plus `backends_null.cpp` for pads, audio, movies, images and the file picker.
+  `NF_IMAGE_BASE` is `__mh_execute_header` (macOS) / `__executable_start` (ELF), declared as `char`. Compiler rules (the
+  MSVC build is the reference; its compile/link lines stay exactly as on main): clang and GCC get `-ffp-contract=off`
+  (no FMA: the driving physics and the score are bit-exact), `-fno-strict-aliasing`, `-fwrapv`,
+  `-fno-delete-null-pointer-checks`, `-frounding-math` on `player_stats.cpp` (GCC ignores `STDC FENV_ACCESS`), C++20
+  without GNU extensions, Release at `-O2 -g1`, and `-Werror=write-strings`/`-Werror=writable-strings`. Rules for new
+  code that MSVC does not catch:
+  - a decoded P32 pointer is built from `nf::p32_window_base()` (an empty `asm` hides that the base is a 1-byte `char`
+    symbol; without it GCC and clang treat `kP32Base + v` as pointing into a 1-byte object: `_FORTIFY_SOURCE` aborts,
+    alias analysis may miscompile); never do arithmetic on `kP32Base`/`NF_IMAGE_BASE` directly;
+  - a global defined with `alignas(n)` smaller than 16 must carry the same `alignas` on every `extern` declaration (the
+    x86-64 ABI lets clang assume 16 for a global array of 16 bytes or more: `movaps` crashed on `UseableGuns`);
+  - in `c ? p32_field : "literal"` take `nf::raw(p32_field)`: GCC and clang otherwise turn the literal into a `P32` and a
+    printf gets the 4-byte field;
+  - paths are joined with `os::join`/`os::kPathSep`, never a literal `\\` (it is a file name character on POSIX).
+  The CI (`.github/workflows/portable.yml`, push to `ci/portable`) builds and tests it on Linux (GCC and clang) and then
+  macOS 14 arm64 (ccache between runs; a crash stack goes through `tools/ci/symbolize.py`; `NF_ARENA_INFO=1` makes
+  nf_tests print the window and the arena); see "Environment" for the account and the minutes. If a change alters a
+  digest of `tests/test_determinism.cpp` on purpose, rerun `nf_tests determinism` on Windows and update its references.
+  Never run two nf_tests at once on one machine (the disc tests share temp folder names).
 - Memory: one heap (`Mem_*`, `src/engine/memory.cpp`) with 12-byte block headers; `psiMem_Init`
   reserves `psiMemHeapSize` bytes with `VirtualAlloc` (x64: `nf::arena::alloc_pages`, inside the 4 GB window). `ResetMap_Load` re-runs `Mem_Init` on every
   level load. Allocation tags: high byte =
@@ -705,7 +788,7 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
     menus read `pause` without it (`NavState`). At the top of the Original pause, back (the 99 that
     `Manager_SendMessage` 0x5f sends with an empty stack) closes the pause like Start (`pause_page` in
     `menu_pc_options.cpp`: clears 0x22 and sets the close action for the same tick's `MenuManager_Monitor`;
-    `MenuPcStats::back_closes`); backing out of the RESTART/QUIT question only closes it. `window.cpp` no longer
+    `MenuPcStats::back_closes`); backing out of the RESTART/QUIT question only closes it. `window_win32.cpp` no longer
     releases the mouse on Esc: menus release it (`set_menu_mode`); `main.cpp` releases it on Esc in the free camera,
     and when no menu opens 0.5 s after an Esc in play (a scene, death, a load: `Window::release_mouse`). Alt+Tab
     always releases.
@@ -1373,7 +1456,7 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   `[ui]` through `nf::load_video_settings`: width, height, window_mode (the old `fullscreen = 1` reads as
   borderless), vsync, render_scale, msaa, texture_filter, fov, hd_textures, fps_cap (off|n), interpolation,
   instant_mouse_look, adapter (see "Graphics adapter"), ui hd/anchor/language_pc; plus
-  ui subtitles and controls mouse_sensitivity) and command-line flags override it (`--window-mode`,
+  ui subtitles, ui launcher (the launcher's "Show at startup", `ui/modern_setup.h`) and controls mouse_sensitivity) and command-line flags override it (`--window-mode`,
   `--render-scale`, `--msaa`, `--filter`, `--lang-pc`, `--adapter` besides the old ones); with `--screenshot` (and
   `--bench`) the file
   is only read, and only written, when `--config` is given, so captures neither depend on nor touch the
@@ -1553,7 +1636,7 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   (hit test, slider value, clicks, tabs, wheel on the pause list) and `tests/test_input.cpp` (KEYS row by
   click, clicks kept out of the game).
 - Modern menu style (`src/ui/modern_ui.h`, `modern_kit.h`, `modern_input.h`, `modern_options.h`, `modern_pause.h`,
-  `modern_end.h`, `src/engine/menu_modern.h`, `src/render/ui_modern_draw.h`, `ui_modern_app.h`, header comments;
+  `modern_end.h`, `src/engine/menu_modern.h`, `src/render/ui_modern_draw_d2d.h`, `ui_modern_app.h`, header comments;
   **docs/design.md** is the design system, docs/port.md "Menus no estilo Modern"; port-only): `[ui] menu_style =
   modern|original` (`nf::MenuStyle` in `VideoSettings`, default modern; `--menu-style`; a "Menu style" row in
   INTERFACE in both styles, applied with the other pending options and effective the next time a menu opens).
@@ -1954,7 +2037,7 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   sabotados=` (`tests/campaign_audit.cpp`; consumers now include turrets, sound triggers and emitters; `NF_CANAL=<n>`
   lists the placements with n in a parameter). Port-only counters: `g_security_stats`, `g_searchlight_stats`,
   `g_hazard_stats`, `g_gunimp_stats`, `g_space_stats`. Tests: `tests/test_security.cpp`.
-- Movies (`platform/psi_movie.h`, `pss.h`, `movie_decoder.h`, `render/movie_layer.h`, header comments; docs/formats.md
+- Movies (`platform/psi_movie.h`, `pss.h`, `movie_decoder.h`, `render/movie_layer_d3d11.h`, header comments; docs/formats.md
   "Vídeos", docs/port.md "Filmes"): the 22 `MOVIES/30_FPS/<hash>.PSS` (MPEG-2 program streams of 16 KB packs: video
   512x448 4:3 30 fps in stream 0xE0, TMPGEnc, B frames in the ones with sound; audio in private stream 1 after a 4-byte
   header `ff a0 00 00`, Sony "SS" format: `SShd` type 1 = 16-bit LE PCM, 48 kHz, stereo, 0x200-byte blocks per channel;
@@ -1967,10 +2050,14 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   `P_FMVTEST_Handler`. The game's functions are ported (`UsingMovie`, `psiStart/StopBackgroundMovie`,
   `psiDecodeBackgroundMovieFrame`, `psiSwapBGFMVFrame`, `changeMaster/InputVolume`, `StartUp/Decode/CleanUp/SwapBGFMV`,
   `audioDecCreate/Start/Reset`, `strFileOpen/Close`, `PS2UploadBGMImage`); below them the PC player replaces libmpeg, the
-  IPU and the IOP: `PssFile` demuxes in 64 KB reads; the video goes to the system's MPEG-2 decoder MFT (`MFTEnumEx`
-  `MFVideoFormat_MPEG2`, the first that activates: on this machine Microsoft's "MPEG2VideoExtension" Store package; the
-  in-box `msmpeg2vdec.dll` refuses activation with `c004f011`; none = the movie does not open, like a missing file), NV12
-  -> BGRA with the IPU CSC coefficients (BT.601 limited, /128), ~0.75 ms per frame on the CPU; the PCM goes into the
+  IPU and the IOP: `PssFile` demuxes in 64 KB reads; the video goes to an MPEG-2 decoder behind the `Mpeg2Decoder`
+  facade, chosen by `[video] movie_decoder` / `--movie-decoder` (`nf::MovieDecoderChoice`): `auto` (default) = the
+  system's if it exists and works, else the port's; `mf` = the system's only (none = the movie does not open, like a
+  missing file); `own` = the port's only. The system's is the MFT (`MFTEnumEx` `MFVideoFormat_MPEG2`, the first that
+  activates: on this machine Microsoft's "MPEG2VideoExtension" Store package; the in-box `msmpeg2vdec.dll` refuses
+  activation with `c004f011`); other platforms have none, so the port's decodes. NV12 -> BGRA with the IPU CSC
+  coefficients (BT.601 limited, /128; SSE2 where available, the same integers, bit for bit); per movie frame MF + the
+  conversion 0.16 ms, the port's decoder + the conversion 0.70 ms; the PCM goes into the
   SPU2's core-0 data input (`Spu2::input_push`, `BVOL` = `MovieVolume` x 100 = 0x2710 = 0.305 at the default volume, dry
   and wet by `MMIX` 0xff0) and out through `audio_out`. `main.cpp` with a movie playing runs the logic only on even VBlanks
   (30 ticks/s, like the PS2 `main`) and calls `psiDecodeBackgroundMovieFrame` before each tick (`psiSwapBGFMVFrame`
@@ -1992,6 +2079,31 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   frame (PS2: after 0x6000 bytes reach the IOP), no 07360048 trap. Tests: `tests/test_movie.cpp` (demuxer on a hand-built
   stream, SS audio, units, clock, CSC, SPU2 input, the player's end/loop/BVOL/refusals with a hand-built PSS and no
   decoder, the menu and `GF_MOVIE` skip rules), `modern_front_title_and_warning`.
+- The port's MPEG-2 decoder (`platform/mpeg2_decoder.h`, header comment; docs/port.md "O decodificador de MPEG-2 do
+  port"; port-only, game-agnostic): standard C++20, no system API, written from ISO/IEC 13818-2 (section 6 syntax, Annex B
+  tables typed as bit strings and built into lookup tables at start, section 7 arithmetic); never copy or adapt another
+  decoder's code (FFmpeg, libmpeg2...). Decodes MPEG-2 4:2:0 frame pictures (I/P/B, frame and field prediction and DCT,
+  both scans, both intra VLC tables, both quantiser scales, DC 8-11 bits, quant matrix extension, concealment vectors)
+  and MPEG-1; not field pictures, dual prime, 4:2:2/4:4:4, scalability, D pictures (`Mpeg2Stats::unsupported`). The
+  movies use only frame pictures, frame prediction/DCT, zigzag, intra_vlc_format 1, q_scale_type 1, DC 8 bits, f_code
+  <= 4. IDCT: rows in int32 (cos x 2^16, unrounded), columns with cos x 2^20 in `double` (exact: all integers below 2^53,
+  so the same on every CPU/compiler/rounding mode) and one final `floor(x + 1/2)`: error < 0.002 vs the exact formula
+  (IEEE 1180 with margin). SSE2 paths (MC with `pavgb`, block add with `packus`, IDCT column pairs, NV12 interleave) do
+  the same integer/exact maths as the portable C++ (tests compare both: `predict_portable`, `idct_portable`;
+  `-DNF_MPEG2_SSE2=0 -DNF_MOVIE_SSE2=0` forces the portable C++ on x86: the 22 movies' hashes are identical); ARM uses
+  the portable C++. The test encoder uses no libm (literal cosines, integer test images), so its streams and the decoded
+  frames are the same everywhere: `mpeg2_digest_is_the_same_on_every_platform` checks their XXH3 against Windows'. Stream errors end the slice; missing macroblocks are copied from the newest reference. Input: units
+  ending at a picture's end (several pictures per call fine); output in display order through a callback. Debug hooks
+  (`NF_MPEG2_BLOCK_HOOK`, `NF_MPEG2_PICTURE_HOOK`, compiled only when defined) let an experiment program that `#include`s
+  the .cpp see each block and inject reference frames. Verification against Media Foundation (`nf_movie_check`, all 22
+  movies): 37,522 frames each, same order, max |d| 10 (P-only movies; 4-7 with B frames), mean |d| Y 0.027 (PSNR 63.7
+  dB); every difference is MF's IDCT rounding near k + 1/2 (MF matches the exact IDCT on 99.22% of intra pixels, errors
+  only in the 0.45-0.55 fraction band, unbiased), accumulating along P chains where a residual repeats near a tie (the
+  standard's IDCT mismatch drift); with MF's own reference frames injected, P frames match within 1 at near-tie pixels
+  only. Speed: 0.55 ms per frame single-threaded (MF 0.15 ms). The output hash per movie (`nf_movie_check`) is the same
+  on x86, x64 and headless. Tests: `tests/test_mpeg2.cpp` (tables re-typed, IEEE 1180 procedure, inverse quantisation by
+  hand, half-pel, a test encoder of its own exercising the syntax with round trips, quality within quantisation error,
+  output order, damaged streams, the facade's NV12, the choice parsing).
 - The user's disc (`platform/disc_source.h`, `disc_pack.h`, `ui/modern_setup.h`, `render/setup_app.h`, header comments;
   docs/port.md "Instalação fácil"; port-only): every read of the disc's files goes through an `nf::DiscSource` (never a
   path into the data folder): `ACTION.ELF` (`install_game_tables(const DiscSource&)`, `FilesBin(disc)`), `FILES.BIN`
@@ -2000,20 +2112,49 @@ Regenerate the analysis inputs after Ghidra changes: `ExportAllCalls.java` → `
   case-insensitive, without ";1". Sources: a folder (the repo root for developers), an ISO 9660 image (`parse_iso9660`:
   files are contiguous extents; no UDF), a DVD drive (a folder at `X:\`; `Mount-DiskImage` behaves the same), the
   personal copy (the files appended after the exe's PE image with an index and a 64-byte footer, `NFPC-DISC-PACK-1`;
-  `--pack-disc <src> [--out x.exe] [--pack-no-movies]` or the setup screen; ACTION.ELF, SYSTEM.CNF, FILES.BIN, PS2\,
+  `--pack-disc <src> [--out x.exe] [--pack-no-movies]` or the launcher; ACTION.ELF, SYSTEM.CNF, FILES.BIN, PS2\,
   MOVIES\ and the port's `hd_ui` as `PORT/HD_UI/`, extracted to `%LOCALAPPDATA%\Nightfire PC` when the copy runs alone;
   never written inside a git working tree). The version is `SYSTEM.CNF`'s BOOT2 (`SLUS-20579`; `nightfire_disc()` in
   `game/boot.h`); other versions are refused with the reason; a folder without SYSTEM.CNF but with ACTION.ELF and
   FILES.BIN is accepted unverified (the old way). `--disc <iso|folder|drive|exe>` (`--data` is the old name) alone;
   otherwise `find_disc`: the personal copy (itself), the exe's folder (files or an `.iso`), the cwd and the 3 folders above
-  the exe (developers), `[game] disc` in the ini, the CD/DVD drives. Nothing found (or `--setup`): the Modern setup screen
-  before the game (window and renderer are now created before the data is read; `IFileOpenDialog` on its own STA thread;
+  the exe (developers), `[game] disc` in the ini, the CD/DVD drives. Nothing found: the launcher (next item) asks for it
+  before the game (window and renderer are created before the data is read; `IFileOpenDialog` on its own STA thread;
   drives rescanned every 2 s; the choice goes to `[game] disc` only when the ini may be written). Captures: `--setup-pick`,
   `--setup-input`, the report's `configuracao` line; the capture report's `disco` line (kind, location, origin, version).
   The HD texture pack defaults to `textures\SLUS-20579\replacements` next to the disc (its folder, the ISO's folder),
   then next to the exe and above, then the cwd (with a DVD drive pass `--textures` or keep it next to the exe). With the
   data in a folder everything is exactly as before (checks and captures identical); from the ISO, the mounted drive and
   the personal copy too (2026-10-12).
+- The pre-game launcher (`ui/modern_setup.h`, `render/setup_app.h`, header comments; docs/port.md "Instalação fácil",
+  docs/design.md "A tela de entrada"; port-only, user request 2026-10-12; the old first-run setup screen, grown): a Modern
+  screen in the game's window before the game, like classic PC launchers. When (`launcher_reason`, GPU-free): `--setup` or
+  `--launcher` force it (also in captures); no usable disc shows it always (as before); a command line that says what to
+  run skips it (`launcher_command_line`: any argument but `--config <ini>`, `--save-dir <dir>`, `--setup`, `--launcher`,
+  `--setup-pick`, `--setup-input`, so every documented capture, check and `--bench` runs as before); otherwise
+  `[ui] launcher` ("Show at startup", default on) shows it, and when it is off Shift held at start does (`os::key_held`,
+  `platform/os.h`: `GetAsyncKeyState` in `os_win32.cpp`, false in `os_null.cpp`; read only when it decides). Content: left
+  the port title, the disc in use and the `BigMenu` PLAY (focused at open when the disc is ready, so Enter, pad A/Start or
+  a click start at once) / QUIT; middle rows in four sections: DISC (the disc in use, which opens the file picker; one row
+  per DVD drive with a PS2 disc; the single-file copy), DISPLAY (Resolution and Display mode dropdowns, VSync toggle, with
+  `resolution_choices`/`fit_resolution_to_mode` and the monitor's modes from the renderer, the same lists as the VIDEO
+  page), INTERFACE (Menu style Modern/Original, HD 2D layer: its description says it changes the HUD and the Original
+  menus, the Modern menus being always native), STARTUP (Show at startup); right the description panel. No graphics
+  presets, adapter or port-label language (declined by the user). Rows use launcher tokens (`launch_row_h` 70,
+  `launch_section_h` 56, `launch_option_h` 60, `launch_menu_y` 760) so everything fits without scrolling (drives or an
+  open list scroll). Input: `NavState`; right enters the rows, left/right change values, Enter opens/toggles, Esc goes
+  back to PLAY, pad Start plays from anywhere; mouse hover/click/wheel/right-click. PLAY returns `LauncherSettings`
+  (`VideoSettings` + `show_at_startup`); `app_main.cpp` stores the changed ones with `store_launcher_settings` (the keys
+  and writing of `store_video_settings`: `[video] width/height`, `window_mode` (drops the old `fullscreen`), `vsync`,
+  `[ui] menu_style`, `hd`, plus `[ui] launcher`; only the changed keys, only when the ini may be written) and continues
+  as if the ini had them: `Options` updated, the window resized or switched (`set_fullscreen`/`set_client_size`,
+  `renderer.resize`, `set_vsync`) before the game's first frame, exclusive fullscreen set where it always was. If
+  exclusive fullscreen fails at any start the game falls back to a window that fits the monitor (the ini untouched); the
+  launcher itself never runs exclusive, so it is the recovery path (with Shift when off). QUIT stores nothing; the picked
+  disc goes to `[game] disc` at once, as before. A personal copy alone in a folder extracts its `hd_ui` before the
+  launcher (the Modern fonts). Report lines `configuracao zona foco linhas ... | opcoes resolucao modo vsync estilo hd
+  mostrar mudou | disco` and `tela_entrada motivo monitor modos`. Tests: `tests/test_launcher.cpp`, the disc rows in
+  `tests/test_disc.cpp`.
 - Release zip (`tools/make_release.py`): x86 `nightfire.exe` + `nightfire.pdb` (the default), x64 as `nightfire64.exe` +
   `nightfire64.pdb` (CMake names the x64 PDB so; experimental in the readme), `msvcp140.dll` + `vcruntime140.dll` (x86 is
   `/MD`; x64 is `/MT`), the tracked `hd_ui` files, `tools/release/README.txt` and `LICENSES.txt`; it refuses game files
@@ -2598,6 +2739,15 @@ Done:
   clock runs at 47 978 samples/s within 2.4 ms (median) of a line and the shown frame is always the clock's. Cost at
   1080p: the Radeon iGPU plays a mission intro at 857 fps offscreen / 637 windowed, the Modern main menu over its loop at
   244 / 212; decoding + conversion 0.74-0.87 ms per movie frame on the CPU (0.03-0.12 ms per video frame).
+- The port's own MPEG-2 decoder (stage 3b, 2026-10-12; see "The port's MPEG-2 decoder" in the conventions; docs/port.md
+  "O decodificador de MPEG-2 do port"): movies now play where Windows has no working MPEG-2 MFT and on macOS/Linux
+  (`[video] movie_decoder = auto` falls back to it; `own` forces it); with the Store extension present nothing changes
+  (default captures byte-identical to main, also with `mf`). On all 22 movies it gives the same 37,522 frames in the same
+  order as Media Foundation, 0 stream errors, max |d| 10 / mean Y 0.027 (PSNR 63.7 dB), all from MF's own IDCT rounding
+  near k + 1/2 and its drift along P chains; captures with `own`: the EA logo frame 48 differs in 6.5% of Y (max 7),
+  07100001 frame 330 in 0.8% (max 1). 0.55 ms per frame single-threaded (MF 0.15 ms); the colour conversion in SSE2
+  (bit-identical) cut MF + conversion from 0.84 to 0.16 ms per movie frame. nf_tests +17 (x86 809, x64 812, headless
+  809); the CI's GCC/clang/Apple clang build it and its tests pass there (the macOS run is the portable C++ path).
 - Presentation of the campaign (see "Screen fades, screen blur and the load screen" and "Weather and scenery" in the
   conventions; docs/port.md "Esmaecimentos, rastro e tela de carga" and "Tempo e enfeites"): the screen fades are drawn
   where `Game_Draw` asks for them (07000012 fades in from black at the start, `alfa 153` at 0.3 s; REPLAY after death
@@ -2640,6 +2790,48 @@ Done:
   WAVs) are pixel-identical from the folder, the ISO, the drive and the personal copy, and the folder ones identical to
   main. The release zip (`tools/make_release.py`) was unzipped into a clean folder outside the repo, pointed at the ISO
   through the setup screen and captured.
+- Pre-game launcher (user request, 2026-10-12; see "The pre-game launcher" in the conventions; docs/port.md "Instalação
+  fácil"): the setup screen became a launcher shown at every normal start with PLAY focused (Enter starts at once), with
+  the disc, resolution, display mode, VSync, menu style, HD 2D layer and "Show at startup" (Shift brings it back when
+  off); PLAY stores the changed keys in `nightfire.ini` and the game opens with them. Any command-line run skips it, so
+  x86 stayed identical to main: nf_tests (785, the 779 of main with the two setup tests rewritten and 6 new), nf_level_check
+  35/0, nf_loader_check 36 packs 0 differences and identical with addresses masked, captures (07000012 at 9 s with
+  `--fixed-video-hz 60`, the Modern pause, the Modern and Original main menu, the Modern options) pixel-identical (reports
+  differ only in wall-clock fields), `check_platform.py` 0, the headless build's nf_tests 785/0 and x64's 788/0. A real
+  window (scratch `--config`/`--save-dir`): the launcher got the focus by itself, Enter opened the front end (Press
+  START), and with `[ui] launcher = 0` the game started directly unless Shift was held.
+- Platform interfaces and backends (stage 2 of macOS, 2026-10-12; see "Platform interfaces and backends" in the
+  conventions and docs/port.md "Plataforma: interfaces e backends"): every Windows-specific piece sits behind a
+  platform-neutral interface (`platform/os.h`, `keys.h`, `window.h`, `entry.h`, `file_dialog.h`, `gamepad.h`,
+  `audio_device.h`, `movie_decoder.h`, `image_io.h`, `crash_report.h`, `arena.h`, `compiler.h`, `crt_compat.h`;
+  `render/renderer.h`, `gpu_adapters.h`, `remix_d3d9.h`; `driving_app/drv_renderer.h`), with the Windows backends using
+  the same APIs as before; `src/app/app_main.cpp` is the neutral loop and `platform/entry_win32.cpp` the `wWinMain`.
+  `tools/check_platform.py` and nf_tests guard the separation; `build.bat Release headless` builds the neutral code and
+  nf_tests with null backends and no Windows API (779 tests pass). Windows behaviour is unchanged in both builds:
+  in x86 and x64 nf_tests passes (main's tests and 3 new) and nf_level_check, nf_loader_check, nf_driving_check,
+  `nf_driving --check --verify`, nf_disc_check, 21 captures, both WAVs and the d3d9ff captures are identical to main
+  (PNG and WAV byte for byte; the
+  x64 `arena` line differs by two fixed start-up allocations, the objects behind the `Window` and `Renderer` facades),
+  and `--bench` on the Radeon iGPU is within noise (0700000c 244-246 fps, 07000012 445-464 on both builds).
+- macOS/Linux headless build and CI (stage 3a of macOS, 2026-10-12; see "macOS and Linux headless build" in the
+  conventions and docs/port.md "macOS: compilação e CI"): the shared code builds with Apple clang 15 and GCC/clang on
+  Linux; the POSIX backends (`os_posix.cpp` with the arena window, `arena_posix.cpp` with the game stack in a pthread,
+  `crash_report_posix.cpp`) run the 64-bit P32 scheme off Windows; `.github/workflows/portable.yml` (push to
+  `ci/portable`) builds and tests on Linux x86_64 (GCC and clang) and then macOS 14 arm64 (an M2 Pro VM, 5 cores):
+  nf_tests 793/0 on all three, `check_platform.py` clean, the Python self-tests pass on macOS. What GCC/clang found:
+  P32 pointers derived from the 1-byte image symbol (`_FORTIFY_SOURCE` abort; fixed by `nf::p32_window_base()`), `alignas(4)`
+  globals declared without it (clang `movaps` crash), a `P32 ? literal` conditional printing 4 bytes (`HUD_Describe`),
+  a recursive `std::pair` in the JSON, `\` in two path joins and one test. Determinism: `tests/test_determinism.cpp`
+  digests (PS2 float maths, 600 frames of driving physics, IEEE float without FMA, round-toward-zero; informational:
+  fmath, EFU, game vecmath) are identical on Windows x86/x64, Linux GCC/clang and macOS arm64 (all seven, libm ones
+  included). The macOS runner has no default Metal device but `MTLCopyAllDevices` gives the "Apple Paravirtual device"
+  (family Mac2, MSAA 4x, no stage-boundary counters) that compiles MSL at run time, runs compute and renders offscreen
+  correctly. CI cost of this stage: Linux 33 min over nine runs, macOS 2.1 min over three (ccache: under 2 min per full run).
+  Windows unchanged: MSVC compile/link lines identical to main for x86, x64 and headless; nf_tests (785/788/785 on main,
+  +5 determinism tests here, 0 failures), nf_level_check, nf_loader_check (addresses masked), nf_driving_check and the
+  07000012/07000001/Modern-pause captures identical in x86 and x64 (same build hash). Next: 3c (window, input, entry
+  with NSApplication; decide main-thread stack switch vs game thread), 3d (Core Audio, ImageIO; the MPEG-2 decoder
+  is done: stage 3b, the port's own), 3e (Metal).
 - `nightfire.exe` calls `Mem_Init` at boot like the PS2 `main`; nothing allocates from the heap yet.
 - PC-standard keyboard and mouse (user request, 2026-10-10; see "Input"; docs/port.md "Controles" has the table): Esc
   pauses (and is back in menus, closing the pause at its top in both styles; the mouse is released by the menu, and in
@@ -2820,15 +3012,24 @@ Known gaps / next steps (agreed order: 1 next, then the rest):
    (PAL `SLES-...`, Japanese) are refused (their data and offsets differ: a port of their own ELFs); images that are not
    2048-byte ISO 9660 (a raw `.bin/.cue`, a UDF-only image) are refused; a signed executable (SmartScreen warns about an
    unknown publisher); the x86 single-file copy needs the Visual C++ runtime (installed, or the zip's DLLs next to it);
-   the HD texture pack is not looked for next to a DVD drive; drag-and-drop of an `.iso` on the setup window. 64 bits (done for Windows, see "Two
-   builds"): the macOS port itself (a platform layer for window, input, rendering, sound, movies and crash reports; the
-   arena with `mmap` near the image and the game stack as a `pthread` stack in the arena; clang with
-   `-ffp-contract=off`; its libm differs from the UCRT, so identical results would need the port's own math functions);
+   the HD texture pack is not looked for next to a DVD drive; drag-and-drop of an `.iso` on the launcher window; launcher leftovers: the keyboard in a real window was exercised only
+   when Windows gave the new window the focus (later runs that would change the resolution by keys did not get it), so
+   PLAY with a changed resolution or mode resizing a real window is untested (a capture checked the store and the menu
+   style; captures are offscreen and never resize the window); closing the window while the file picker is open waits
+   for the picker (it disables the game window, so only a posted WM_CLOSE reaches that). 64 bits (done for Windows, see "Two
+   builds"; the platform interfaces are done too, see "Platform interfaces and backends"): the macOS port itself (stage
+   3: the macOS backends of each interface listed in docs/port.md "Plataforma: interfaces e backends": Cocoa window and
+   input, Metal renderer with a vector layer and an SVG reader, Core Audio, GameController, ImageIO (the MPEG-2 decoder
+   is done: the port's own, stage 3b),
+   the crash handler; the arena with `mmap` near the image and the game stack as a `pthread` stack in the arena; clang
+   with `-ffp-contract=off`; its libm differs from the UCRT, so identical results would need the port's own math
+   functions);
    the x64 `RemixD3D9Renderer` path is untested (RTX is parked); x64 interactive play was exercised only through
    captures and `--bench` (no hand-played session yet). Done: the movies (see "Movies"); their
    leftovers: the D3D9 Remix path does not draw them, the movie's memory is not taken from the game heap
-   (`AllocateMovieMemory`), and a machine without any MPEG-2 MFT simply skips them (the Store's "MPEG-2 Video Extension"
-   is the one that works here). Done: the tick interpolation (see "Tick interpolation"; the view is smooth above 60 fps, with the frame
+   (`AllocateMovieMemory`); a machine without any MPEG-2 MFT now plays them with the port's own decoder. Its leftovers:
+   field pictures and dual prime (no movie of this game uses them; another Anthology game's might), NEON on ARM (the
+   portable C++ is fast enough), and MF's IDCT rounding near ties cannot be reproduced without its algorithm. Done: the tick interpolation (see "Tick interpolation"; the view is smooth above 60 fps, with the frame
    cap). Its leftovers: particles and shards are drawn at the latest tick (no per-particle identity; the
    billboards face the tick's camera), the leading-edge culling of the instant mouse look on very fast turns (the
    game's frustum is per tick; widening it would change `unknown_fc`-based logic), the env-map rows and lights of

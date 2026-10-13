@@ -1,5 +1,6 @@
 #pragma once
-// Caminho de desenho opcional por Direct3D 9 de função fixa (só do port; --renderer d3d9ff; docs/remix.md).
+// Caminho de desenho opcional por Direct3D 9 de função fixa (só do port; --renderer d3d9ff; docs/remix.md). Só no
+// Windows: este cabeçalho é neutro (a interface e a fábrica), a classe com o Direct3D 9 está em remix_d3d9.cpp.
 //
 // Protótipo para o RTX Remix, que só intercepta Direct3D 9 (o Direct3D 11 do port não é visto por ele). O
 // renderizador Direct3D 11 continua o padrão e a referência; este caminho desenha a mesma lista de itens (a saída do
@@ -39,12 +40,9 @@
 //     dele);
 //   - a janela não muda o tamanho do back buffer (a imagem estica).
 
-#include <d3d9.h>
-#include <wrl/client.h>
-
 #include <array>
 #include <cstdint>
-#include <set>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -86,103 +84,39 @@ struct D3D9FrameStats {
     float fog_start = 0.0f, fog_end = 0.0f;
 };
 
-class RemixD3D9Renderer final : public GfxMirror {
+// O caminho (no Windows; remix_d3d9.cpp tem a classe com o Direct3D 9). Os recursos da fase chegam como GfxMirror.
+class RemixD3D9Renderer : public GfxMirror {
 public:
-    // hwnd: a janela do jogo (o back buffer tem width x height, qualquer que seja o tamanho dela).
-    // adapter: o adaptador do Direct3D 11 escolhido por [video] adapter (nulo: auto). O Direct3D 9 só lista os
-    // adaptadores com monitor; o do mesmo fabricante e modelo (GetAdapterIdentifier: VendorId e DeviceId) é usado, e
-    // sem ele (o integrado sem monitor, por exemplo) o padrão (D3DADAPTER_DEFAULT), como antes; describe() diz qual.
-    RemixD3D9Renderer(HWND hwnd, int width, int height, bool vsync, const AdapterInfo* adapter = nullptr);
-    ~RemixD3D9Renderer() override;
-    RemixD3D9Renderer(const RemixD3D9Renderer&) = delete;
-    RemixD3D9Renderer& operator=(const RemixD3D9Renderer&) = delete;
-
-    // GfxMirror: os recursos da fase, criados uma vez.
-    void mirror_reset() override;
-    void mirror_texture(int slot, const Texture& texture) override;
-    void mirror_mesh(int id, const EntityMesh& mesh) override;
-
+    ~RemixD3D9Renderer() override = default;
     // O quadro: o 3D na ordem dos itens e depois o 2D, no back buffer.
-    void render(const std::vector<DrawItem>& items, const D3D9FrameParams& frame);
-    void present();
+    virtual void render(const std::vector<DrawItem>& items, const D3D9FrameParams& frame) = 0;
+    virtual void present() = 0;
     // O back buffer num PNG (antes do present).
-    bool save_png(const std::wstring& path);
-    std::string describe() const;
-    const D3D9FrameStats& stats() const { return stats_; }
-    int width() const { return width_; }
-    int height() const { return height_; }
-
+    virtual bool save_png(const std::wstring& path) = 0;
+    virtual std::string describe() const = 0;
+    virtual const D3D9FrameStats& stats() const = 0;
+    virtual int width() const = 0;
+    virtual int height() const = 0;
     // O hash que o Remix daria à textura do slot: o XXH3 de 64 bits do nível 0 como foi enviado (A8R8G8B8, linhas
     // sem folga), a conta do D3D9CommonTexture do dxvk-remix (0 sem textura).
-    uint64_t texture_hash(int slot) const;
+    virtual uint64_t texture_hash(int slot) const = 0;
     // Guarda, a cada quadro, os hashes de textura por categoria (2D, céu, marcas, partículas, mundo) para o rtx.conf
     // sugerido (--d3d9-remix-conf).
-    void set_record_hashes(bool on) { record_ = on; }
+    virtual void set_record_hashes(bool on) = 0;
     // Um rtx.conf sugerido: a escala, os eixos e as texturas de UI, céu, marcas e partículas vistas até aqui. Os hashes
     // são candidatos: só o Remix confirma (o menu Game Setup mostra as texturas marcadas).
-    bool write_remix_conf(const std::wstring& path) const;
-
-    // Uma janela invisível para o dispositivo Direct3D 11 do port (as camadas 2D, o Direct2D), que neste modo não
-    // apresenta nada: a janela do jogo fica só com o Direct3D 9.
-    static HWND create_hidden_window(int width, int height);
-
-private:
-    template <typename T>
-    using Com = Microsoft::WRL::ComPtr<T>;
-
-    struct Part {
-        int texture = -1;
-        uint32_t first_index = 0;
-        uint32_t index_count = 0;
-        uint32_t min_vertex = 0;   // a faixa de vértices que os índices da parte usam
-        uint32_t num_vertices = 0;
-        GsState gs;
-        bool env = false;
-    };
-    struct Mesh9 {
-        Com<IDirect3DVertexBuffer9> vb;
-        Com<IDirect3DIndexBuffer9> ib;
-        std::vector<Part> parts;
-        bool skinned = false;
-        int bones = 0;
-        bool software = false;     // skinning com mais ossos do que o hardware faz: processamento em software
-    };
-
-    bool begin_frame();
-    void set_frame_states(const D3D9FrameParams& frame);
-    void set_lights(const std::vector<DrawItem>& items);
-    void apply_state(const DrawItem& item, const GsState& own, bool sprite, bool env, bool fog);
-    void draw_mesh(const DrawItem& item, bool fog);
-    void draw_loose(const std::vector<Vertex>& tris, int texture, const DrawItem& item, bool fog);
-    void draw_2d(const DrawItem& item);
-    IDirect3DTexture9* texture(int slot);
-
-    HWND hwnd_;
-    int width_, height_;
-    bool vsync_;
-    Com<IDirect3D9> d3d_;
-    Com<IDirect3DDevice9> dev_;
-    D3DPRESENT_PARAMETERS pp_{};
-    D3DCAPS9 caps_{};
-    UINT ordinal_ = D3DADAPTER_DEFAULT;  // o adaptador do Direct3D 9
-    std::string adapter_note_;           // o nome dele e se seguiu a escolha do Direct3D 11
-    bool mixed_ = false;     // D3DCREATE_MIXED_VERTEXPROCESSING
-    bool software_ = false;  // D3DCREATE_SOFTWARE_VERTEXPROCESSING (o último recurso)
-    bool lost_ = false;
-    Com<IDirect3DTexture9> white_;
-    Com<IDirect3DTexture9> no_texture_;  // kQuadNoTexture
-    std::vector<Com<IDirect3DTexture9>> textures_;
-    std::vector<uint64_t> hashes_;  // por slot: o hash do Remix (texture_hash)
-    bool record_ = false;
-    std::set<uint64_t> seen_ui_, seen_sky_, seen_decal_, seen_particle_, seen_world_;
-    void record(std::set<uint64_t>& set, int slot);
-    std::vector<Mesh9> meshes_;
-    std::vector<Vertex> scratch_;   // os vértices dos desenhos sem buffer (partículas, estilhaços, 2D)
-    DWORD lights_enabled_ = 0;
-    std::string module_;  // o d3d9.dll carregado (o do sistema, ou o da ponte do Remix ao lado do executável)
-    D3D9FrameStats stats_;
-    uint32_t textures_count_ = 0, meshes_count_ = 0, software_meshes_ = 0;
-    uint32_t failed_textures_ = 0, failed_meshes_ = 0;  // recursos que o Direct3D 9 recusou (memória)
+    virtual bool write_remix_conf(const std::wstring& path) const = 0;
 };
+
+// window: a janela do jogo (Window::native_handle; o back buffer tem width x height, qualquer que seja o tamanho dela).
+// adapter: o adaptador do Direct3D 11 escolhido por [video] adapter (nulo: auto). O Direct3D 9 só lista os
+// adaptadores com monitor; o do mesmo fabricante e modelo (GetAdapterIdentifier: VendorId e DeviceId) é usado, e
+// sem ele (o integrado sem monitor, por exemplo) o padrão (D3DADAPTER_DEFAULT), como antes; describe() diz qual.
+// Lança std::runtime_error se o Direct3D 9 não criar o dispositivo. Só existe no Windows.
+std::unique_ptr<RemixD3D9Renderer> create_remix_d3d9(void* window, int width, int height, bool vsync,
+                                                     const AdapterInfo* adapter = nullptr);
+// Uma janela invisível para o dispositivo Direct3D 11 do port (as camadas 2D, o Direct2D), que neste modo não
+// apresenta nada: a janela do jogo fica só com o Direct3D 9. O identificador do sistema (o HWND).
+void* create_remix_hidden_window(int width, int height);
 
 }  // namespace nf

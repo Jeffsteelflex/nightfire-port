@@ -1,16 +1,28 @@
-// O decodificador de MPEG-2 dos filmes pelo Media Foundation: ver movie_decoder.h.
+// O decodificador de MPEG-2 dos filmes: a parte sem o sistema (a escolha do decodificador, o do port por trás da
+// fachada, a conversão de cor do IPU e a fila de quadros). O do sistema é o do backend (movie_decoder_mf.cpp: o Media
+// Foundation do Windows). Ver movie_decoder.h.
 
 #include "platform/movie_decoder.h"
 
-#include <windows.h>
-#include <mfapi.h>
-#include <mferror.h>
-#include <mfidl.h>
-#include <mftransform.h>
-
 #include <algorithm>
-#include <cstdio>
+#include <cctype>
 #include <cstring>
+
+#include "platform/mpeg2_decoder.h"
+
+// SSE2 (todo x86-64 e o x86 de 32 bits com SSE2, o padrão do MSVC): a conversão de cor e o croma intercalado em
+// vetores, com as mesmas contas inteiras (o mesmo resultado bit a bit). Nas outras CPUs, o C++ puro.
+// -DNF_MOVIE_SSE2=0 força o C++ puro também no x86.
+#ifndef NF_MOVIE_SSE2
+#if defined(__SSE2__) || defined(_M_X64) || defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#define NF_MOVIE_SSE2 1
+#else
+#define NF_MOVIE_SSE2 0
+#endif
+#endif
+#if NF_MOVIE_SSE2
+#include <emmintrin.h>
+#endif
 
 namespace nf {
 
@@ -22,20 +34,6 @@ constexpr int kY = 149, kRCr = 204, kGCb = -50, kGCr = -104, kBCb = 258;
 
 uint8_t clamp8(int v) { return uint8_t(std::clamp(v, 0, 255)); }
 
-std::string narrow(const wchar_t* w) {
-    if (w == nullptr) return {};
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
-    std::string s(size_t(std::max(n, 1)) - 1, '\0');
-    if (n > 1) WideCharToMultiByte(CP_UTF8, 0, w, -1, s.data(), n, nullptr, nullptr);
-    return s;
-}
-
-template <typename T>
-void release(T*& p) {
-    if (p != nullptr) p->Release();
-    p = nullptr;
-}
-
 }  // namespace
 
 void yuv_to_bgr(int y, int cb, int cr, uint8_t* bgr) {
@@ -46,13 +44,68 @@ void yuv_to_bgr(int y, int cb, int cr, uint8_t* bgr) {
     bgr[2] = clamp8((yy + kRCr * v + 64) >> 7);
 }
 
+#if NF_MOVIE_SSE2
+namespace {
+
+// 16 pixels de uma linha com as contas de nv12_to_bgra: os termos em 32 bits (pmaddwd: Y x 149 + 64 e o croma pelos
+// pares (u, v)), o mesmo >> 7, e a saturação do packs/packus no lugar do clamp8 (os valores cabem em 16 bits).
+inline void bgra16_sse2(const uint8_t* yr, const uint8_t* uvr, uint8_t* out, __m128i alpha) {
+    const __m128i zero = _mm_setzero_si128();
+    const __m128i c128 = _mm_set1_epi16(128), c16 = _mm_set1_epi16(16), one = _mm_set1_epi16(1);
+    const __m128i ky = _mm_set_epi16(64, kY, 64, kY, 64, kY, 64, kY);
+    const __m128i kb = _mm_set_epi16(0, kBCb, 0, kBCb, 0, kBCb, 0, kBCb);
+    const __m128i kg = _mm_set_epi16(kGCr, kGCb, kGCr, kGCb, kGCr, kGCb, kGCr, kGCb);
+    const __m128i kr = _mm_set_epi16(kRCr, 0, kRCr, 0, kRCr, 0, kRCr, 0);
+    const __m128i uv = _mm_loadu_si128(reinterpret_cast<const __m128i*>(uvr));
+    const __m128i uv_lo = _mm_sub_epi16(_mm_unpacklo_epi8(uv, zero), c128);  // u0 v0 u1 v1 u2 v2 u3 v3
+    const __m128i uv_hi = _mm_sub_epi16(_mm_unpackhi_epi8(uv, zero), c128);  // u4 v4 ... u7 v7
+    const __m128i cb[2] = {_mm_madd_epi16(uv_lo, kb), _mm_madd_epi16(uv_hi, kb)};
+    const __m128i cg[2] = {_mm_madd_epi16(uv_lo, kg), _mm_madd_epi16(uv_hi, kg)};
+    const __m128i cr[2] = {_mm_madd_epi16(uv_lo, kr), _mm_madd_epi16(uv_hi, kr)};
+    const __m128i yv = _mm_loadu_si128(reinterpret_cast<const __m128i*>(yr));
+    const __m128i y16[2] = {_mm_sub_epi16(_mm_unpacklo_epi8(yv, zero), c16),
+                            _mm_sub_epi16(_mm_unpackhi_epi8(yv, zero), c16)};
+    __m128i b16[2], g16[2], r16[2];
+    for (int h = 0; h < 2; ++h) {
+        // Os 8 pixels desta metade: 4 amostras de croma, cada uma para 2 pixels.
+        const __m128i yy0 = _mm_madd_epi16(_mm_unpacklo_epi16(y16[h], one), ky);  // pixels 0-3: Y x 149 + 64
+        const __m128i yy1 = _mm_madd_epi16(_mm_unpackhi_epi16(y16[h], one), ky);  // pixels 4-7
+        const __m128i b0 = _mm_shuffle_epi32(cb[h], _MM_SHUFFLE(1, 1, 0, 0)), b1 = _mm_shuffle_epi32(cb[h], _MM_SHUFFLE(3, 3, 2, 2));
+        const __m128i g0 = _mm_shuffle_epi32(cg[h], _MM_SHUFFLE(1, 1, 0, 0)), g1 = _mm_shuffle_epi32(cg[h], _MM_SHUFFLE(3, 3, 2, 2));
+        const __m128i r0 = _mm_shuffle_epi32(cr[h], _MM_SHUFFLE(1, 1, 0, 0)), r1 = _mm_shuffle_epi32(cr[h], _MM_SHUFFLE(3, 3, 2, 2));
+        b16[h] = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(yy0, b0), 7), _mm_srai_epi32(_mm_add_epi32(yy1, b1), 7));
+        g16[h] = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(yy0, g0), 7), _mm_srai_epi32(_mm_add_epi32(yy1, g1), 7));
+        r16[h] = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(yy0, r0), 7), _mm_srai_epi32(_mm_add_epi32(yy1, r1), 7));
+    }
+    const __m128i b = _mm_packus_epi16(b16[0], b16[1]);
+    const __m128i g = _mm_packus_epi16(g16[0], g16[1]);
+    const __m128i r = _mm_packus_epi16(r16[0], r16[1]);
+    const __m128i bg_lo = _mm_unpacklo_epi8(b, g), bg_hi = _mm_unpackhi_epi8(b, g);
+    const __m128i ra_lo = _mm_unpacklo_epi8(r, alpha), ra_hi = _mm_unpackhi_epi8(r, alpha);
+    __m128i* o = reinterpret_cast<__m128i*>(out);
+    _mm_storeu_si128(o + 0, _mm_unpacklo_epi16(bg_lo, ra_lo));
+    _mm_storeu_si128(o + 1, _mm_unpackhi_epi16(bg_lo, ra_lo));
+    _mm_storeu_si128(o + 2, _mm_unpacklo_epi16(bg_hi, ra_hi));
+    _mm_storeu_si128(o + 3, _mm_unpackhi_epi16(bg_hi, ra_hi));
+}
+
+}  // namespace
+#endif
+
 void nv12_to_bgra(const uint8_t* nv12, int width, int height, uint8_t* bgra, uint8_t alpha) {
     const uint8_t* uv_plane = nv12 + size_t(width) * size_t(height);
+#if NF_MOVIE_SSE2
+    const __m128i va = _mm_set1_epi8(char(alpha));
+#endif
     for (int y = 0; y < height; ++y) {
         const uint8_t* yr = nv12 + size_t(y) * size_t(width);
         const uint8_t* uvr = uv_plane + size_t(y / 2) * size_t(width);
         uint8_t* out = bgra + size_t(y) * size_t(width) * 4;
-        for (int x = 0; x < width; x += 2) {
+        int x = 0;
+#if NF_MOVIE_SSE2
+        for (; x + 16 <= width; x += 16, out += 64) bgra16_sse2(yr + x, uvr + x, out, va);
+#endif
+        for (; x < width; x += 2) {
             // O croma de cada bloco de 2 x 2 vale para os quatro pixels (como o CSC do IPU, sem interpolar).
             const int u = int(uvr[x]) - 128, v = int(uvr[x + 1]) - 128;
             const int b = kBCb * u + 64, g = kGCb * u + kGCr * v + 64, r = kRCr * v + 64;
@@ -68,239 +121,131 @@ void nv12_to_bgra(const uint8_t* nv12, int width, int height, uint8_t* bgra, uin
     }
 }
 
+const char* const kOwnMpeg2DecoderName = "MPEG-2 do port";
+
+bool parse_movie_decoder_choice(const std::string& text, MovieDecoderChoice* out) {
+    std::string t;
+    for (char c : text) {
+        if (c != ' ' && c != '	') t += char(std::tolower(static_cast<unsigned char>(c)));
+    }
+    if (t == "auto") *out = MovieDecoderChoice::Auto;
+    else if (t == "mf" || t == "system") *out = MovieDecoderChoice::System;
+    else if (t == "own" || t == "port") *out = MovieDecoderChoice::Own;
+    else return false;
+    return true;
+}
+
+const char* movie_decoder_choice_name(MovieDecoderChoice c) {
+    switch (c) {
+        case MovieDecoderChoice::System: return "mf";
+        case MovieDecoderChoice::Own: return "own";
+        default: return "auto";
+    }
+}
+
+namespace {
+
+// O decodificador do port (platform/mpeg2_decoder.h) por trás da fachada: as imagens dele viram NV12 (o croma
+// intercalado) na fila.
+class OwnBackend final : public Mpeg2Decoder::Backend {
+public:
+    OwnBackend() {
+        dec_.set_output([this](const Mpeg2Picture& p) { picture(p); });
+    }
+    bool feed(Mpeg2Decoder& d, const uint8_t* data, size_t size) override {
+        sink_ = &d;
+        dec_.decode(data, size);
+        sink_ = nullptr;
+        return true;
+    }
+    void drain(Mpeg2Decoder& d) override {
+        sink_ = &d;
+        dec_.finish();
+        sink_ = nullptr;
+    }
+    void flush() override { dec_.reset(); }
+
+private:
+    void picture(const Mpeg2Picture& p) {
+        if (sink_ == nullptr) return;
+        MovieFrameNV12 f = reuse_frame(*sink_);
+        // NV12 com o croma em pares: largura e altura pares (os filmes do jogo são 512 x 448).
+        const int w = p.width & ~1, h = p.height & ~1;
+        f.width = w;
+        f.height = h;
+        f.data.resize(size_t(w) * size_t(h) * 3 / 2);
+        for (int y = 0; y < h; ++y) std::memcpy(&f.data[size_t(y) * size_t(w)], p.y + size_t(y) * size_t(p.y_stride), size_t(w));
+        uint8_t* uv = f.data.data() + size_t(w) * size_t(h);
+        for (int y = 0; y < h / 2; ++y) {
+            const uint8_t* cb = p.cb + size_t(y) * size_t(p.c_stride);
+            const uint8_t* cr = p.cr + size_t(y) * size_t(p.c_stride);
+            uint8_t* o = uv + size_t(y) * size_t(w);
+            int x = 0;
+#if NF_MOVIE_SSE2
+            for (; x + 16 <= w / 2; x += 16) {
+                const __m128i u = _mm_loadu_si128(reinterpret_cast<const __m128i*>(cb + x));
+                const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(cr + x));
+                _mm_storeu_si128(reinterpret_cast<__m128i*>(o + 2 * x), _mm_unpacklo_epi8(u, v));
+                _mm_storeu_si128(reinterpret_cast<__m128i*>(o + 2 * x + 16), _mm_unpackhi_epi8(u, v));
+            }
+#endif
+            for (; x < w / 2; ++x) {
+                o[2 * x] = cb[x];
+                o[2 * x + 1] = cr[x];
+            }
+        }
+        push_frame(*sink_, std::move(f));
+    }
+
+    Mpeg2VideoDecoder dec_;
+    Mpeg2Decoder* sink_ = nullptr;
+};
+
+}  // namespace
+
+Mpeg2Decoder::Mpeg2Decoder() = default;
+
 Mpeg2Decoder::~Mpeg2Decoder() { close(); }
 
 void Mpeg2Decoder::close() {
-    if (mft_ != nullptr) {
-        mft_->ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
-        mft_->Release();
-        mft_ = nullptr;
-    }
-    if (mf_started_) MFShutdown();
-    mf_started_ = false;
-    if (com_) CoUninitialize();
-    com_ = false;
+    backend_.reset();
+    own_ = false;
     frames_.clear();
     spare_.clear();
 }
 
-bool Mpeg2Decoder::set_output_nv12() {
-    for (DWORD i = 0;; ++i) {
-        IMFMediaType* type = nullptr;
-        if (FAILED(mft_->GetOutputAvailableType(0, i, &type))) return false;
-        GUID sub{};
-        type->GetGUID(MF_MT_SUBTYPE, &sub);
-        if (sub == MFVideoFormat_NV12 && SUCCEEDED(mft_->SetOutputType(0, type, 0))) {
-            UINT32 w = 0, h = 0;
-            if (SUCCEEDED(MFGetAttributeSize(type, MF_MT_FRAME_SIZE, &w, &h)) && w != 0 && h != 0) {
-                width_ = int(w);
-                height_ = int(h);
-            }
-            UINT32 stride = 0;
-            stride_ = SUCCEEDED(type->GetUINT32(MF_MT_DEFAULT_STRIDE, &stride)) ? int(int32_t(stride)) : width_;
-            if (stride_ < width_) stride_ = width_;
-            type->Release();
-            MFT_OUTPUT_STREAM_INFO osi{};
-            mft_->GetOutputStreamInfo(0, &osi);
-            out_size_ = osi.cbSize;
-            provides_samples_ = (osi.dwFlags & (MFT_OUTPUT_STREAM_PROVIDES_SAMPLES | MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES)) != 0;
-            return true;
-        }
-        type->Release();
-    }
-}
-
-bool Mpeg2Decoder::open(int width, int height, double fps) {
+bool Mpeg2Decoder::open(int width, int height, double fps, MovieDecoderChoice choice) {
     close();
-    failure_.clear();
     name_.clear();
-    const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    com_ = SUCCEEDED(co);
-    if (FAILED(MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET))) {
-        failure_ = "MFStartup";
-        close();
-        return false;
-    }
-    mf_started_ = true;
-    MFT_REGISTER_TYPE_INFO in{MFMediaType_Video, MFVideoFormat_MPEG2};
-    IMFActivate** acts = nullptr;
-    UINT32 count = 0;
-    const HRESULT hr = MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER,
-                                 MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER, &in,
-                                 nullptr, &acts, &count);
-    if (FAILED(hr) || count == 0) {
-        failure_ = "nenhum MFT de MPEG-2";
-        if (acts != nullptr) CoTaskMemFree(acts);
-        close();
-        return false;
-    }
-    for (UINT32 i = 0; i < count && mft_ == nullptr; ++i) {
-        WCHAR* wname = nullptr;
-        UINT32 len = 0;
-        acts[i]->GetAllocatedString(MFT_FRIENDLY_NAME_Attribute, &wname, &len);
-        const std::string nm = narrow(wname);
-        CoTaskMemFree(wname);
-        IMFTransform* t = nullptr;
-        HRESULT a = acts[i]->ActivateObject(IID_PPV_ARGS(&t));
-        if (FAILED(a) || t == nullptr) {
-            char buf[96];
-            std::snprintf(buf, sizeof(buf), "%s%s ativacao %08lx", failure_.empty() ? "" : "; ", nm.c_str(),
-                          static_cast<unsigned long>(a));
-            failure_ += buf;
-            continue;
+    failure_.clear();
+    if (choice != MovieDecoderChoice::Own) {
+        backend_ = open_system_mpeg2_decoder(width, height, fps, &name_, &failure_);
+        if (backend_ != nullptr) return true;
+        if (choice == MovieDecoderChoice::System) {
+            name_.clear();
+            return false;
         }
-        IMFMediaType* it = nullptr;
-        MFCreateMediaType(&it);
-        it->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-        it->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_MPEG2);
-        MFSetAttributeSize(it, MF_MT_FRAME_SIZE, UINT32(width), UINT32(height));
-        if (fps > 0.0) MFSetAttributeRatio(it, MF_MT_FRAME_RATE, UINT32(fps * 1000.0 + 0.5), 1000);
-        a = t->SetInputType(0, it, 0);
-        it->Release();
-        if (FAILED(a)) {
-            char buf[96];
-            std::snprintf(buf, sizeof(buf), "%s%s entrada %08lx", failure_.empty() ? "" : "; ", nm.c_str(),
-                          static_cast<unsigned long>(a));
-            failure_ += buf;
-            t->Release();
-            continue;
-        }
-        mft_ = t;
-        width_ = width;
-        height_ = height;
-        if (!set_output_nv12()) {
-            failure_ += (failure_.empty() ? "" : "; ") + nm + " sem NV12";
-            mft_->Release();
-            mft_ = nullptr;
-            continue;
-        }
-        name_ = nm;
     }
-    for (UINT32 i = 0; i < count; ++i) acts[i]->Release();
-    CoTaskMemFree(acts);
-    if (mft_ == nullptr) {
-        close();
-        return false;
-    }
-    duration_ = fps > 0.0 ? int64_t(10000000.0 / fps + 0.5) : 333333;
-    time_ = 0;
-    mft_->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
-    mft_->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
+    backend_ = std::make_unique<OwnBackend>();
+    own_ = true;
+    name_ = kOwnMpeg2DecoderName;
     return true;
 }
 
 bool Mpeg2Decoder::feed(const uint8_t* data, size_t size) {
-    if (mft_ == nullptr || size == 0) return false;
-    IMFSample* sample = nullptr;
-    IMFMediaBuffer* buf = nullptr;
-    if (FAILED(MFCreateSample(&sample)) || FAILED(MFCreateMemoryBuffer(DWORD(size), &buf))) {
-        release(sample);
-        release(buf);
-        return false;
-    }
-    BYTE* p = nullptr;
-    buf->Lock(&p, nullptr, nullptr);
-    std::memcpy(p, data, size);
-    buf->Unlock();
-    buf->SetCurrentLength(DWORD(size));
-    sample->AddBuffer(buf);
-    buf->Release();
-    sample->SetSampleTime(time_);
-    sample->SetSampleDuration(duration_);
-    time_ += duration_;
-    bool ok = true;
-    for (int tries = 0; tries < 64; ++tries) {
-        const HRESULT hr = mft_->ProcessInput(0, sample, 0);
-        if (hr == MF_E_NOTACCEPTING) {
-            pull();
-            continue;
-        }
-        ok = SUCCEEDED(hr);
-        break;
-    }
-    sample->Release();
-    pull();
-    return ok;
+    if (backend_ == nullptr || size == 0) return false;
+    return backend_->feed(*this, data, size);
 }
 
 void Mpeg2Decoder::drain() {
-    if (mft_ == nullptr) return;
-    mft_->ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0);
-    pull();
+    if (backend_ != nullptr) backend_->drain(*this);
 }
 
 void Mpeg2Decoder::flush() {
-    if (mft_ == nullptr) return;
-    mft_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
+    if (backend_ == nullptr) return;
+    backend_->flush();
     for (MovieFrameNV12& f : frames_) spare_.push_back(std::move(f));
     frames_.clear();
-    time_ = 0;
-}
-
-void Mpeg2Decoder::pull() {
-    for (int guard = 0; guard < 64; ++guard) {
-        MFT_OUTPUT_DATA_BUFFER ob{};
-        IMFSample* own = nullptr;
-        if (!provides_samples_) {
-            IMFMediaBuffer* b = nullptr;
-            if (FAILED(MFCreateSample(&own)) || FAILED(MFCreateMemoryBuffer(std::max<DWORD>(out_size_, 1), &b))) {
-                release(own);
-                release(b);
-                return;
-            }
-            own->AddBuffer(b);
-            b->Release();
-            ob.pSample = own;
-        }
-        DWORD status = 0;
-        const HRESULT hr = mft_->ProcessOutput(0, 1, &ob, &status);
-        if (ob.pEvents != nullptr) ob.pEvents->Release();
-        if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) {
-            release(own);
-            return;
-        }
-        if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
-            release(own);
-            if (!set_output_nv12()) return;
-            continue;
-        }
-        if (FAILED(hr) || ob.pSample == nullptr) {
-            release(own);
-            return;
-        }
-        IMFMediaBuffer* b = nullptr;
-        if (SUCCEEDED(ob.pSample->ConvertToContiguousBuffer(&b))) {
-            BYTE* p = nullptr;
-            DWORD len = 0;
-            if (SUCCEEDED(b->Lock(&p, nullptr, &len))) {
-                MovieFrameNV12 f;
-                if (!spare_.empty()) {
-                    f = std::move(spare_.back());
-                    spare_.pop_back();
-                }
-                f.width = width_;
-                f.height = height_;
-                const size_t need = size_t(width_) * size_t(height_) * 3 / 2;
-                f.data.resize(need);
-                // Copia linha a linha pelo passo do decodificador (a saída fica com passo = largura).
-                const size_t stride = size_t(stride_);
-                const size_t rows_y = size_t(height_), rows_uv = size_t(height_) / 2;
-                const size_t plane = stride * rows_y;
-                if (len >= plane + stride * rows_uv) {
-                    for (size_t y = 0; y < rows_y; ++y) std::memcpy(&f.data[y * size_t(width_)], p + y * stride, size_t(width_));
-                    for (size_t y = 0; y < rows_uv; ++y) {
-                        std::memcpy(&f.data[(rows_y + y) * size_t(width_)], p + plane + y * stride, size_t(width_));
-                    }
-                    frames_.push_back(std::move(f));
-                    ++frames_out_;
-                }
-                b->Unlock();
-            }
-            b->Release();
-        }
-        if (own == nullptr) ob.pSample->Release();
-        release(own);
-    }
 }
 
 bool Mpeg2Decoder::take(MovieFrameNV12& out) {
@@ -309,6 +254,20 @@ bool Mpeg2Decoder::take(MovieFrameNV12& out) {
     out = std::move(frames_.front());
     frames_.pop_front();
     return true;
+}
+
+MovieFrameNV12 Mpeg2Decoder::reuse_frame() {
+    MovieFrameNV12 f;
+    if (!spare_.empty()) {
+        f = std::move(spare_.back());
+        spare_.pop_back();
+    }
+    return f;
+}
+
+void Mpeg2Decoder::push_frame(MovieFrameNV12&& f) {
+    frames_.push_back(std::move(f));
+    ++frames_out_;
 }
 
 }  // namespace nf

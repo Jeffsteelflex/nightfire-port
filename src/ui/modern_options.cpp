@@ -1,6 +1,7 @@
 // A tela de opções do PC no estilo Modern. Ver modern_options.h e docs/design.md.
 
 #include "ui/modern_options.h"
+#include "platform/keys.h"
 
 #include <algorithm>
 #include <cmath>
@@ -8,7 +9,6 @@
 #include <cstdio>
 #include <cstring>
 
-#include <windows.h>
 
 #include "engine/input.h"
 #include "engine/menu.h"
@@ -486,6 +486,33 @@ void OptionsScreen::ensure_visible(int i) {
     float final_total = total;
     if (dd_item_ >= 0) final_total = total + tk_->space.option_h * float(choice_count(items_[size_t(dd_item_)].opt)) * (1.0f - dd_open_.value());
     t = std::clamp(t, 0.0f, std::max(0.0f, final_total - view));
+    if (t != scroll_target_) {
+        scroll_target_ = t;
+        scroll_.set(t, tk_->motion.scroll, tk_->motion.ease_out);
+    }
+}
+
+void OptionsScreen::reveal_open_list() {
+    // A lista que cabe aparece inteira, com a linha dela. A que não cabe (as resoluções de um monitor grande: dezenas)
+    // abre com a opção atual no meio, com opções acima e abaixo à vista: com a atual rente à borda de baixo, a lista
+    // parecia acabar nela.
+    if (dd_item_ < 0) return;
+    const auto& sp = tk_->space;
+    const Item& it = items_[size_t(dd_item_)];
+    const int n = choice_count(it.opt);
+    const float view = view_height();
+    const float margin = 24.0f;
+    const float y0 = it.y;
+    const float y1 = it.y + it.h + sp.option_h * float(n);
+    float t = scroll_target_;
+    if (y1 - y0 + 2.0f * margin <= view) {
+        if (y0 - margin < t) t = y0 - margin;
+        if (y1 + margin > t + view) t = y1 + margin - view;
+    } else {
+        t = it.y + it.h + sp.option_h * (float(dd_focus_) + 0.5f) - view * 0.5f;
+    }
+    const float total = content_height() + sp.option_h * float(n) * (1.0f - dd_open_.value());
+    t = std::clamp(t, 0.0f, std::max(0.0f, total - view));
     if (t != scroll_target_) {
         scroll_target_ = t;
         scroll_.set(t, tk_->motion.scroll, tk_->motion.ease_out);
@@ -1248,7 +1275,7 @@ void OptionsScreen::open_dropdown_at(int i) {
     dd_open_.set(1.0f, tk_->motion.dropdown, tk_->motion.ease_out);
     focus_ = i;
     layout_items();
-    ensure_visible(i);
+    reveal_open_list();
     place_mark(true);
 }
 
@@ -1430,6 +1457,13 @@ void OptionsScreen::mouse(const UiInput& in, const Canvas& cv) {
         }
         return;
     }
+    // A roda rola a coluna do meio, também por cima da lista aberta (antes ela só rolava fora das opções, e uma lista
+    // longa parecia acabar na borda de baixo).
+    if (in.wheel != 0.0f && x >= tk_->space.mid_x0 - 40.0f && x < tk_->space.mid_x1 + 40.0f) {
+        const float view = view_height();
+        scroll_target_ = std::clamp(scroll_target_ - in.wheel * tk_->space.row_h, 0.0f, std::max(0.0f, content_height() - view));
+        scroll_.set(scroll_target_, tk_->motion.scroll, tk_->motion.ease_out);
+    }
     // A lista aberta.
     if (dd_item_ >= 0) {
         const int o = hit_option(x, y);
@@ -1447,11 +1481,6 @@ void OptionsScreen::mouse(const UiInput& in, const Canvas& cv) {
     }
     // As linhas.
     const int i = hit_item(x, y);
-    if (in.wheel != 0.0f && x >= tk_->space.mid_x0 - 40.0f && x < tk_->space.mid_x1 + 40.0f) {
-        const float view = view_height();
-        scroll_target_ = std::clamp(scroll_target_ - in.wheel * tk_->space.row_h, 0.0f, std::max(0.0f, content_height() - view));
-        scroll_.set(scroll_target_, tk_->motion.scroll, tk_->motion.ease_out);
-    }
     if (i < 0 || !focusable(i)) {
         if (pressed && dd_item_ >= 0) close_dropdown();
         return;
@@ -1629,8 +1658,8 @@ void OptionsScreen::frame(float dt, const UiInput& in, const Canvas& cv, const M
     held[int(Cmd::Down)] = cmd("menu_down") || btn(nf::kPadDpadDown) || ly < -0.55f;
     held[int(Cmd::Left)] = cmd("menu_left") || btn(nf::kPadDpadLeft) || lx < -0.55f;
     held[int(Cmd::Right)] = cmd("menu_right") || btn(nf::kPadDpadRight) || lx > 0.55f;
-    held[int(Cmd::Select)] = cmd("menu_select") || key(VK_RETURN) || btn(nf::kPadA);
-    held[int(Cmd::Back)] = cmd("menu_back") || key(VK_ESCAPE) || btn(nf::kPadB);
+    held[int(Cmd::Select)] = cmd("menu_select") || key(nf::key::Return) || btn(nf::kPadA);
+    held[int(Cmd::Back)] = cmd("menu_back") || key(nf::key::Escape) || btn(nf::kPadB);
     held[int(Cmd::TabPrev)] = cmd("menu_tab_prev");
     held[int(Cmd::TabNext)] = cmd("menu_tab_next");
     held[int(Cmd::Defaults)] = cmd("menu_defaults");

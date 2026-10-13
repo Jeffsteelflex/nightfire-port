@@ -3,7 +3,6 @@
 // das páginas de controles do port (engine/menu_pc_controls). O controle é um ScriptedPadSource: nenhum
 // teste depende de um controle de verdade.
 
-#include <windows.h>
 
 #include <cmath>
 #include <cstdio>
@@ -12,6 +11,7 @@
 #include <vector>
 
 #include "engine/font.h"
+#include "platform/keys.h"
 #include "engine/gamestate.h"
 #include "engine/game.h"
 #include "engine/gameflow.h"
@@ -87,19 +87,19 @@ const std::vector<SpecKey>& pc_mapping() {
         {'S', {{2, -1.0f}, {27, 1.0f}}},
         {'A', {{1, 1.0f}, {28, 1.0f}}},
         {'D', {{1, -1.0f}, {29, 1.0f}}},
-        {VK_RIGHT, {{0, 1.0f}, {3, 1.0f}, {29, 1.0f}}},
-        {VK_LEFT, {{0, -1.0f}, {3, -1.0f}, {28, 1.0f}}},
-        {VK_UP, {{4, 1.0f}, {5, 1.0f}, {26, 1.0f}}},
-        {VK_DOWN, {{4, -1.0f}, {5, -1.0f}, {27, 1.0f}}},
-        {VK_SPACE, {{7, 1.0f}, {25, 1.0f}, {31, 1.0f}}},
+        {nf::key::Right, {{0, 1.0f}, {3, 1.0f}, {29, 1.0f}}},
+        {nf::key::Left, {{0, -1.0f}, {3, -1.0f}, {28, 1.0f}}},
+        {nf::key::Up, {{4, 1.0f}, {5, 1.0f}, {26, 1.0f}}},
+        {nf::key::Down, {{4, -1.0f}, {5, -1.0f}, {27, 1.0f}}},
+        {nf::key::Space, {{7, 1.0f}, {25, 1.0f}, {31, 1.0f}}},
         {'C', {{8, 1.0f}}},
-        {VK_CONTROL, {{8, 1.0f}}},
-        {VK_LBUTTON, {{9, 1.0f}}},
-        {VK_RBUTTON, {{19, 1.0f}}},
-        {VK_MBUTTON, {{12, 1.0f}}},  // modo de tiro / acessório
+        {nf::key::Control, {{8, 1.0f}}},
+        {nf::key::LButton, {{9, 1.0f}}},
+        {nf::key::RButton, {{19, 1.0f}}},
+        {nf::key::MButton, {{12, 1.0f}}},  // modo de tiro / acessório
         {'X', {{12, 1.0f}}},
         {'N', {{13, 1.0f}}},         // visão noturna / raio X
-        {VK_TAB, {{33, 1.0f}}, nf::kPortWeaponWheel},  // a roda de armas no jogo (segurada) e o círculo dos menus
+        {nf::key::Tab, {{33, 1.0f}}, nf::kPortWeaponWheel},  // a roda de armas no jogo (segurada) e o círculo dos menus
         {'E', {{14, 1.0f}, {32, 1.0f}}},  // usar/recarregar e o quadrado dos menus (menu_square)
         {'R', {}, nf::kPortReload},       // recarregar (o restaurar padrões dos menus Modern não tem ação do jogo)
         {kWheelDown, {{16, 1.0f}}},  // a próxima arma
@@ -112,9 +112,9 @@ const std::vector<SpecKey>& pc_mapping() {
         {'3', {}, nf::kPortGadget1 + 2},
         {'4', {}, nf::kPortGadget1 + 3},
         {'5', {}, nf::kPortGadget1 + 4},
-        {VK_RETURN, {{25, 1.0f}, {30, 1.0f}}},
-        {VK_ESCAPE, {{25, 1.0f}, {30, 1.0f}, {34, 1.0f}}},  // a pausa (Start) e o voltar dos menus
-        {VK_BACK, {{34, 1.0f}}},
+        {nf::key::Return, {{25, 1.0f}, {30, 1.0f}}},
+        {nf::key::Escape, {{25, 1.0f}, {30, 1.0f}, {34, 1.0f}}},  // a pausa (Start) e o voltar dos menus
+        {nf::key::Back, {{34, 1.0f}}},
         {'F', {}},
         {'T', {}},
         {'V', {}},
@@ -171,7 +171,7 @@ TEST(input_bindings_defaults_follow_the_pc_spec) {
         for (int k = 0; k < nf::kMaxBinds; ++k) {
             const nf::InputCode c = b.in[i][k];
             if (!c.valid()) continue;
-            for (const int vk : {int('V'), int('H'), int('P'), int('T'), VK_F2, VK_F3, VK_F4, VK_F9, VK_F12, VK_PRIOR, VK_NEXT}) {
+            for (const int vk : {int('V'), int('H'), int('P'), int('T'), nf::key::F2, nf::key::F3, nf::key::F4, nf::key::F9, nf::key::F12, nf::key::Prior, nf::key::Next}) {
                 CHECK(c != nf::key_input(uint8_t(vk)));
             }
             if (nf::kBindCommands[i].group != nf::BindGroup::Game) continue;
@@ -181,8 +181,8 @@ TEST(input_bindings_defaults_follow_the_pc_spec) {
         }
     }
     // Tab no jogo: a roda de armas (segurada; no controle L3, o botão que nenhum estilo usa); no menu, o círculo.
-    CHECK(!b.has(find_cmd("vision"), nf::key_input(VK_TAB)) && b.has(find_cmd("menu_circle"), nf::key_input(VK_TAB)));
-    CHECK(b.in[find_cmd("weapon_wheel")][0] == nf::key_input(VK_TAB) &&
+    CHECK(!b.has(find_cmd("vision"), nf::key_input(nf::key::Tab)) && b.has(find_cmd("menu_circle"), nf::key_input(nf::key::Tab)));
+    CHECK(b.in[find_cmd("weapon_wheel")][0] == nf::key_input(nf::key::Tab) &&
           b.has(find_cmd("weapon_wheel"), nf::pad_input(nf::kPadInLThumb)));
     CHECK(nf::kBindCommands[find_cmd("weapon_wheel")].group == nf::BindGroup::Game);
     // L3 não está em nenhum dos oito estilos do controle do PS2 (nada some do controle por estar na roda).
@@ -193,10 +193,10 @@ TEST(input_bindings_defaults_follow_the_pc_spec) {
         }
     }
     // O Esc está na pausa e no voltar; o Enter continua na pausa (e é a primeira dela: os símbolos de Start mostram Enter).
-    CHECK(b.in[find_cmd("pause")][0] == nf::key_input(VK_RETURN) && b.has(find_cmd("pause"), nf::key_input(VK_ESCAPE)));
-    CHECK(b.in[find_cmd("menu_back")][0] == nf::key_input(VK_ESCAPE));
+    CHECK(b.in[find_cmd("pause")][0] == nf::key_input(nf::key::Return) && b.has(find_cmd("pause"), nf::key_input(nf::key::Escape)));
+    CHECK(b.in[find_cmd("menu_back")][0] == nf::key_input(nf::key::Escape));
     nf::InputCode shared[nf::kMaxBinds];
-    CHECK(nf::pause_menu_shared(b, shared) == 1 && shared[0] == nf::key_input(VK_ESCAPE));
+    CHECK(nf::pause_menu_shared(b, shared) == 1 && shared[0] == nf::key_input(nf::key::Escape));
     // As ações do port mascaram um botão do controle religado nelas (como as do jogo).
     nf::Bindings r = b;
     nf::bind(r, find_cmd("reload"), nf::pad_input(nf::kPadInX));
@@ -211,7 +211,7 @@ TEST(input_bindings_defaults_follow_the_pc_spec) {
     CHECK_NEAR(a[2], 0.70710677, 1e-6);
     CHECK_NEAR(a[1], 0.70710677, 1e-6);
     // Teclas opostas se anulam; o quadrado (32) é o E, a mesma tecla da aba DOSSIER do mapa Modern (menu_tab_next).
-    keyboard_actions(b, {VK_LEFT, VK_RIGHT}, a);
+    keyboard_actions(b, {nf::key::Left, nf::key::Right}, a);
     CHECK(a[0] == 0.0f && a[3] == 0.0f);
     for (const nf::BindCommand& c : nf::kBindCommands) {
         if (std::strcmp(c.key, "menu_square") == 0) CHECK(std::strcmp(c.defaults, "e") == 0);
@@ -222,7 +222,7 @@ TEST(input_bindings_defaults_follow_the_pc_spec) {
 TEST(input_bindings_pipeline_matches_keyboard) {
     // Pela entrada do jogo inteira (psiInput_MapInputs + Input_Update), sem controle: o mesmo de antes.
     InputWorld w;
-    w.keys({'W', VK_LBUTTON});
+    w.keys({'W', nf::key::LButton});
     w.tick();
     CHECK(w.a(kActForward) == 1.0f);
     CHECK(Input_Action(0, kActFire, kActionPressed) != 0);
@@ -254,8 +254,8 @@ TEST(input_names_round_trip) {
     }
     nf::InputCode c;
     CHECK(nf::parse_input_name("Wheel_Down", &c) && c == nf::wheel_input(true));
-    CHECK(nf::parse_input_name(" F12 ", &c) && c == nf::key_input(VK_F12));
-    CHECK(nf::parse_input_name("num7", &c) && c == nf::key_input(VK_NUMPAD7));
+    CHECK(nf::parse_input_name(" F12 ", &c) && c == nf::key_input(nf::key::F12));
+    CHECK(nf::parse_input_name("num7", &c) && c == nf::key_input(nf::key::Numpad7));
     CHECK(!nf::parse_input_name("f25", &c) && !nf::parse_input_name("pad_q", &c) && !nf::parse_input_name("", &c));
 }
 
@@ -272,7 +272,7 @@ TEST(input_bindings_parse_and_format_round_trip) {
     // controle depois.
     nf::InputCode in[nf::kMaxBinds];
     CHECK(nf::parse_inputs("pad_a, MOUSE1 , xyz, mouse1, f, g, pad_b", in, nf::kMaxBinds) == 3);
-    CHECK(in[0] == nf::key_input(VK_LBUTTON) && in[1] == nf::key_input('F') && in[2] == nf::pad_input(nf::kPadInA));
+    CHECK(in[0] == nf::key_input(nf::key::LButton) && in[1] == nf::key_input('F') && in[2] == nf::pad_input(nf::kPadInA));
     CHECK(!in[3].valid());
     CHECK(nf::parse_inputs("", in, nf::kMaxBinds) == 0 && !in[0].valid());
 }
@@ -285,7 +285,7 @@ TEST(input_bindings_conflicts) {
     // F em atirar: vira a primeira, o mouse fica de segunda.
     nf::BindResult r = nf::bind(b, fire, nf::key_input('F'));
     CHECK(!r.refused && r.moved_from == -1);
-    CHECK(b.in[fire][0] == nf::key_input('F') && b.in[fire][1] == nf::key_input(VK_LBUTTON));
+    CHECK(b.in[fire][0] == nf::key_input('F') && b.in[fire][1] == nf::key_input(nf::key::LButton));
     // W em pular: sai de andar para a frente (mesmo grupo), que fica sem tecla; o menu continua com W.
     r = nf::bind(b, jump, nf::key_input('W'));
     CHECK(r.moved_from == forward && r.swapped_to == -1);
@@ -293,21 +293,21 @@ TEST(input_bindings_conflicts) {
     // Uma terceira tecla de teclado tira a mais antiga.
     nf::bind(b, crouch, nf::key_input('G'));
     CHECK(b.in[crouch][0] == nf::key_input('G') && b.in[crouch][1] == nf::key_input('C'));
-    CHECK(!b.has(crouch, nf::key_input(VK_CONTROL)));
+    CHECK(!b.has(crouch, nf::key_input(nf::key::Control)));
     // Enter em usar: sai da pausa, que é obrigatória mas continua com o Esc (não troca).
-    r = nf::bind(b, use, nf::key_input(VK_RETURN));
+    r = nf::bind(b, use, nf::key_input(nf::key::Return));
     CHECK(!r.refused && r.moved_from == pause && r.swapped_to == -1);
-    CHECK(b.in[use][0] == nf::key_input(VK_RETURN) && b.has(use, nf::key_input('E')));
-    CHECK(b.in[pause][0] == nf::key_input(VK_ESCAPE) && !b.has(pause, nf::key_input(VK_RETURN)));
+    CHECK(b.in[use][0] == nf::key_input(nf::key::Return) && b.has(use, nf::key_input('E')));
+    CHECK(b.in[pause][0] == nf::key_input(nf::key::Escape) && !b.has(pause, nf::key_input(nf::key::Return)));
     // Espaço em voltar: escolher (obrigatório, só com o Espaço) fica com o Esc, a primeira de voltar (troca).
-    r = nf::bind(b, back, nf::key_input(VK_SPACE));
-    CHECK(r.swapped_to == select && r.swapped == nf::key_input(VK_ESCAPE));
-    CHECK(b.in[select][0] == nf::key_input(VK_ESCAPE) && b.in[back][0] == nf::key_input(VK_SPACE));
-    CHECK(b.has(back, nf::key_input(VK_BACK)) && !b.has(back, nf::key_input(VK_ESCAPE)));
+    r = nf::bind(b, back, nf::key_input(nf::key::Space));
+    CHECK(r.swapped_to == select && r.swapped == nf::key_input(nf::key::Escape));
+    CHECK(b.in[select][0] == nf::key_input(nf::key::Escape) && b.in[back][0] == nf::key_input(nf::key::Space));
+    CHECK(b.has(back, nf::key_input(nf::key::Back)) && !b.has(back, nf::key_input(nf::key::Escape)));
     // Um comando vazio não tem o que trocar: andar para a frente (sem tecla desde o W) não leva o Esc, a única tecla da
     // pausa (obrigatória): recusa e nada muda.
     nf::Bindings before = b;
-    r = nf::bind(b, forward, nf::key_input(VK_ESCAPE));
+    r = nf::bind(b, forward, nf::key_input(nf::key::Escape));
     CHECK(r.refused && r.moved_from == pause);
     for (int i = 0; i < nf::kBindCommandCount; ++i) {
         for (int k = 0; k < nf::kMaxBinds; ++k) CHECK(b.in[i][k] == before.in[i][k]);
@@ -376,7 +376,7 @@ TEST(input_controls_ini_round_trip) {
     nf::ControlsConfig e;
     nf::load_controls(u, &e);
     CHECK(e.pad_style == 6 && !e.bindings.in[find_cmd("fire")][0].valid());
-    CHECK(e.bindings.in[find_cmd("jump")][0] == nf::key_input(VK_SPACE));
+    CHECK(e.bindings.in[find_cmd("jump")][0] == nf::key_input(nf::key::Space));
 }
 
 TEST(input_old_ini_keeps_its_bindings_over_new_defaults) {
@@ -389,8 +389,8 @@ TEST(input_old_ini_keeps_its_bindings_over_new_defaults) {
     const nf::Bindings& b = c.bindings;
     CHECK(b.in[find_cmd("fire_mode")][0] == nf::key_input('R') && !b.in[find_cmd("fire_mode")][1].valid());
     CHECK(!b.has(find_cmd("reload"), nf::key_input('R')) && !b.in[find_cmd("reload")][0].valid());
-    CHECK(b.in[find_cmd("vision")][0] == nf::key_input(VK_TAB));
-    CHECK(b.has(find_cmd("menu_circle"), nf::key_input(VK_TAB)));  // outro grupo: o menu continua com o Tab
+    CHECK(b.in[find_cmd("vision")][0] == nf::key_input(nf::key::Tab));
+    CHECK(b.has(find_cmd("menu_circle"), nf::key_input(nf::key::Tab)));  // outro grupo: o menu continua com o Tab
     CHECK(b.in[find_cmd("gadget_next")][0] == nf::key_input('1') && !b.in[find_cmd("gadget_1")][0].valid());
     CHECK(b.in[find_cmd("gadget_2")][0] == nf::key_input('2'));
     // O R do menu (restaurar padrões, outro grupo) e os padrões novos sem conflito ficam.
@@ -404,7 +404,7 @@ TEST(input_old_ini_keeps_its_bindings_over_new_defaults) {
     t.parse("[bindings]\nuse = enter\njump = escape\n");
     nf::ControlsConfig d;
     nf::load_controls(t, &d);
-    CHECK(d.bindings.has(find_cmd("pause"), nf::key_input(VK_RETURN)) && d.bindings.has(find_cmd("pause"), nf::key_input(VK_ESCAPE)));
+    CHECK(d.bindings.has(find_cmd("pause"), nf::key_input(nf::key::Return)) && d.bindings.has(find_cmd("pause"), nf::key_input(nf::key::Escape)));
     // Sem [bindings], os padrões novos.
     nf::Settings u;
     nf::ControlsConfig e;
@@ -434,7 +434,7 @@ TEST(input_mouse_sensitivity_scale) {
 TEST(input_escape_pauses_in_play_and_backs_in_menus) {
     InputWorld w;
     // Jogando: Esc é o Start (pausa) e o 25 (pular a cena, a cortina de sangue), como o Enter.
-    w.keys({VK_ESCAPE});
+    w.keys({nf::key::Escape});
     w.tick();
     CHECK(Input_Action(0, kActPause, kActionPressed) != 0 && w.a(kActMenuStart) == 1.0f);
     w.keys({});
@@ -690,7 +690,7 @@ TEST(input_change_controller_style) {
 
 TEST(input_capture_takes_the_next_new_key) {
     InputWorld w;
-    w.keys({VK_SPACE});  // a tecla que escolheu a linha ainda está apertada
+    w.keys({nf::key::Space});  // a tecla que escolheu a linha ainda está apertada
     w.tick();
     psiInput_BeginCapture();
     w.tick(3);
@@ -719,7 +719,7 @@ TEST(input_capture_takes_the_next_new_key) {
     w.tick(2);
     psiInput_BeginCapture();
     w.tick();
-    w.keys({VK_ESCAPE});
+    w.keys({nf::key::Escape});
     w.tick();
     CHECK(psiInput_CaptureState() == PsiCapture::Cancelled);
     psiInput_EndCapture();
@@ -912,30 +912,30 @@ TEST(menu_pc_controls_tabs_and_rebinding) {
     uint32_t id = 0, tag = 0;
     CHECK(Menu_Focus(0, &id, &tag) && id == kPcTabFirst + uint32_t(PcTab::Controls));
     // Baixo: a primeira linha com foco (o aparelho é só informação): a sensibilidade do mouse.
-    w.menu_tick({VK_DOWN});
+    w.menu_tick({nf::key::Down});
     w.menu_tick();
     CHECK(Menu_Focus(0, &id, &tag) && id == kPcRowMouseSens);
     // A seta para a direita aumenta a sensibilidade do mouse (um passo da barra logarítmica: x 2^(1/8)); o nome da linha
     // mostra o valor e os centímetros por volta a 800 DPI.
-    w.menu_tick({VK_RIGHT});
+    w.menu_tick({nf::key::Right});
     w.menu_tick();
     CHECK_NEAR(psiMouseSensitivity, 0.0022 * nf::fm::pow(2.0, 1.0 / 8.0), 1e-7);
     CHECK(MenuPc_Slider(0, kPcRowMouseSens) == nf::kMouseSensDefaultPos + 1);
     // Para baixo até a inversão do Y do controle e Espaço troca (o PlayerSetting do jogo).
     for (int i = 0; i < 5; ++i) {
-        w.menu_tick({VK_DOWN});
+        w.menu_tick({nf::key::Down});
         w.menu_tick();
     }
     CHECK(Menu_Focus(0, &id, &tag) && id == kPcRowPadInvert);
-    w.menu_tick({VK_SPACE});
+    w.menu_tick({nf::key::Space});
     w.menu_tick();
     CHECK(PlayerSetting[0].invert_look == 1 && nf::controls().pad_invert_y);
     // Nove linhas: as de baixo rolam para a área (o aparelho, a primeira, some).
     M_CONTROL* device = MenuPc_Control(0, kPcRowDevice);
     CHECK(device != nullptr && device->state == 2);
-    w.menu_tick({VK_DOWN});
+    w.menu_tick({nf::key::Down});
     w.menu_tick();
-    w.menu_tick({VK_DOWN});
+    w.menu_tick({nf::key::Down});
     w.menu_tick();
     CHECK(Menu_Focus(0, &id, &tag) && id == kPcRowTriggers && (device->state & 1) != 0);
     // TECLAS: a lista dos comandos com o teclado/mouse e o controle, e a linha de restaurar.
@@ -950,7 +950,7 @@ TEST(menu_pc_controls_tabs_and_rebinding) {
     LIST_ROW* first = List_SetIndex(list, &list->rows, 0);
     CHECK(first != nullptr && std::strcmp(first->cells[0].text, "Move forward") == 0);
     // Baixo desce para a lista; a roda do mouse sobre ela anda até atirar.
-    w.menu_tick({VK_DOWN});
+    w.menu_tick({nf::key::Down});
     w.menu_tick();
     CHECK(Menu_Focus(0, &id, &tag) && id == kPcKeysList);
     const Psi2DViewport vp = psi_2d_viewport(640, 480);
@@ -971,7 +971,7 @@ TEST(menu_pc_controls_tabs_and_rebinding) {
     // Clicar na linha escolhida espera a tecla; soltar, apertar F: atirar fica com F e o mouse.
     const float row_y = float(list->base.y) + (float(fire - list->top) + 0.5f) * list->row_height;
     mouse(lx, row_y);
-    w.menu_tick({VK_LBUTTON});
+    w.menu_tick({nf::key::LButton});
     CHECK(psiInput_CaptureState() == PsiCapture::Waiting);
     CHECK(std::string(MenuPcControls_Status()) == "Fire: press a key or button (Esc cancels)");
     w.menu_tick({}, 2);
@@ -990,12 +990,12 @@ TEST(menu_pc_controls_tabs_and_rebinding) {
     CHECK(Menu_CurrentPage(0) == kPcOptionsPage && MenuPc_CurrentTab() == PcTab::Keys);
     // De cima da primeira linha, sobe para a aba; voltar (Backspace) volta à pausa.
     List_SendMessage(list, 0x1d, 0, 0);
-    w.menu_tick({VK_UP});
+    w.menu_tick({nf::key::Up});
     w.menu_tick();
-    w.menu_tick({VK_UP});
+    w.menu_tick({nf::key::Up});
     w.menu_tick();
     CHECK(Menu_Focus(0, &id, &tag) && id == kPcTabFirst + uint32_t(PcTab::Keys));
-    w.menu_tick({VK_BACK});
+    w.menu_tick({nf::key::Back});
     w.menu_tick({}, 3);
     CHECK(Menu_CurrentPage(0) == 0x4000004b);
     psiMouseSensitivity = 0.0025f;
@@ -1006,16 +1006,16 @@ TEST(menu_mouse_clicks_stay_out_of_the_game) {
     CHECK(MenuManager_Create(0x80000002u, 0x4000004b, 0, 0, 0x1e, 0, 3) == 0);
     w.menu_tick();
     // Com o menu aberto, os botões do mouse são só do menu: nada de atirar (ação 9) nem mirar (19).
-    w.menu_tick({VK_LBUTTON, VK_RBUTTON});
+    w.menu_tick({nf::key::LButton, nf::key::RButton});
     CHECK(w.a(9) == 0.0f && w.a(19) == 0.0f);
     // O menu fecha com o botão ainda segurado: ele fica de fora até ser solto.
     MenuManager_Delete(0);
-    w.menu_tick({VK_LBUTTON});
+    w.menu_tick({nf::key::LButton});
     CHECK(w.a(9) == 0.0f);
-    w.menu_tick({VK_LBUTTON});
+    w.menu_tick({nf::key::LButton});
     CHECK(w.a(9) == 0.0f);
     w.menu_tick({});
-    w.menu_tick({VK_LBUTTON});
+    w.menu_tick({nf::key::LButton});
     CHECK(w.a(9) == 1.0f);
     // A roda num menu também é só dele: com a próxima arma na roda, ela não troca de arma; fora do menu, troca.
     const int next = find_cmd("weapon_next");
@@ -1041,7 +1041,7 @@ TEST(menu_escape_backs_and_closes_the_pause_without_reopening) {
     w.menu_tick({}, 2);
     // Com o menu aberto o Esc é só o voltar (o triângulo, 34): o Start (30) e o 25 não ligam junto (Menu_InputAction
     // anularia o voltar com o Start).
-    w.keys({VK_ESCAPE});
+    w.keys({nf::key::Escape});
     Input_Update();
     CHECK(w.a(34) == 1.0f && w.a(kActPause) == 0.0f && w.a(kActMenuStart) == 0.0f);
     // No topo da pausa, voltar fecha a pausa como o Start (só do PC; no PS2 nada acontece).
@@ -1049,21 +1049,21 @@ TEST(menu_escape_backs_and_closes_the_pause_without_reopening) {
     MenuManager_Monitor();
     CHECK(MenuManager_Exists(0) == 0 && GameState.paused == 0 && g_menu_pc_stats.back_closes == 1);
     // O Esc ainda apertado não reabre a pausa: fica fora do Start até ser solto.
-    w.menu_tick({VK_ESCAPE}, 3);
+    w.menu_tick({nf::key::Escape}, 3);
     CHECK(w.a(kActPause) == 0.0f && w.a(34) == 1.0f);
     w.menu_tick({});
-    w.menu_tick({VK_ESCAPE});
+    w.menu_tick({nf::key::Escape});
     CHECK(Input_Action(0, kActPause, kActionPressed) != 0);
     w.menu_tick({});
     // O Backspace (também voltar) fecha do mesmo jeito; o Enter (Start) fecha pelo MenuManager_Monitor, como no jogo.
     CHECK(MenuManager_Create(0x80000002u, 0x4000004b, 0, 0, 0x1e, 0, 3) == 0);
     w.menu_tick({}, 2);
-    w.menu_tick({VK_BACK});
+    w.menu_tick({nf::key::Back});
     CHECK(MenuManager_Exists(0) == 0 && g_menu_pc_stats.back_closes == 2);
     w.menu_tick({});
     CHECK(MenuManager_Create(0x80000002u, 0x4000004b, 0, 0, 0x1e, 0, 3) == 0);
     w.menu_tick({}, 2);
-    w.menu_tick({VK_RETURN});
+    w.menu_tick({nf::key::Return});
     CHECK(MenuManager_Exists(0) == 0 && g_menu_pc_stats.back_closes == 2);
     w.menu_tick({});
 }

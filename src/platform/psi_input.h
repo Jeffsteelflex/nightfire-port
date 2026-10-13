@@ -30,12 +30,12 @@ struct PadState;
 }
 
 struct PsiKeyboardMouse {
-    bool down[256];  // teclas e botões do mouse pelo código virtual do Windows (VK_*)
+    bool down[256];  // teclas e botões do mouse pelo código do port (platform/keys.h: os números dos VK_ do Windows)
     float look_dx;   // movimento do mouse acumulado desde o último tick, em contagens
     float look_dy;
     float wheel;     // roda acumulada desde o último tick, em dentes (positivo: para cima)
     bool active;     // false: o jogo não recebe nada (câmera livre, mouse solto)
-    // O cursor do Windows para os menus (psiInput_MenuMouse): a posição na área de desenho, em pixels, e o
+    // O cursor do sistema para os menus (psiInput_MenuMouse): a posição na área de desenho, em pixels, e o
     // tamanho dela (o 2D vai para a área 4:3 de psi_2d_viewport).
     bool cursor_inside;
     float cursor_x;

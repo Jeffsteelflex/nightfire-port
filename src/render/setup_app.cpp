@@ -1,9 +1,6 @@
-// A tela de configuração da primeira partida no nightfire.exe. Ver setup_app.h.
+// A tela de entrada (o launcher) no nightfire.exe. Ver setup_app.h.
 
 #include "render/setup_app.h"
-
-#include <windows.h>
-#include <shobjidl.h>
 
 #include <algorithm>
 #include <atomic>
@@ -14,6 +11,9 @@
 
 #include "engine/pc_text.h"
 #include "platform/disc_pack.h"
+#include "platform/file_dialog.h"
+#include "platform/keys.h"
+#include "platform/os.h"
 #include "platform/window.h"
 #include "render/renderer.h"
 #include "ui/modern_setup.h"
@@ -40,19 +40,13 @@ std::wstring short_path(const std::wstring& p, size_t max = 56) {
     return p.substr(0, 12) + L"…" + p.substr(p.size() - tail);
 }
 
-std::string narrow_utf8(const std::wstring& w) {
-    if (w.empty()) return {};
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), int(w.size()), nullptr, 0, nullptr, nullptr);
-    std::string s(size_t(std::max(0, n)), '\0');
-    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.data(), int(w.size()), s.data(), n, nullptr, nullptr);
-    return s;
-}
+std::string narrow_utf8(const std::wstring& w) { return os::to_utf8(w); }
 
 std::string read_text(const std::wstring& path, bool* ok) {
     std::string s;
     *ok = false;
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, path.c_str(), L"rb") != 0 || f == nullptr) return s;
+    FILE* f = os::open_file(path, "rb");
+    if (f == nullptr) return s;
     char buf[4096];
     size_t n;
     while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) s.append(buf, n);
@@ -60,70 +54,6 @@ std::string read_text(const std::wstring& path, bool* ok) {
     *ok = true;
     return s;
 }
-
-// A janela de escolha de arquivo do Windows numa thread STA própria (a thread do jogo já está no apartamento
-// multithread do Direct3D e do Media Foundation). O laço continua bombeando a janela do jogo, dona da escolha.
-class FilePicker {
-public:
-    ~FilePicker() {
-        if (thread_.joinable()) thread_.join();
-    }
-    bool busy() const { return state_ == 1; }
-    void start(HWND owner) {
-        if (busy()) return;
-        if (thread_.joinable()) thread_.join();
-        state_ = 1;
-        const std::wstring title = T(PcText::SuPickerTitle);
-        const std::wstring images = T(PcText::SuPickerImages);
-        const std::wstring all = T(PcText::SuPickerAll);
-        thread_ = std::thread([this, owner, title, images, all] {
-            std::wstring path;
-            if (SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) {
-                IFileOpenDialog* d = nullptr;
-                if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&d)))) {
-                    const COMDLG_FILTERSPEC filters[] = {{images.c_str(), L"*.iso"}, {all.c_str(), L"*.*"}};
-                    d->SetFileTypes(2, filters);
-                    d->SetTitle(title.c_str());
-                    DWORD flags = 0;
-                    d->GetOptions(&flags);
-                    d->SetOptions(flags | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
-                    if (SUCCEEDED(d->Show(owner))) {
-                        IShellItem* item = nullptr;
-                        if (SUCCEEDED(d->GetResult(&item))) {
-                            PWSTR p = nullptr;
-                            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p)) && p != nullptr) {
-                                path = p;
-                                CoTaskMemFree(p);
-                            }
-                            item->Release();
-                        }
-                    }
-                    d->Release();
-                }
-                CoUninitialize();
-            }
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                result_ = path;
-            }
-            state_ = 2;
-        });
-    }
-    // A escolha terminou: true e o caminho (vazio se cancelada).
-    bool take(std::wstring* path) {
-        if (state_ != 2) return false;
-        std::lock_guard<std::mutex> lock(mutex_);
-        *path = result_;
-        state_ = 0;
-        return true;
-    }
-
-private:
-    std::thread thread_;
-    std::atomic<int> state_{0};  // 0 nada, 1 aberta, 2 respondida
-    std::mutex mutex_;
-    std::wstring result_;
-};
 
 // Os leitores de DVD com um disco de PS2, procurados de novo a cada 2 s.
 class DriveWatch {
@@ -178,7 +108,7 @@ private:
         std::vector<Entry> out;
         for (const std::wstring& root : optical_drives()) {
             // Só os leitores com um disco de PS2 (com SYSTEM.CNF) aparecem; o certo ou não.
-            if (GetFileAttributesW((root + L"SYSTEM.CNF").c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+            if (!os::exists(root + L"SYSTEM.CNF")) continue;
             DiscFound f = probe_disc(root, DiscOrigin::Drive, *title_);
             out.push_back(Entry{root, f.check, f.source});
         }
@@ -273,7 +203,7 @@ SetupResult run_setup(const SetupOptions& o) {
     ui::Tokens tokens = ui::default_tokens();
     if (!o.hd_ui_dir.empty()) {
         bool ok = false;
-        const std::string json = read_text(o.hd_ui_dir + L"\\design\\tokens.json", &ok);
+        const std::string json = read_text(os::join(o.hd_ui_dir, L"design/tokens.json"), &ok);
         ui::Tokens t = tokens;
         std::string err;
         if (ok && ui::parse_tokens(json, t, &err)) tokens = t;
@@ -321,10 +251,13 @@ SetupResult run_setup(const SetupOptions& o) {
         if (v.ready) {
             v.disc = chosen.source->location();
             v.disc_kind = ui::setup_kind_text(chosen.source->kind());
+            v.disc_name = ui::setup_disc_name(chosen.source->kind(), v.disc);
+            v.packed = chosen.source->kind() == DiscKind::Packed;
             v.status = ui::setup_ready_text(chosen.check);
         } else if (!last_path.empty()) {
             v.disc = last_path;
             v.disc_kind = ui::setup_kind_text(last_kind);
+            v.disc_name = ui::setup_disc_name(last_kind, last_path);
             v.status = last_problem;
             v.problem = true;
         } else {
@@ -335,6 +268,7 @@ SetupResult run_setup(const SetupOptions& o) {
             dv.root = d.root;
             dv.usable = d.check.ok();
             dv.problem = ui::setup_problem_text(d.check);
+            dv.in_use = v.ready && chosen.source->kind() == DiscKind::Drive && os::same_path(chosen.source->location(), d.root);
             v.drives.push_back(dv);
         }
         v.can_pack = v.ready && !pack_size.empty();
@@ -363,7 +297,11 @@ SetupResult run_setup(const SetupOptions& o) {
         }
     };
 
-    screen.open(view());
+    // O monitor (as resoluções da lista e o tamanho dele): as mesmas listas da página VIDEO do jogo.
+    ui::LauncherHardware hardware;
+    hardware.modes = renderer.display_modes();
+    hardware.desktop = renderer.desktop_mode();
+    screen.open(view(), o.settings, hardware);
     window.set_menu_mode(true);
     window.set_cursor_visible(true);
     const float ground[4] = {tokens.color.ground.r, tokens.color.ground.g, tokens.color.ground.b, 1.0f};
@@ -419,8 +357,8 @@ SetupResult run_setup(const SetupOptions& o) {
         ui_in.mouse_inside = in.mouse_inside;
         ui_in.mouse_x = in.mouse_x;
         ui_in.mouse_y = in.mouse_y;
-        ui_in.lmb = in.keys[VK_LBUTTON];
-        ui_in.back_button = in.keys[VK_RBUTTON] || in.keys[VK_XBUTTON1];
+        ui_in.lmb = in.keys[nf::key::LButton];
+        ui_in.back_button = in.keys[nf::key::RButton] || in.keys[nf::key::XButton1];
         ui_in.wheel = in.wheel;
         ui_in.pad = &in.pad;
         ui_in.device = device;
@@ -465,7 +403,10 @@ SetupResult run_setup(const SetupOptions& o) {
         switch (req.action) {
             case ui::SetupAction::Browse:
                 if (!o.pick.empty()) choose(o.pick, DiscOrigin::Picked);
-                else if (!o.capture) picker.start(window.hwnd());
+                else if (!o.capture) {
+                    picker.start(window.native_handle(),
+                                 FilePickerText{T(PcText::SuPickerTitle), T(PcText::SuPickerImages), T(PcText::SuPickerAll)});
+                }
                 break;
             case ui::SetupAction::Drive:
                 if (req.drive >= 0 && size_t(req.drive) < drive_list.size()) {
@@ -475,6 +416,8 @@ SetupResult run_setup(const SetupOptions& o) {
             case ui::SetupAction::Play:
                 if (chosen.ok()) {
                     result.found = chosen;
+                    result.settings = screen.settings();
+                    result.settings_changed = screen.settings_changed();
                     done = true;
                 }
                 break;
@@ -499,9 +442,11 @@ SetupResult run_setup(const SetupOptions& o) {
         if (o.capture) {
             if (!done && t + 1e-4f >= o.wait) {
                 renderer.save_png(o.screenshot);
-                FILE* f = nullptr;
-                if (_wfopen_s(&f, (o.screenshot + L".txt").c_str(), L"w") == 0 && f != nullptr) {
+                FILE* f = os::open_file(o.screenshot + L".txt", "w");
+                if (f != nullptr) {
                     std::fprintf(f, "%s\n", screen.describe().c_str());
+                    std::fprintf(f, "tela_entrada motivo %s monitor %dx%d modos %zu\n", ui::launcher_reason_name(o.reason),
+                                 hardware.desktop.width, hardware.desktop.height, hardware.modes.size());
                     std::fprintf(f, "disco escolhido %s %s\n", chosen.ok() ? "ok" : "nenhum",
                                  chosen.ok() ? chosen.source->describe().c_str() : "-");
                     for (const DiscFound::Rejected& r : o.found.rejected) {

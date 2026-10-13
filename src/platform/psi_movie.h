@@ -7,7 +7,9 @@
 // psiStopBackgroundMovie para, psiMovieFinished é o que o jogo pergunta. Por baixo, no lugar da libmpeg, do IPU e do
 // IOP:
 //   - o arquivo: PssFile (platform/pss.h), que separa o vídeo e o áudio;
-//   - o vídeo: o decodificador de MPEG-2 do Windows (Mpeg2Decoder, platform/movie_decoder.h), na CPU;
+//   - o vídeo: o decodificador de MPEG-2 do sistema (no Windows, o Media Foundation) ou o do port
+//     (platform/mpeg2_decoder.h), pela escolha de movie_set_decoder_choice (Mpeg2Decoder, platform/movie_decoder.h),
+//     na CPU;
 //   - o som: o PCM entra na entrada de dados do núcleo 0 da SPU2 (Spu2::input_push), vezes o BVOL que
 //     changeInputVolume põe (MovieVolume x 100), e sai pela mistura de sempre (audio_out: o aparelho, um WAV ou nada);
 //   - a imagem: movie_image dá o quadro BGRA (512 x 448, alfa 0x80) que o renderizador desenha como fundo do quadro
@@ -30,6 +32,7 @@
 #include <string>
 
 #include "platform/disc_source.h"
+#include "platform/movie_decoder.h"
 
 extern uint32_t BGFMVPlaying;   // 0x0030c69c um filme tocando
 extern uint8_t LoopingMovie;    // 0x0030c6a1 o filme recomeça no fim (os fundos das páginas do menu)
@@ -61,6 +64,10 @@ void movie_set_disc(std::shared_ptr<const DiscSource> disc, const std::string& d
 void movie_set_dir(const std::wstring& dir);
 // Testes: sem o decodificador (cada quadro do vídeo conta, nenhuma imagem sai).
 void movie_set_decode(bool on);
+// Qual decodificador de MPEG-2 ([video] movie_decoder, --movie-decoder; platform/movie_decoder.h): auto (o padrão: o do
+// sistema, senão o do port), mf (só o do sistema) ou own (só o do port). Vale para o próximo filme aberto.
+void movie_set_decoder_choice(MovieDecoderChoice choice);
+MovieDecoderChoice movie_decoder_choice();
 
 // O quadro a mostrar agora (decodifica o que faltar até ele pelo relógio do som). false: nenhum filme com imagem.
 struct MovieImage {
@@ -91,7 +98,8 @@ struct MovieStats {
 };
 const MovieStats& movie_stats();
 void movie_reset_timing();
-std::string movie_decoder_name();  // o MFT em uso ("-" sem nenhum; o motivo se nenhum serviu)
+std::string movie_decoder_name();  // o decodificador em uso: o MFT ou kOwnMpeg2DecoderName ("-" sem nenhum; o motivo
+                                   // se nenhum serviu)
 std::string movie_describe();      // a linha "filme ..." do relatório das capturas
 
 // Testes: volta ao estado do boot (nada tocando, desligado, com decodificador).

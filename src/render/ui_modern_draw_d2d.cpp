@@ -1,6 +1,6 @@
-// O desenho do estilo de menu Modern com Direct2D e DirectWrite. Ver ui_modern_draw.h.
+// O desenho do estilo de menu Modern no Windows: Direct2D e DirectWrite (o backend vetorial). Ver ui_modern_draw_d2d.h.
 
-#include "render/ui_modern_draw.h"
+#include "render/ui_modern_draw_d2d.h"
 
 #include <d2d1_3.h>
 #include <dwrite_3.h>

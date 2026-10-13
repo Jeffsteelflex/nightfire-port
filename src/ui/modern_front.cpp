@@ -1,13 +1,13 @@
 // O menu principal no estilo Modern. Ver modern_front.h e docs/design.md.
 
 #include "ui/modern_front.h"
+#include "platform/keys.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
 
-#include <windows.h>
 
 #include "engine/pc_text.h"
 #include "platform/gamepad.h"
@@ -941,8 +941,8 @@ void FrontScreen::frame(float dt, const UiInput& in, const MmSnapshot& s, const 
     bool typing_keys[256] = {};
     for (int vk = 'A'; vk <= 'Z'; ++vk) typing_keys[vk] = true;
     for (int vk = '0'; vk <= '9'; ++vk) typing_keys[vk] = true;
-    for (int vk = VK_NUMPAD0; vk <= VK_NUMPAD9; ++vk) typing_keys[vk] = true;
-    typing_keys[VK_SPACE] = typing_keys[VK_BACK] = typing_keys[VK_RETURN] = typing_keys[VK_DELETE] = true;
+    for (int vk = nf::key::Numpad0; vk <= nf::key::Numpad9; ++vk) typing_keys[vk] = true;
+    typing_keys[nf::key::Space] = typing_keys[nf::key::Back] = typing_keys[nf::key::Return] = typing_keys[nf::key::Delete] = true;
     const bool name_typing = view_ == View::Name && !dialog_.open;
     if (name_typing && in.keys != nullptr) {
         for (int vk = 0; vk < 256; ++vk) filtered[vk] = in.keys[vk] && !typing_keys[vk];
@@ -979,16 +979,16 @@ void FrontScreen::frame(float dt, const UiInput& in, const MmSnapshot& s, const 
                 if (edge[vk]) typed.push_back(char(vk));
             }
             for (int d = 0; d <= 9; ++d) {
-                if (edge['0' + d] || edge[VK_NUMPAD0 + d]) typed.push_back(char('0' + d));
+                if (edge['0' + d] || edge[nf::key::Numpad0 + d]) typed.push_back(char('0' + d));
             }
-            if (edge[VK_SPACE]) typed.push_back(' ');
-            if (edge[VK_BACK] || edge[VK_DELETE]) typed.push_back('\b');
-            if (edge[VK_RETURN]) typed.push_back('\n');
+            if (edge[nf::key::Space]) typed.push_back(' ');
+            if (edge[nf::key::Back] || edge[nf::key::Delete]) typed.push_back('\b');
+            if (edge[nf::key::Return]) typed.push_back('\n');
             if ((pad_edge & nf::kPadX) != 0) typed.push_back('\b');
             if ((pad_edge & nf::kPadY) != 0) typed.push_back(' ');
             for (const char c : typed) type_char(c);
         } else if (view_ == View::Codenames && focus_ >= 2 && !waiting_ &&
-                   (edge[VK_DELETE] || (pad_edge & nf::kPadX) != 0)) {
+                   (edge[nf::key::Delete] || (pad_edge & nf::kPadX) != 0)) {
             // Apagar um codinome do cartão: o círculo do jogo (C_SBCNSELECT_Handler, com a pergunta do cartão).
             MenuModern_Step(s.front.wheel, focus_);
             MenuModern_Press(kMmCircle);

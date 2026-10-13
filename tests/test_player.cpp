@@ -1,12 +1,12 @@
 // Testes de input.cpp (ações e estados), platform/psi_input.cpp (teclado no lugar do controle) e
 // player.cpp (andar, olhar, gravidade, cápsula), com um jogador num mundo vazio.
 
-#include <windows.h>
 
 #include <cmath>
 #include <cstring>
 
 #include "engine/anim.h"
+#include "platform/keys.h"
 #include "engine/build.h"
 #include "engine/collide.h"
 #include "engine/game.h"
@@ -161,7 +161,7 @@ TEST(input_pressed_held_repeat) {
 TEST(input_lock_waits_for_release) {
     fresh_input();
     Input_Update();  // libera tudo (bit 0x10)
-    press(VK_SPACE, true);
+    press(nf::key::Space, true);
     Input_Update();
     CHECK(Input_Action(0, kActJump, kActionDown) == 100);
     // Travada enquanto ligada (bit 1 sem 0x10): o estado congela até soltar.
@@ -169,10 +169,10 @@ TEST(input_lock_waits_for_release) {
     Input_ClearAction(0, kActJump);
     Input_Update();
     CHECK(Input_Action(0, kActJump, kActionDown) == 0);
-    press(VK_SPACE, false);
+    press(nf::key::Space, false);
     Input_Update();
     CHECK((PlayerSetting[0].lock[kActJump] & 0x10) != 0);
-    press(VK_SPACE, true);
+    press(nf::key::Space, true);
     Input_Update();
     CHECK(Input_Action(0, kActJump, kActionPressed) == 100);
 }
@@ -234,8 +234,8 @@ TEST(input_keyboard_mapping) {
     CHECK_NEAR(Input_Actionf(0, kActStrafe, kActionDown), 0.70710677f, 1e-6f);
     press('W', false);
     press('A', false);
-    press(VK_LEFT, true);
-    press(VK_UP, true);
+    press(nf::key::Left, true);
+    press(nf::key::Up, true);
     Input_Update();
     // Virar e olhar passam pela curva juntos (StickCompensation2): a diagonal vira 1/sqrt(2).
     CHECK_NEAR(Input_Actionf(0, kActTurn, kActionDown), -0.70710677f, 1e-5f);
@@ -347,11 +347,11 @@ TEST(player_walks_and_turns) {
     w.tick();
     CHECK(w.b->turn_speed == Plr_NoAimTurnSpeed_X);
     const float yaw = w.player->rot.y;
-    press(VK_LEFT, true);
+    press(nf::key::Left, true);
     w.tick();
     CHECK_NEAR(w.player->rot.y - yaw, 0.04f + 0.04f / 120.0f, 1e-5f);  // esquerda aumenta o giro
     // O mouse (só no PC) soma direto ao giro e à inclinação.
-    press(VK_LEFT, false);
+    press(nf::key::Left, false);
     w.tick();
     const float yaw2 = w.player->rot.y;
     psiMouseSensitivity = 0.001f;
@@ -430,9 +430,9 @@ TEST(player_death_and_mission_failed) {
     for (int i = 0; i < 3; ++i) w.tick();
     CHECK(switch_channels[0x62] == 0);
     CHECK(static_cast<const HUDINFO_tag*>(w.b->hud)->panes[kHudBlood].enabled == 1);
-    press(VK_SPACE, true);
+    press(nf::key::Space, true);
     w.tick();
-    press(VK_SPACE, false);
+    press(nf::key::Space, false);
     CHECK(switch_channels[0x62] == 1);
     hud_debug_power_on();
 }

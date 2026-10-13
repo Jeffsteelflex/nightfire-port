@@ -30,6 +30,7 @@
 #include "platform/pending.h"
 #include "platform/audio_out.h"
 #include "platform/movie_decoder.h"
+#include "platform/os.h"
 #include "platform/psi.h"
 #include "platform/psi_movie.h"
 #include "platform/pss.h"
@@ -151,8 +152,7 @@ std::filesystem::path movie_dir() {
 void write_movie(uint32_t code, const std::vector<uint8_t>& data) {
     char name[32];
     std::snprintf(name, sizeof(name), "%08X.PSS", code);
-    FILE* f = nullptr;
-    _wfopen_s(&f, (movie_dir() / name).wstring().c_str(), L"wb");
+    FILE* f = nf::os::open_file((movie_dir() / name).wstring(), "wb");
     if (f == nullptr) return;
     std::fwrite(data.data(), 1, data.size(), f);
     std::fclose(f);

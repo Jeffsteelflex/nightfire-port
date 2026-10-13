@@ -35,8 +35,25 @@
 #endif
 
 #if NF_PTR64
-// O início da imagem do executável (definido pelo linker da Microsoft): a base da janela.
+// O início da imagem do executável, a base da janela: um símbolo que o linker define, declarado como char para que
+// &símbolo seja uma constante (kP32Base vale antes de qualquer construtor estático, e o operator new da arena roda antes
+// deles).
+#if defined(_WIN32)
+// O linker da Microsoft: o cabeçalho PE.
 extern "C" char __ImageBase;
+#define NF_IMAGE_BASE (&__ImageBase)
+#elif defined(__APPLE__)
+// O ld da Apple: o cabeçalho Mach-O do executável (_mh_execute_header de mach-o/ldsyms.h, que o declara como
+// mach_header_64; aqui com outro nome em C++ e o mesmo símbolo, sem trazer os cabeçalhos do sistema).
+extern "C" char nf_mh_execute_header __asm__("__mh_execute_header");
+#define NF_IMAGE_BASE (&nf_mh_execute_header)
+#elif defined(__ELF__)
+// O ld do GNU (e o lld, o gold): o começo do primeiro segmento do executável, o cabeçalho ELF num PIE.
+extern "C" char __executable_start;
+#define NF_IMAGE_BASE (&__executable_start)
+#else
+#error "NF_IMAGE_BASE: o começo da imagem do executável nesta plataforma (docs/port.md, \"Plataforma: interfaces e backends\")"
+#endif
 #endif
 
 namespace nf {
@@ -44,7 +61,7 @@ namespace nf {
 #if NF_PTR64
 
 // A base da janela de 4 GB. Um endereço constante: já vale antes de qualquer construtor estático.
-inline char* const kP32Base = &__ImageBase;
+inline char* const kP32Base = NF_IMAGE_BASE;
 
 // Para o programa: um ponteiro fora da janela ia ser guardado num campo de 32 bits (platform/arena.cpp).
 [[noreturn]] void p32_out_of_window(const void* p);
@@ -57,7 +74,25 @@ inline uint32_t p32_encode(const void* p) noexcept {
 #endif
     return static_cast<uint32_t>(d);
 }
+
+// A base da janela como um ponteiro de origem desconhecida, para montar os ponteiros decodificados. kP32Base é o
+// endereço de um char (o símbolo do linker), e o GCC e o clang acompanham a origem de um ponteiro: kP32Base + v seria
+// "um ponteiro para dentro de um objeto de 1 byte", o que o _FORTIFY_SOURCE (ligado por padrão no Ubuntu e no macOS)
+// pararia num memset de 0x60 bytes, e que a análise de aliasing poderia supor que não toca em mais nada. O asm vazio
+// (nenhuma instrução) faz o compilador esquecer de onde a base veio. O MSVC não acompanha a origem: lá fica kP32Base.
+inline char* p32_window_base() noexcept {
+    char* base = kP32Base;
+#if defined(__GNUC__) || defined(__clang__)
+    __asm__("" : "+r"(base));
+#endif
+    return base;
+}
+
+#if defined(_MSC_VER) && !defined(__clang__)
 inline void* p32_decode(uint32_t v) noexcept { return v != 0 ? kP32Base + v : nullptr; }
+#else
+inline void* p32_decode(uint32_t v) noexcept { return v != 0 ? p32_window_base() + v : nullptr; }
+#endif
 
 template <class T>
 class P32 {

@@ -110,7 +110,7 @@ constexpr int kMaxSkinBones = 128;
 // Posição e normal de um vértice com skinning dada a paleta (uma matriz vetor-linha de 16 floats
 // por osso do esqueleto): w * (p * M[b0]) + (1 - w) * (p * M[b1]); a normal usa só a parte de
 // rotação das mesmas matrizes, com os mesmos pesos, e não é renormalizada. É a conta do shader de
-// skinning (src/render/renderer.cpp), mantida aqui para os testes e para o lado da CPU.
+// skinning (src/render/renderer_d3d11.cpp), mantida aqui para os testes e para o lado da CPU.
 void skin_vertex(const SkinnedVertex& v, const float* palette, float pos[3], float normal[3]);
 
 // Estado do GS de um lote de geometria. A cadeia DMA de cada malha escreve os próprios registradores

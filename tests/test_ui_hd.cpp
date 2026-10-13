@@ -12,6 +12,7 @@
 #include "engine/sprite.h"
 #include "engine/txt.h"
 #include "engine/view.h"
+#include "platform/crt_compat.h"
 #include "platform/psi.h"
 #include "platform/psi_2d.h"
 #include "platform/input_bindings.h"
@@ -105,8 +106,8 @@ TEST(ui_hd_config_rejects_bad_maps) {
 TEST(ui_hd_committed_map_is_valid) {
     // O hd_ui/map.json do repositório lê sem erro e todas as substitutas existem.
     const std::string dir = std::string(NF_SOURCE_DIR) + "/hd_ui/";
-    FILE* f = nullptr;
-    CHECK(fopen_s(&f, (dir + "map.json").c_str(), "rb") == 0 && f != nullptr);
+    FILE* f = nf::fopen_narrow((dir + "map.json").c_str(), "rb");
+    CHECK(f != nullptr);
     if (f == nullptr) return;
     std::string json;
     char buf[1024];
@@ -118,8 +119,8 @@ TEST(ui_hd_committed_map_is_valid) {
     CHECK(ui_hd_parse_config(json, c, &err));
     CHECK(!c.images.empty());
     for (const UiHdImageEntry& e : c.images) {
-        FILE* a = nullptr;
-        const bool ok = fopen_s(&a, (dir + e.file).c_str(), "rb") == 0 && a != nullptr;
+        FILE* a = nf::fopen_narrow((dir + e.file).c_str(), "rb");
+        const bool ok = a != nullptr;
         if (!ok) std::printf("  falta %s\n", e.file.c_str());
         CHECK(ok);
         if (a != nullptr) std::fclose(a);
@@ -877,8 +878,8 @@ TEST(ui_hd_pad_prompts_swap_the_symbol_image) {
 
 TEST(ui_hd_committed_map_covers_every_symbol_and_menu_piece) {
     const std::string dir = std::string(NF_SOURCE_DIR) + "/hd_ui/";
-    FILE* f = nullptr;
-    CHECK(fopen_s(&f, (dir + "map.json").c_str(), "rb") == 0 && f != nullptr);
+    FILE* f = nf::fopen_narrow((dir + "map.json").c_str(), "rb");
+    CHECK(f != nullptr);
     if (f == nullptr) return;
     std::string json;
     char buf[1024];

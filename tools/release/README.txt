@@ -12,15 +12,21 @@ HOW TO PLAY
 
 1. Unzip this folder anywhere you like (for example "C:\Games\Nightfire PC").
 2. Run nightfire.exe.
-3. The first time, a setup screen asks for your disc:
-   - "Select disc image" opens a file picker: choose the .iso image of your 007: Nightfire disc (PS2, USA);
+3. A launcher opens before the game, with "Play" selected: press Enter (or A or Start on a controller, or click
+   "Play") to start the game.
+4. The first time, the launcher asks for your disc:
+   - the "Disc" row opens a file picker: choose the .iso image of your 007: Nightfire disc (PS2, USA);
    - or put the disc in your DVD drive: "Use the disc in drive X:" appears on its own.
-   Your choice is saved in nightfire.ini. Then choose "Play": the game starts, and next time it starts directly.
-   Shortcut: an .iso placed next to nightfire.exe is found without the setup screen.
-4. Optional: "Make a single-file copy" writes one .exe with your game inside (about 1.8 GB), so you can play without
-   the disc image. That file contains your copy of the game: it is for you only. Do not share it.
+   Your choice is saved in nightfire.ini. Shortcut: an .iso placed next to nightfire.exe is found on its own.
+5. The launcher also sets the resolution, the display mode (windowed, borderless or exclusive fullscreen), VSync, the
+   menu style (Modern or Original) and the HD 2D layer (the HUD and the Original menus redrawn at full resolution).
+   "Play" saves your changes in nightfire.ini; "Quit" leaves without saving them.
+6. Turn "Show at startup" off and the game starts directly next time. Hold Shift while the game starts to see the
+   launcher again (for example after picking a display mode your monitor does not like).
+7. Optional: "Single-file copy" writes one .exe with your game inside (about 1.8 GB), so you can play without the disc
+   image. That file contains your copy of the game: it is for you only. Do not share it.
 
-Other versions of the game (PAL, Japanese) are not supported yet: the setup screen tells you which version a disc is.
+Other versions of the game (PAL, Japanese) are not supported yet: the launcher tells you which version a disc is.
 
 
 THE TWO PROGRAMS
@@ -55,12 +61,12 @@ hd_ui\          the interface's fonts and graphics (keep it next to the executab
 GOOD TO KNOW
 ------------
 
-- Movies need Microsoft's free "MPEG-2 Video Extension" (Microsoft Store). Without it the game skips them.
+- Movies play with Windows' own MPEG-2 decoder when it is installed, and with the port's own decoder otherwise.
 - The driving missions and multiplayer are not ported yet: a driving mission counts as done (without a medal) and the
   campaign goes on.
 - Command line, for advanced users:
     nightfire.exe --disc "D:\Games\007 - Nightfire (USA).iso"     use this disc (an .iso, a folder or a drive)
-    nightfire.exe --setup                                          show the setup screen again
+    nightfire.exe --launcher                                       show the launcher (any other argument skips it)
     nightfire.exe --pack-disc <disc> --out <file.exe>              make the single-file copy without the window
     nightfire.exe --level 07000001                                 start a level directly
 - Windows may warn about an unknown publisher the first time (the program is not signed).

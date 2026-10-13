@@ -27,7 +27,7 @@
 uint32_t EventList[64];
 int32_t MapMusic[0x23 * 0x13];      // 0x0024f4d8
 int32_t MapDroneData[0xc * 4];      // 0x0024f418: {fase, u16 MusicVars, u16 +2, u32 +4, f32 +8}
-extern uint8_t MusicVars[36];       // 0x002707a0 (engine/drone_stubs.cpp): lido pela IA (NDrone2_SeenAndAttacking)
+alignas(4) extern uint8_t MusicVars[36];  // 0x002707a0 (engine/drone_stubs.cpp): lido pela IA (NDrone2_SeenAndAttacking)
 
 namespace {
 

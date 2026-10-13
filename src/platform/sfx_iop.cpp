@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "platform/audio_out.h"
+#include "platform/crt_compat.h"
 
 namespace nf {
 
@@ -253,12 +254,8 @@ uint32_t psi_timer_ticks() { return uint32_t(audio_out_vblanks() / 6); }
 FILE* sfx_log_file() {
     static FILE* f = [] {
         FILE* out = nullptr;
-        char* path = nullptr;
-        size_t len = 0;
-        if (_dupenv_s(&path, &len, "NF_SFX_LOG") == 0 && path != nullptr) {
-            if (fopen_s(&out, path, "w") != 0) out = nullptr;
-            std::free(path);
-        }
+        std::string path;
+        if (nf::get_env_narrow("NF_SFX_LOG", &path)) out = nf::fopen_narrow(path.c_str(), "w");
         return out;
     }();
     return f;

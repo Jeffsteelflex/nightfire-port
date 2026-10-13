@@ -11,7 +11,7 @@
 //   texto original, linha a linha (a quebra de linha e as páginas são as do jogo), com a cor de cada
 //   caractere; as passadas de sombra e contorno que vêm antes viram efeitos do texto principal (a sombra,
 //   uma cópia deslocada; as quatro cópias em (+-1, +-1), um traço em volta). O renderizador desenha com
-//   DirectWrite (render/ui_hd_draw.h), na fonte que hd_ui/map.json dá a cada fonte do jogo, com a altura
+//   DirectWrite (render/ui_hd_draw_d2d.h), na fonte que hd_ui/map.json dá a cada fonte do jogo, com a altura
 //   das maiúsculas da fonte do jogo e, se a linha ficar mais larga que a original, comprimida na
 //   horizontal até caber.
 // - Imagens: hd_ui/map.json liga uma imagem (hashcode da textura e um retângulo em texels, ou a pane e o

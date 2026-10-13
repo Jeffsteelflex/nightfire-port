@@ -1,18 +1,13 @@
 #pragma once
-// Os adaptadores de vídeo pelo DXGI (só do port; a regra da escolha está em platform/gpu_adapter.h).
+// Os adaptadores de vídeo do sistema (só do port; a regra da escolha está em platform/gpu_adapter.h). Este cabeçalho não
+// traz nada da API gráfica: o backend do Windows é o DXGI (render/gpu_adapters_dxgi.cpp; os detalhes em
+// gpu_adapters_dxgi.h); no macOS serão os MTLDevice (etapa 3).
 //
-// enumerate_adapters: IDXGIFactory6::EnumAdapterByGpuPreference (a ordem sem preferência dá o índice; as ordens de
-// menor consumo e de alto desempenho dão power_rank e perf_rank), ou IDXGIFactory1::EnumAdapters1 sem a fábrica 6.
-// Com `classify`, cada adaptador ganha um dispositivo Direct3D 11 de teste (nível 11_0, sem janela) só para
-// perguntar se a memória é unificada (D3D11_FEATURE_D3D11_OPTIONS2): uns 20 a 100 ms por adaptador, então só quando
-// a preferência precisa (integrated, discrete) e no --list-adapters.
-//
-// open_adapter: o IDXGIAdapter1 de um item da lista (pelo LUID), para o Renderer criar o dispositivo nele
-// (D3D_DRIVER_TYPE_UNKNOWN). O Direct2D e o DirectWrite das camadas 2D e dos menus Modern nascem do mesmo
-// dispositivo (IDXGIDevice), então ficam no mesmo adaptador.
-
-#include <dxgi1_2.h>
-#include <wrl/client.h>
+// enumerate_adapters: a lista na ordem do sistema (o índice do --list-adapters e de [video] adapter = <n>), com as ordens
+// de menor consumo e de alto desempenho (power_rank e perf_rank). Com `classify`, cada adaptador é perguntado se a
+// memória é unificada (integrado): no Windows um dispositivo Direct3D 11 de teste por placa (uns 20 a 100 ms cada), então
+// só quando a preferência precisa (integrated, discrete) e no --list-adapters. O Renderer recebe o escolhido (um
+// AdapterInfo) e cria o dispositivo nele.
 
 #include <vector>
 
@@ -21,8 +16,5 @@
 namespace nf {
 
 std::vector<AdapterInfo> enumerate_adapters(bool classify);
-Microsoft::WRL::ComPtr<IDXGIAdapter1> open_adapter(const AdapterInfo& a);
-// Os dados de um adaptador (sem a classificação; integrated pela VRAM).
-AdapterInfo adapter_info(IDXGIAdapter1* adapter, int index);
 
 }  // namespace nf

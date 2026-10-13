@@ -6,13 +6,12 @@
 
 #include "platform/psi_loading.h"
 
-#include <windows.h>
-
 #include <cstring>
 
 #include "engine/hashtable.h"
 #include "engine/map_types.h"
 #include "platform/psi_gfx.h"
+#include "platform/os.h"
 #include "platform/psi_shard.h"
 
 uint8_t PS2CacheLoadingBlobs = 0;
@@ -27,15 +26,13 @@ PsiLoadingStats g_psi_loading_stats;
 
 namespace {
 // O relógio de parede das bolinhas (psi_loading_pump) e o começo da tela (para o tempo dela).
-LARGE_INTEGER pump_t0{};
+uint64_t pump_t0 = 0;
 int64_t pump_vblanks = 0;
-LARGE_INTEGER screen_t0{};
+uint64_t screen_t0 = 0;
 
-double seconds_since(const LARGE_INTEGER& t0) {
-    LARGE_INTEGER now, f;
-    QueryPerformanceCounter(&now);
-    QueryPerformanceFrequency(&f);
-    return double(now.QuadPart - t0.QuadPart) / double(f.QuadPart);
+double seconds_since(uint64_t t0) {
+    const uint64_t now = nf::os::perf_counter();
+    return double(int64_t(now - t0)) / double(int64_t(nf::os::perf_frequency()));
 }
 }  // namespace
 
@@ -65,8 +62,8 @@ void psiStartLoadingScreen() {
     ResetLoadingBlobs();
     PS2LSActive = 1;
     ++g_psi_loading_stats.screens;
-    QueryPerformanceCounter(&screen_t0);
-    QueryPerformanceCounter(&pump_t0);
+    screen_t0 = nf::os::perf_counter();
+    pump_t0 = nf::os::perf_counter();
     pump_vblanks = 0;
     if (g_psi_loading_hook != nullptr) g_psi_loading_hook(PsiLoadingEvent::Screen);
 }

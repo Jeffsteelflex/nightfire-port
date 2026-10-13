@@ -1,5 +1,5 @@
 #pragma once
-// Camada 2D em alta definição: o desenho (render/ui_hd.h) com Direct2D 1.1, DirectWrite e WIC sobre o
+// Camada 2D em alta definição: o desenho (render/ui_hd.h) com Direct2D 1.1, DirectWrite e WIC (platform/image_io.h) sobre o
 // dispositivo Direct3D 11 do renderizador.
 //
 // - Texto: um IDWriteTextLayout por linha, com a cor de cada trecho (SetDrawingEffect) e um renderizador

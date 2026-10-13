@@ -1,7 +1,13 @@
 #pragma once
-// Renderizador Direct3D 11. Substitui o caminho GS/VU1 do PS2 para a geometria das fases. Os
-// recursos são criados durante a carga (texturas por índice da tabela Tex do jogo, malhas por id) e
-// cada quadro desenha uma lista de itens (malha + matriz).
+// O renderizador (só do port; docs/port.md, "Plataforma: interfaces e backends"). Substitui o caminho GS/VU1 do PS2 para
+// a geometria das fases. Os recursos são criados durante a carga (texturas por índice da tabela Tex do jogo, malhas por
+// id) e cada quadro desenha uma lista de itens (malha + matriz).
+//
+// Este cabeçalho não traz nada da API gráfica: DrawItem, FrameParams e a fachada Renderer são neutros, e o estado da GPU
+// fica no Renderer::Impl do backend. O do Windows é o Direct3D 11 (render/renderer_d3d11.h e .cpp, com o Direct2D e o
+// DirectWrite das camadas 2D, ui_hd_draw_d2d e ui_modern_draw_d2d, e o filme, movie_layer_d3d11); o do macOS será o Metal
+// (etapa 3). A descrição abaixo é a do backend do Direct3D 11, que define o resultado: outro backend reproduz as
+// mesmas contas (os shaders estão em renderer_d3d11.cpp).
 //
 // Malhas com skinning (personagens) usam um vertex shader próprio, que faz na GPU o que o SkinIt
 // faz na VU0: cada vértice na pose de repouso mistura dois ossos da paleta do item (constant buffer
@@ -52,7 +58,7 @@
 // Camada 2D em alta definição (opcional; render/ui_hd.h): um item com "ui" traz o 2D refeito na
 // resolução da janela. As imagens são desenhadas como o 2D acima (a substituta, quando há, no lugar da
 // textura, com filtro bilinear e mipmaps); os textos, com Direct2D/DirectWrite no mesmo alvo
-// (render/ui_hd_draw.h), na ordem dos itens. O dispositivo é criado com D3D11_CREATE_DEVICE_BGRA_SUPPORT
+// (render/ui_hd_draw_d2d.h), na ordem dos itens. O dispositivo é criado com D3D11_CREATE_DEVICE_BGRA_SUPPORT
 // para o Direct2D; depois de cada trecho de Direct2D o estado do Direct3D do quadro é refeito.
 //
 // Captura fora da tela (--screenshot): com "offscreen", o alvo é uma textura do tamanho pedido em vez do
@@ -85,11 +91,8 @@
 // o sistema tem suporte (a cadeia nasce com DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING): sem ele, numa janela composta pelo DWM o
 // modelo flip ainda esperaria a atualização do monitor e o "VSync desligado" ficaria preso a 60/144/240 Hz.
 
-#include <d3d11.h>
-#include <dxgi1_2.h>
-#include <wrl/client.h>
-
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -100,11 +103,15 @@
 
 namespace nf {
 
+// Uma textura do renderizador vista de fora (a substituta de uma imagem da camada HD, as imagens do port, o quadro do
+// filme, a textura das bolinhas da tela de carga): um ponteiro opaco do backend (no Direct3D 11, o
+// ID3D11ShaderResourceView). Só o renderizador que a deu sabe o que é.
+struct GpuImage;
+// Uma referência própria a uma textura do renderizador (continua valendo depois de Renderer::reset_resources).
+using GpuImageRef = std::shared_ptr<GpuImage>;
+
 struct UiHdBatch;
 struct UiHdConfig;
-class MovieLayer;
-class UiHdDevice;
-class UiModernDevice;
 namespace ui {
 class DrawList;
 struct Canvas;
@@ -132,8 +139,9 @@ struct Quad2D {
     int texture = -1;                      // slot de Tex (-1: branca; kQuadNoTexture: sem textura)
     uint64_t alpha = 0x44;                 // ALPHA_1
     bool linear = true;                    // false: filtro de ponto (fontes)
-    // Só na camada HD: a textura no lugar do slot (uma substituta) e o filtro com mipmaps.
-    ID3D11ShaderResourceView* srv = nullptr;
+    // Só na camada HD e nas imagens do port: a textura no lugar do slot (uma substituta, um ícone, o filme; do
+    // renderizador, Renderer::ui_image, movie_image, keep_texture) e o filtro com mipmaps.
+    GpuImage* image = nullptr;
     bool smooth = false;
 };
 
@@ -250,10 +258,13 @@ struct RenderCounters {
 
 class Renderer {
 public:
-    // offscreen: desenha numa textura width x height em vez do back buffer da janela (capturas).
-    // adapter: o adaptador de vídeo (nulo: o padrão do sistema, como antes).
-    Renderer(HWND hwnd, int width, int height, bool vsync, bool offscreen = false, IDXGIAdapter1* adapter = nullptr);
+    // window: a janela do sistema (Window::native_handle; o HWND no Windows). offscreen: desenha numa textura
+    // width x height em vez do back buffer da janela (capturas). adapter: o adaptador de vídeo escolhido
+    // (platform/gpu_adapter.h; nulo: o padrão do sistema, como antes); se ele não abrir, o padrão (adapter_chosen()).
+    Renderer(void* window, int width, int height, bool vsync, bool offscreen = false, const AdapterInfo* adapter = nullptr);
     ~Renderer();
+    Renderer(const Renderer&) = delete;
+    Renderer& operator=(const Renderer&) = delete;
 
     void resize(int width, int height);
     // Descarta texturas e malhas (troca de fase).
@@ -266,11 +277,11 @@ public:
     // Uma imagem do port (RGBA, alfa do GS como as texturas do jogo), guardada com uma chave e mantida entre as fases
     // (reset_resources não a solta): os ícones da roda de armas (ui::ImageCmd::port). Com mipmaps.
     void set_ui_image(uint32_t key, const uint8_t* rgba, int width, int height);
-    ID3D11ShaderResourceView* ui_image(uint32_t key) const;
-    size_t ui_images() const { return ui_images_.size(); }
+    GpuImage* ui_image(uint32_t key) const;
+    size_t ui_images() const;
     // Liga ou desliga o uso das substitutas (as originais continuam carregadas).
-    void use_hd(bool on) { use_hd_ = on; }
-    bool using_hd() const { return use_hd_; }
+    void use_hd(bool on);
+    bool using_hd() const;
     // Malha nova (rígida ou com skinning); submesh.texture já é um slot de textura (ou -1). Devolve
     // o id.
     int add_mesh(const EntityMesh& mesh);
@@ -288,7 +299,7 @@ public:
     // exibição com ALPHA FIX = ScreenBlur (o clarão da granada de luz e a troca de zoom). Depois de render(), antes dos
     // menus Modern.
     void screen_blur(float keep);
-    bool screen_blur_active() const { return blur_history_valid_; }
+    bool screen_blur_active() const;
 
     // ---- a tela de carga (só do port; platform/psi_loading.h) ----
     // Limpa o alvo com a cor dada (a tela preta do PS2WipeVram).
@@ -300,8 +311,8 @@ public:
     void release_loading_snapshot();
     // A textura do slot (a original, ou a substituta HD em uso), com uma referência própria: continua valendo depois de
     // reset_resources (a das bolinhas, 0x3000175, que a carga da fase descarta). Nula sem textura no slot.
-    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> keep_texture(int slot) const;
-    bool offscreen() const { return offscreen_; }
+    GpuImageRef keep_texture(int slot) const;
+    bool offscreen() const;
 
     // Camada 2D em alta definição: a configuração (nula desliga o dispositivo) e a pasta das substitutas e
     // das fontes. Os itens com "ui" só são desenhados com ela.
@@ -309,10 +320,11 @@ public:
     std::string ui_hd_describe() const;
     // A largura de um texto de tecla da camada HD (UiHdEnv::measure); 0 sem a camada.
     float ui_hd_measure(const std::wstring& label, float cap_px) const;
-    bool ui_hd_ok() const;  // o Direct2D funciona (sem ele a camada HD não liga)
+    bool ui_hd_ok() const;  // o desenho vetorial funciona (sem ele a camada HD não liga)
 
-    // ---- o estilo de menu Modern (src/ui, render/ui_modern_draw.h; só do port) ----
-    // Cria o desenho dos menus Modern (Direct2D) com a pasta hd_ui (fontes e glifos); false sem Direct2D.
+    // ---- o estilo de menu Modern (src/ui; só do port) ----
+    // Cria o desenho dos menus Modern (no Windows, Direct2D: render/ui_modern_draw_d2d.h) com a pasta hd_ui (fontes e
+    // glifos); false sem ele.
     bool set_modern_ui(const std::wstring& hd_ui_dir);
     bool modern_ok() const;
     float modern_measure(const std::wstring& text, const ui::TextStyle& style) const;
@@ -323,221 +335,79 @@ public:
     std::string modern_describe() const;
     // O nível 0 da textura original do slot, em RGBA (inventário do 2D); false se não houver.
     bool read_texture(int slot, int& width, int& height, std::vector<uint8_t>& rgba);
-    // Um PNG RGBA (WIC).
+    // Um PNG RGBA (platform/image_io.h).
     static bool write_png(const std::wstring& path, int width, int height, const uint8_t* rgba);
 
-    int width() const { return width_; }
-    int height() const { return height_; }
+    int width() const;
+    int height() const;
 
-    // ---- os filmes (só do port; platform/psi_movie.h, render/movie_layer.h) ----
+    // ---- os filmes (só do port; platform/psi_movie.h) ----
     // O quadro do filme (BGRA, alfa na escala do GS), copiado para a textura dele quando serial muda.
     void set_movie_frame(const uint8_t* bgra, int width, int height, uint64_t serial);
     // Com on, o próximo render() começa pelo filme: o alvo da cena preto e a imagem em rect (x0, y0, x1, y1 em pixels
     // da janela: a tela do PS2), como a cópia da imagem para o buffer de quadro do PS2 antes do resto do desenho.
     void set_movie_background(bool on, const float rect[4]);
-    ID3D11ShaderResourceView* movie_srv() const;  // a textura do quadro (os menus Modern a desenham como fundo)
+    GpuImage* movie_image() const;  // a textura do quadro (os menus Modern a desenham como fundo)
 
     // ---- o adaptador e as medidas (só do port) ----
-    // O adaptador do dispositivo (nome, fabricante, memória, integrado pela memória unificada do Direct3D).
-    const AdapterInfo& adapter() const { return adapter_; }
+    // O adaptador do dispositivo (nome, fabricante, memória, integrado pela memória unificada).
+    const AdapterInfo& adapter() const;
+    // O adaptador pedido no construtor abriu (o dispositivo nasceu nele).
+    bool adapter_chosen() const;
     void set_profiling(bool on);
-    bool profiling() const { return profiling_; }
+    bool profiling() const;
     // Começo e fim de um quadro medido (entre eles, os trechos marcados pelos desenhos).
     void gpu_frame_begin();
     void gpu_frame_end();
     // Lê os quadros já prontos (wait: espera todos, no fim da medida).
     void gpu_collect(bool wait);
-    const GpuTimes& gpu_times() const { return gpu_times_; }
+    const GpuTimes& gpu_times() const;
     // Zera as somas e a numeração dos quadros (o próximo gpu_frame_begin é o quadro 0 de gpu_per_frame).
-    void reset_gpu_times() {
-        gpu_times_ = GpuTimes{};
-        gpu_seq_ = 0;
-        gpu_per_frame_.clear();
-    }
+    void reset_gpu_times();
     // Por quadro (desde reset_gpu_times, na ordem dos gpu_frame_begin): o total e os trechos, em ms (-1: não lido ainda
     // ou descartado). Para o --bench-frames.
     using GpuFrameTimes = std::array<float, kGpuPhaseCount + 1>;
-    const std::vector<GpuFrameTimes>& gpu_per_frame() const { return gpu_per_frame_; }
-    const RenderCounters& counters() const { return counters_; }
+    const std::vector<GpuFrameTimes>& gpu_per_frame() const;
+    const RenderCounters& counters() const;
     // Só do PC: com MSAA, os desenhos opacos recortados pelo teste de alfa do GS usam o alfa para a cobertura
     // (alpha-to-coverage, gs_alpha_coverage_candidate em data/map_item.h): as bordas de folhas e grades ficam suaves
     // como as dos triângulos. Sem MSAA não muda nada. Ligado; --no-alpha-coverage (depuração) desliga, para comparar.
-    void set_alpha_to_coverage(bool on) { alpha_coverage_ = on; }
-    bool alpha_to_coverage() const { return alpha_coverage_; }
+    void set_alpha_to_coverage(bool on);
+    bool alpha_to_coverage() const;
     // As partes desenhadas com a cobertura no último render() (o relatório das capturas).
-    uint32_t alpha_coverage_parts() const { return a2c_parts_; }
+    uint32_t alpha_coverage_parts() const;
     // Partes de malha da rotina do mapa de ambiente (0x2e0) desenhadas no último render() (o relatório das capturas).
-    uint32_t env_parts() const { return env_parts_; }
-    void reset_counters() { counters_ = RenderCounters{}; }
-    void set_offscreen_throttle(bool on) { throttle_ = on; }
+    uint32_t env_parts() const;
+    void reset_counters();
+    void set_offscreen_throttle(bool on);
 
     // ---- opções do PC (só do port) ----
-    void set_vsync(bool on) { vsync_ = on; }
-    bool vsync() const { return vsync_; }
+    void set_vsync(bool on);
+    bool vsync() const;
     // A cena 3D em scale_percent % do tamanho da janela (no máximo 16384 de lado) e com msaa amostras
     // (1, 2, 4 ou 8). Sem suporte ou sem memória, cai para menos MSAA e depois para 100%: devolve falso.
     bool set_scene_quality(int scale_percent, int msaa);
-    int scene_scale() const { return scene_scale_; }
-    int scene_msaa() const { return scene_msaa_; }
-    int scene_width() const { return scene_w_; }
-    int scene_height() const { return scene_h_; }
+    int scene_scale() const;
+    int scene_msaa() const;
+    int scene_width() const;
+    int scene_height() const;
     // As amostras de MSAA aceitas para a cena (cor B8G8R8A8 e profundidade D32): entre 2, 4 e 8.
     std::vector<int> supported_msaa() const;
     void set_texture_filter(TextureFilter f);
-    TextureFilter texture_filter() const { return filter_; }
-    bool tearing() const { return tearing_; }
-    // Tela cheia exclusiva (DXGI) no modo do monitor mais próximo de width x height; off volta à janela.
+    TextureFilter texture_filter() const;
+    bool tearing() const;
+    // Tela cheia exclusiva no modo do monitor mais próximo de width x height; off volta à janela.
     bool set_exclusive_fullscreen(bool on, int width, int height);
     bool exclusive_fullscreen() const;
-    // Os modos do monitor da janela (DXGI, B8G8R8A8) e o tamanho dele.
+    // Os modos do monitor da janela (B8G8R8A8) e o tamanho dele.
     std::vector<DisplayMode> display_modes() const;
     DisplayMode desktop_mode() const;
 
+    // O estado do backend (render/renderer_d3d11.h).
+    struct Impl;
+
 private:
-    template <typename T>
-    using Com = Microsoft::WRL::ComPtr<T>;
-
-    struct GpuMesh {
-        Com<ID3D11Buffer> vb, ib;
-        std::vector<SubMesh> submeshes;
-        bool skinned = false;  // vértices SkinnedVertex
-        int bones = 0;         // com skinning: matrizes que a paleta precisa ter
-        // Rosto: os deltas dos alvos de morph (StructuredBuffer<float3>, EntityMesh::morph) e quantos alvos.
-        Com<ID3D11ShaderResourceView> morph_srv;
-        int morph_targets = 0;
-    };
-
-    void create_targets();
-    void create_scene_targets();
-    bool try_scene_targets(int scale_percent, int msaa);
-    bool separate_scene() const { return scene_rtv_ != nullptr; }
-    ID3D11RenderTargetView* scene_rtv() const { return scene_rtv_ != nullptr ? scene_rtv_.Get() : rtv_.Get(); }
-    void resolve_scene();
-    void draw_item(const DrawItem& inst, const FrameParams& frame);
-    void create_pipeline();
-    ID3D11BlendState* blend_state(const GsBlendEq& b, bool coverage = false);
-    void use_shader(int skinned);  // 0: rígido (e sprites), 1: com skinning, 2: com skinning e morphs (rostos)
-    ID3D11ShaderResourceView* texture_srv(int slot) const;
-    void apply_state(const DrawItem& inst, const GsState& own, bool sprite, bool env = false, bool screen = false);
-    void draw_sprites(const DrawItem& inst);
-    void draw_triangles(const DrawItem& inst);
-    void draw_fog(const DrawItem& inst, const FrameParams& frame);
-    void draw_2d(const DrawItem& inst);
-    void draw_ui(const UiHdBatch& batch, const FrameParams& frame);
-    void bind_frame_state(const FrameParams& frame);
-    ID3D11DepthStencilState* depth_state(D3D11_COMPARISON_FUNC func, bool write);
-    // O trecho atual da GPU: muda (marca o fim do anterior) quando um desenho de outro trecho começa.
-    void gpu_phase(GpuPhase p);
-    void gpu_stamp(GpuPhase p);
-
-    AdapterInfo adapter_;
-    // Medidas: um anel de quadros com as consultas (o DISJOINT e os carimbos com o trecho que cada um fecha).
-    struct GpuFrame {
-        Com<ID3D11Query> disjoint;
-        std::vector<Com<ID3D11Query>> stamps;
-        std::vector<GpuPhase> phases;  // o trecho que termina em cada carimbo (o primeiro é o começo)
-        int used = 0;
-        bool pending = false;
-        uint64_t seq = 0;  // o número do quadro desde reset_gpu_times
-    };
-    static constexpr int kGpuRing = 5;
-    bool gpu_read(GpuFrame& f, bool wait);
-    GpuFrame gpu_ring_[kGpuRing];
-    int gpu_cur_ = -1;     // o quadro em gravação (-1: nenhum)
-    int gpu_next_ = 0;
-    bool profiling_ = false;
-    GpuPhase phase_ = GpuPhase::Scene;
-    GpuTimes gpu_times_;
-    uint64_t gpu_seq_ = 0;
-    std::vector<GpuFrameTimes> gpu_per_frame_;
-    RenderCounters counters_;
-    uint32_t env_parts_ = 0;
-    bool throttle_ = false;
-    bool tearing_ = false;   // DXGI_FEATURE_PRESENT_ALLOW_TEARING (o Present sem VSync não espera o monitor)
-    UINT swap_flags_ = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-    Com<ID3D11Query> throttle_q_[3];
-    int throttle_i_ = 0;
-
-    HWND hwnd_;
-    int width_, height_;
-    bool vsync_;
-    bool offscreen_ = false;
-    Com<ID3D11Texture2D> target_;  // o alvo de cor: o back buffer ou a textura fora da tela
-    Com<ID3D11Device> device_;
-    Com<ID3D11DeviceContext> ctx_;
-    Com<IDXGISwapChain1> swap_;
-    Com<ID3D11RenderTargetView> rtv_;
-    Com<ID3D11Texture2D> depth_;
-    Com<ID3D11DepthStencilView> dsv_;
-    Com<ID3D11ShaderResourceView> depth_srv_;  // a profundidade lida pela passada de névoa
-    Com<ID3D11VertexShader> vs_, vs_skin_, vs_skin_morph_;
-    Com<ID3D11PixelShader> ps_;
-    Com<ID3D11PixelShader> ps_a2c_;            // ps_main com o alfa para a cobertura
-    bool a2c_bound_ = false;                   // ps_a2c_ é o pixel shader em uso
-    bool alpha_coverage_ = true;               // set_alpha_to_coverage
-    uint32_t a2c_parts_ = 0;                   // partes desenhadas com a cobertura no último render()
-    Com<ID3D11InputLayout> layout_, layout_skin_, layout_skin_morph_;
-    Com<ID3D11Buffer> cb_frame_, cb_object_, cb_skin_, cb_fog_, cb_morph_;
-    Com<ID3D11VertexShader> fog_vs_;
-    Com<ID3D11PixelShader> fog_ps_;
-    Com<ID3D11BlendState> fog_blend_;
-    Com<ID3D11DepthStencilState> no_depth_;
-    Com<ID3D11SamplerState> sampler_;
-    Com<ID3D11RasterizerState> raster_solid_, raster_wire_;
-    Com<ID3D11DepthStencilState> depth_state_;
-    std::vector<std::pair<uint32_t, Com<ID3D11BlendState>>> gs_blends_;      // por GsBlendEq
-    std::vector<std::pair<uint32_t, Com<ID3D11DepthStencilState>>> depths_;  // por (função, escrita)
-    Com<ID3D11Buffer> sprite_vb_, sprite_ib_;
-    size_t sprite_vb_vertices_ = 0, sprite_ib_quads_ = 0;
-    Com<ID3D11Buffer> tri_vb_;  // triângulos soltos (estilhaços)
-    size_t tri_vb_vertices_ = 0;
-    Com<ID3D11Buffer> quad2d_vb_;  // 2D (psiDrawSprites)
-    size_t quad2d_vb_vertices_ = 0;
-    Com<ID3D11SamplerState> sampler_point_, sampler_linear_;  // 2D: sem mipmaps, coordenadas presas
-    Com<ID3D11SamplerState> sampler_smooth_;                  // camada HD: bilinear com mipmaps
-    std::unique_ptr<UiHdDevice> ui_;
-    std::unique_ptr<UiModernDevice> modern_;
-    // O desfoque do fundo dos menus Modern.
-    void ensure_blur_targets();
-    Com<ID3D11Texture2D> blur_full_;               // a cópia do alvo (tamanho da janela)
-    Com<ID3D11ShaderResourceView> blur_full_srv_;
-    Com<ID3D11Texture2D> blur_tex_[2];             // 1/4 da resolução, ida e volta
-    Com<ID3D11RenderTargetView> blur_rtv_[2];
-    Com<ID3D11ShaderResourceView> blur_srv_[2];
-    int blur_w_ = 0, blur_h_ = 0;
-    Com<ID3D11PixelShader> blur_ps_, blur_mix_ps_;
-    Com<ID3D11Buffer> cb_blur_;
-    Com<ID3D11RasterizerState> raster_2d_;                    // 2D: com scissor
-    int shader_state_ = -1;
-    Com<ID3D11ShaderResourceView> white_;
-    Com<ID3D11ShaderResourceView> no_texture_;  // 0x80 em tudo: kQuadNoTexture
-    Com<ID3D11Texture2D> loading_snapshot_;      // a tela de carga (save_loading_snapshot)
-    Com<ID3D11Texture2D> blur_history_;          // o quadro anterior (screen_blur)
-    Com<ID3D11ShaderResourceView> blur_history_srv_;
-    Com<ID3D11BlendState> blur_history_blend_;
-    bool blur_history_valid_ = false;
-    std::vector<GpuMesh> meshes_;
-    std::vector<Com<ID3D11ShaderResourceView>> textures_;
-    std::vector<Com<ID3D11ShaderResourceView>> hd_textures_;
-    std::vector<std::pair<uint32_t, Com<ID3D11ShaderResourceView>>> ui_images_;  // set_ui_image
-    bool use_hd_ = true;
-    Com<ID3D11VertexShader> blit_vs_;
-    Com<ID3D11PixelShader> blit_ps_;
-    // Opções do PC: o alvo próprio da cena (nulo: a cena vai direto ao back buffer, como antes).
-    Com<ID3D11Texture2D> scene_color_;           // scene_w_ x scene_h_, com MSAA ou não
-    Com<ID3D11RenderTargetView> scene_rtv_;
-    Com<ID3D11Texture2D> scene_resolved_;        // com MSAA e escala: a cena resolvida, antes de reduzir
-    Com<ID3D11ShaderResourceView> scene_srv_;    // a fonte da redução (sem MSAA)
-    Com<ID3D11PixelShader> fog_ps_ms_, down_ps_;
-    Com<ID3D11Buffer> cb_down_;
-    int scene_w_ = 0, scene_h_ = 0;
-    int scene_scale_ = 100, scene_msaa_ = 1;
-    bool in_2d_ = false;                         // segunda passada: o 2D no tamanho da janela
-    TextureFilter filter_ = TextureFilter::Aniso8;
-    // Os filmes: a textura e o desenho do quadro (no começo de render, com movie_on_).
-    std::unique_ptr<MovieLayer> movie_;
-    bool movie_on_ = false;
-    float movie_rect_[4]{};
+    std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace nf

@@ -21,7 +21,7 @@ void DroneFunc_HandleExplosives(DCVars_tag* dcv);
 void NDrone2_NavNodeCache();
 void Sound_ZeroAlertness();
 extern uint8_t Drone_bDontDraw;
-extern uint8_t MusicVars[36];  // módulo de música (0x002707a0): +2, +0xc, +0xe u16; +0x14/+0x18 float; +0x20
+alignas(4) extern uint8_t MusicVars[36];  // módulo de música (0x002707a0): +2, +0xc, +0xe u16; +0x14/+0x18 float; +0x20
 // As estatísticas (PlrStat_*) estão em engine/player_stats.h; Pickup_CreateSimple, que solta a arma, em
 // engine/pickup.h.
 // Missão (portada em mission.cpp, ver mission.h) e switches (portados em script_player.cpp, ver script.h).

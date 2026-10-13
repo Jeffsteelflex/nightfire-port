@@ -1,11 +1,10 @@
-// O renderizador Direct3D 11 do nf_driving (drv_renderer.h).
+// O renderizador Direct3D 11 do nf_driving: o backend do Windows de drv_renderer.h.
 
 #include "driving_app/drv_renderer.h"
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
 #include <dxgi1_2.h>
-#include <wincodec.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -16,7 +15,8 @@
 #include <vector>
 
 #include "platform/gpu_adapter.h"
-#include "render/gpu_adapters.h"
+#include "platform/image_io.h"
+#include "render/gpu_adapters_dxgi.h"
 #include "platform/fmath.h"
 
 namespace drv {
@@ -272,7 +272,8 @@ bool DrvRenderer::Impl::make_targets(std::string& error) {
     return true;
 }
 
-bool DrvRenderer::init(HWND hwnd, const DrvRenderOptions& opt, std::string& error) {
+bool DrvRenderer::init(void* window, const DrvRenderOptions& opt, std::string& error) {
+    const HWND hwnd = static_cast<HWND>(window);
     Impl& I = *d_;
     I.opt = opt;
     I.width = opt.width;
@@ -734,23 +735,7 @@ bool DrvRenderer::save_png(const std::wstring& path) {
     // Cria as pastas do caminho.
     for (size_t pos = path.find_first_of(L"\\/", 3); pos != std::wstring::npos; pos = path.find_first_of(L"\\/", pos + 1))
         CreateDirectoryW(path.substr(0, pos).c_str(), nullptr);
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    ComPtr<IWICImagingFactory> wic;
-    ComPtr<IWICStream> stream;
-    ComPtr<IWICBitmapEncoder> enc;
-    ComPtr<IWICBitmapFrameEncode> fr;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))) ||
-        FAILED(wic->CreateStream(&stream)) || FAILED(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE)) ||
-        FAILED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc)) ||
-        FAILED(enc->Initialize(stream.Get(), WICBitmapEncoderNoCache)) || FAILED(enc->CreateNewFrame(&fr, nullptr)) ||
-        FAILED(fr->Initialize(nullptr)) || FAILED(fr->SetSize(td.Width, td.Height)))
-        return false;
-    WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppRGBA;
-    if (FAILED(fr->SetPixelFormat(&fmt))) return false;
-    if (fmt != GUID_WICPixelFormat32bppRGBA)
-        for (size_t i = 0; i < px.size(); i += 4) std::swap(px[i], px[i + 2]);
-    return SUCCEEDED(fr->WritePixels(td.Height, td.Width * 4, UINT(px.size()), px.data())) && SUCCEEDED(fr->Commit()) &&
-           SUCCEEDED(enc->Commit());
+    return nf::write_png_rgba(path, int(td.Width), int(td.Height), px.data());  // platform/image_io.h (o WIC)
 }
 
 }  // namespace drv

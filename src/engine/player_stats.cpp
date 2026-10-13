@@ -11,8 +11,6 @@
 
 #include "engine/player_stats.h"
 
-#include <float.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -23,6 +21,7 @@
 #include "engine/mission.h"
 #include "engine/player.h"
 #include "engine/resetmap.h"
+#include "platform/compiler.h"
 #include "platform/psi.h"
 
 PLRMISSIONSTATS PlrMissionStats[kPlrStatPlayers];
@@ -33,30 +32,11 @@ float ScoringTableDifMul[3];
 int32_t* NewScoresRef = nullptr;
 PlayerStatsGuards g_player_stats_guards;
 
-// O modo de arredondamento muda dentro do arquivo (EeRounding): o compilador não pode dobrar contas de float
-// supondo o modo padrão.
-#pragma fenv_access(on)
+// O modo de arredondamento muda dentro do arquivo (nf::RoundTowardZero, platform/compiler.h: o _controlfp_s do MSVC):
+// o compilador não pode dobrar contas de float supondo o modo padrão.
+NF_FENV_ACCESS_ON
 
 namespace {
-
-// Arredondamento para zero, como a FPU do EE, enquanto vive (x87 e SSE).
-class EeRounding {
-public:
-    EeRounding() {
-        _controlfp_s(&old_, 0, 0);
-        unsigned int cw = 0;
-        _controlfp_s(&cw, _RC_CHOP, _MCW_RC);
-    }
-    ~EeRounding() {
-        unsigned int cw = 0;
-        _controlfp_s(&cw, old_ & _MCW_RC, _MCW_RC);
-    }
-    EeRounding(const EeRounding&) = delete;
-    EeRounding& operator=(const EeRounding&) = delete;
-
-private:
-    unsigned int old_ = 0;
-};
 
 uint32_t mp_on() {
     uint32_t v;
@@ -156,7 +136,7 @@ void PlrStat_LogShotHitScenery(uint32_t player) {
 // não nulo, alcançou o recorde). Fora do estado 6 (missão cumprida), os pontos, o bônus, a soma, o total e
 // DoneBetter ficam zerados (o recorde já foi atualizado, como no original).
 uint8_t* PlrStat_GetScore(uint8_t peek) {
-    const EeRounding ee;
+    const nf::RoundTowardZero ee;  // como a FPU do EE
     const uint32_t level = Mission_BaseMapHCode();
     SCORETABLE* e = nullptr;
     for (uint32_t i = 0; i < kScoringTableCount; ++i) {

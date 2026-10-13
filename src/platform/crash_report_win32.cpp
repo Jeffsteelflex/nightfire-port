@@ -1,4 +1,4 @@
-// Ver crash_report.h.
+// O relatório de falhas no Windows: o filtro de exceções não tratadas e o dbghelp. Ver crash_report.h.
 
 #include "platform/crash_report.h"
 
@@ -88,7 +88,7 @@ LONG WINAPI report(EXCEPTION_POINTERS* info) {
 
 void install_crash_report() { SetUnhandledExceptionFilter(report); }
 
-void crash_report_exception(_EXCEPTION_POINTERS* info) { report(info); }
+void crash_report_exception(void* system_exception) { report(static_cast<EXCEPTION_POINTERS*>(system_exception)); }
 
 void crash_report_here(const char* why) {
     std::fprintf(stderr, "\nFALHA: %s\n", why);

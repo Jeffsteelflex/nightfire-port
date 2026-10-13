@@ -3,8 +3,7 @@
 #include "platform/psi.h"
 
 #include "platform/arena.h"
-
-#include <windows.h>
+#include "platform/os.h"
 
 #include <cstring>
 
@@ -12,23 +11,22 @@ uint32_t VBlankCount = 0;
 
 namespace {
 uint32_t RealTimeCount = 0;
-LARGE_INTEGER g_start{}, g_freq{};
+uint64_t g_start = 0, g_freq = 0;  // os::perf_counter e os::perf_frequency
 double g_vblanks = 0.0;      // o relógio com a fração do VBlank em curso (a interpolação entre ticks)
 bool g_fixed_clock = false;  // psi_set_clock_vblanks: o relógio simulado (--fixed-video-hz)
 }  // namespace
 
 void psi_update_clock() {
     if (g_fixed_clock) return;
-    if (g_freq.QuadPart == 0) {
-        QueryPerformanceFrequency(&g_freq);
-        QueryPerformanceCounter(&g_start);
+    if (g_freq == 0) {
+        g_freq = nf::os::perf_frequency();
+        g_start = nf::os::perf_counter();
     }
-    LARGE_INTEGER now;
-    QueryPerformanceCounter(&now);
+    const uint64_t now = nf::os::perf_counter();
     // O jogo trata o VBlank como 60 Hz (psiGetTimeIn100ths multiplica por 10/6).
-    const int64_t ticks = now.QuadPart - g_start.QuadPart;
-    VBlankCount = uint32_t(ticks * 60 / g_freq.QuadPart);
-    g_vblanks = double(ticks) * 60.0 / double(g_freq.QuadPart);
+    const int64_t ticks = int64_t(now - g_start);
+    VBlankCount = uint32_t(ticks * 60 / int64_t(g_freq));
+    g_vblanks = double(ticks) * 60.0 / double(int64_t(g_freq));
 }
 
 double psi_clock_vblanks() { return g_vblanks; }
@@ -68,13 +66,13 @@ void psiMem_Init(uint8_t** heap, uint32_t* size) {
     if (MallocBlock != nullptr) nf::arena::free_pages(MallocBlock);
     MallocBlock = nf::arena::alloc_pages(psiMemHeapSize);
 #else
-    if (MallocBlock != nullptr) VirtualFree(MallocBlock, 0, MEM_RELEASE);
+    if (MallocBlock != nullptr) nf::os::vm_free(MallocBlock);
     MallocBlock = nullptr;
-    MallocBlock = VirtualAlloc(nullptr, psiMemHeapSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    MallocBlock = nf::os::vm_alloc(psiMemHeapSize);
 #endif
     if (MallocBlock == nullptr) {
-        MessageBoxW(nullptr, L"Não foi possível reservar o heap do jogo.", L"Nightfire", MB_ICONERROR);
-        ExitProcess(1);
+        nf::os::show_error(L"Nightfire", L"Não foi possível reservar o heap do jogo.");
+        nf::os::exit_process(1);
     }
     PS2HeapSize = psiMemHeapSize & ~0xfu;
     *size = PS2HeapSize;

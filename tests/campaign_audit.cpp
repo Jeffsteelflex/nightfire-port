@@ -1,6 +1,7 @@
 // Auditoria da campanha a pé (ver campaign_audit.h).
 
 #include "campaign_audit.h"
+#include "platform/keys.h"
 
 #include <algorithm>
 #include <cmath>
@@ -582,9 +583,9 @@ void print_summary() {
 // voltam como estavam.
 namespace {
 
-constexpr int kVkSpace = 0x20;    // VK_SPACE
-constexpr int kVkLButton = 0x01;  // VK_LBUTTON
-constexpr int kVkRButton = 0x02;  // VK_RBUTTON
+constexpr int kVkSpace = 0x20;    // nf::key::Space
+constexpr int kVkLButton = 0x01;  // nf::key::LButton
+constexpr int kVkRButton = 0x02;  // nf::key::RButton
 
 void key(int vk, bool down) { g_psi_keyboard_mouse.down[vk] = down; }
 

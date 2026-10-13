@@ -3,12 +3,13 @@
 // (digitar, apagar, o máximo de 8 letras, o nome que não vale, o "End" que grava) e a dificuldade e o mapa das missões
 // até ResetMap_LevelToLoad, num arquivo de menu feito à mão como em test_modern_menus.cpp.
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
-#include <windows.h>
 
 #include "engine/game.h"
 #include "engine/gameflow.h"
@@ -371,9 +372,11 @@ TEST(card_profile_corrupt_or_missing) {
 
 TEST(card_folder_on_disk_and_enumeration) {
     FrontWorld w;
-    wchar_t tmp[MAX_PATH];
-    GetTempPathW(MAX_PATH, tmp);
-    const std::wstring root = std::wstring(tmp) + L"nf_test_saves_" + std::to_wstring(GetCurrentProcessId());
+    // Uma pasta só deste teste na pasta temporária (o relógio no nome: duas execuções juntas não se cruzam).
+    const std::wstring root =
+        (std::filesystem::temp_directory_path() /
+         (L"nf_test_saves_" + std::to_wstring(std::chrono::steady_clock::now().time_since_epoch().count())))
+            .wstring();
     nf::FolderCard folder(root);
     nf::set_card(&folder);
     set_profile_state();
@@ -404,7 +407,8 @@ TEST(card_folder_on_disk_and_enumeration) {
     bool dir = false;
     CHECK(!folder.exists("BASLUS-20579ZED", &dir));
     folder.clear();
-    RemoveDirectoryW(root.c_str());
+    std::error_code ec;
+    std::filesystem::remove(root, ec);
     nf::set_card(&w.card);
 }
 

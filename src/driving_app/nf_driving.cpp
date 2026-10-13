@@ -5,10 +5,9 @@
 //              [--fallback off]                      um carro girando numa janela, ou uma captura (PNG + .txt)
 //   nf_driving --check --data <pasta>                 todos os carros e personagens de todas as pistas: o que carrega
 //   nf_driving --census --data <pasta>                os 115 render methods: famílias, microprogramas distintos
-
-#include <windows.h>
-#include <psapi.h>
-#include <shellapi.h>
+//
+// Sem nada do sistema: o ponto de entrada é o do backend (platform/entry_win32.cpp), a janela e o renderizador vêm de
+// platform/window.h e drv_renderer.h, o relógio e o console de platform/os.h.
 
 #include <algorithm>
 #include <cmath>
@@ -19,6 +18,10 @@
 #include <string>
 #include <vector>
 
+#include "platform/crt_compat.h"
+#include "platform/entry.h"
+#include "platform/os.h"
+
 #include "driving/bigf.h"
 #include "platform/arena.h"
 #include "driving/car_model.h"
@@ -28,7 +31,6 @@
 #include "driving/eagl_state.h"
 #include "driving/render_method.h"
 #include "driving_app/drv_renderer.h"
-#include "platform/crash_report.h"
 #include "platform/window.h"
 
 namespace {
@@ -49,23 +51,9 @@ struct Args {
     int view = 1;   // a lista de desenho (vd#n do CARP; 0: todas as instâncias)
 };
 
-std::wstring widen(const std::string& s) {
-    if (s.empty()) return std::wstring();
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), nullptr, 0);
-    std::wstring w(size_t(n), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), w.data(), n);
-    return w;
-}
+std::wstring widen(const std::string& s) { return nf::os::from_utf8(s); }
 
-void console() {
-    if (GetStdHandle(STD_OUTPUT_HANDLE) == nullptr || GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) == FILE_TYPE_UNKNOWN) {
-        if (AttachConsole(ATTACH_PARENT_PROCESS)) {
-            FILE* f = nullptr;
-            freopen_s(&f, "CONOUT$", "w", stdout);
-            freopen_s(&f, "CONOUT$", "w", stderr);
-        }
-    }
-}
+void console() { nf::os::attach_parent_console(); }
 
 // A conferência contra o microprograma original (mat_car_verify.h) numa linha.
 std::string verify_line(const drv::CarVerifyStats& v) {
@@ -270,7 +258,7 @@ int run_check(const Args& a) {
             std::string name = e.path.substr(e.path.find_last_of('/') + 1);
             const size_t semi = name.find(';');
             if (semi != std::string::npos) name.resize(semi);
-            if (name.size() > 4 && _stricmp(name.c_str() + name.size() - 4, ".VIV") == 0) vivs.push_back(name);
+            if (name.size() > 4 && nf::str_icmp(name.c_str() + name.size() - 4, ".VIV") == 0) vivs.push_back(name);
         }
     }
     if (vivs.empty()) {
@@ -281,7 +269,7 @@ int run_check(const Args& a) {
     drv::CarVerifyStats total;
     std::map<std::string, int> methods, fallback;
     for (const std::string& viv : vivs) {
-        if (!a.check_viv.empty() && _stricmp(viv.c_str(), a.check_viv.c_str()) != 0) continue;
+        if (!a.check_viv.empty() && nf::str_icmp(viv.c_str(), a.check_viv.c_str()) != 0) continue;
         drv::Bigf arc;
         if (!arc.open(*disc, "DRIVING/" + viv)) continue;
         for (const drv::BigfEntry& e : arc.entries()) {
@@ -302,13 +290,11 @@ int run_check(const Args& a) {
             }
             ++ok;
             const drv::CarModelStats& s = car.stats();
-            PROCESS_MEMORY_COUNTERS_EX pm{};
-            GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pm), sizeof pm);
             std::printf("ok %-10s %-22s pecas %3d instancias %3d primitivas %4d lotes %5d triangulos %6d substitutos "
                         "%4d carregador %d vif %d ops %d nulos %d memoria %u MB\n",
                         viv.c_str(), name.c_str(), s.models, s.instances, s.geoprims, s.batches, s.triangles,
                         s.fallback_batches, s.loader_messages, s.vif_errors, s.unported_ops, s.dma_null_sources,
-                        unsigned(pm.PrivateUsage >> 20));
+                        unsigned(nf::os::private_memory() >> 20));
             if (a.verify) {
                 // Um carro com referências não resolvidas (lidas como zeros) fica fora da soma: o lixo não diz nada.
                 std::printf("  %s%s\n", verify_line(car.verify_stats()).c_str(),
@@ -348,12 +334,7 @@ int run_check(const Args& a) {
 }
 
 bool parse(int argc, wchar_t** argv, Args& a) {
-    auto narrow = [](const wchar_t* w) {
-        const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
-        std::string s(size_t(n > 0 ? n - 1 : 0), '\0');
-        WideCharToMultiByte(CP_UTF8, 0, w, -1, s.data(), n, nullptr, nullptr);
-        return s;
-    };
+    auto narrow = [](const wchar_t* w) { return nf::os::to_utf8(w); };
     for (int i = 1; i < argc; ++i) {
         const std::string k = narrow(argv[i]);
         auto next = [&]() { return i + 1 < argc ? narrow(argv[++i]) : std::string(); };
@@ -392,10 +373,8 @@ bool parse(int argc, wchar_t** argv, Args& a) {
 
 }  // namespace
 
-int app_main() {
+int nf_app_main(int argc, wchar_t** argv) {
     console();
-    int argc = 0;
-    wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     Args a;
     if (!parse(argc, argv, a)) return 1;
     if (a.census) return run_census(a);
@@ -428,13 +407,12 @@ int app_main() {
             // Quadros girando, fora da tela, até a GPU terminar: o custo médio por quadro (sem Present).
             r.draw(car, a.yaw, a.pitch, a.dist);
             r.finish();
-            LARGE_INTEGER f, t0, t1;
-            QueryPerformanceFrequency(&f);
-            QueryPerformanceCounter(&t0);
+            const uint64_t f = nf::os::perf_frequency();
+            const uint64_t t0 = nf::os::perf_counter();
             for (int i = 0; i < a.bench_frames; ++i) r.draw(car, a.yaw + 0.01f * float(i), a.pitch, a.dist);
             r.finish();
-            QueryPerformanceCounter(&t1);
-            const double ms = 1000.0 * double(t1.QuadPart - t0.QuadPart) / double(f.QuadPart) / a.bench_frames;
+            const uint64_t t1 = nf::os::perf_counter();
+            const double ms = 1000.0 * double(int64_t(t1 - t0)) / double(int64_t(f)) / a.bench_frames;
             std::printf("medida quadros %d ms_por_quadro %.3f qps %.0f | %s\n", a.bench_frames, ms, 1000.0 / ms,
                         r.stats().adapter.c_str());
         }
@@ -444,8 +422,8 @@ int app_main() {
             return 1;
         }
         const std::string rep = report(car, a, &r.stats());
-        FILE* f = nullptr;
-        if (fopen_s(&f, (a.screenshot + ".txt").c_str(), "wb") == 0 && f) {
+        FILE* f = nf::fopen_narrow((a.screenshot + ".txt").c_str(), "wb");
+        if (f) {
             std::fwrite(rep.data(), 1, rep.size(), f);
             std::fclose(f);
         }
@@ -453,18 +431,17 @@ int app_main() {
         return 0;
     }
     nf::Window win(L"nf_driving — " + widen(a.model), a.width, a.height, false);
-    if (!r.init(win.hwnd(), ro, err) || !r.upload(car, err)) {
+    if (!r.init(win.native_handle(), ro, err) || !r.upload(car, err)) {
         std::fprintf(stderr, "nf_driving: %s\n", err.c_str());
         return 1;
     }
     std::printf("%s", summary(report(car, a, nullptr)).c_str());
-    LARGE_INTEGER freq, t0, t1;
-    QueryPerformanceFrequency(&freq);
-    QueryPerformanceCounter(&t0);
+    const uint64_t freq = nf::os::perf_frequency();
+    uint64_t t0 = nf::os::perf_counter();
     float yaw = a.yaw;
     while (win.pump()) {
-        QueryPerformanceCounter(&t1);
-        const float dt = float(double(t1.QuadPart - t0.QuadPart) / double(freq.QuadPart));
+        const uint64_t t1 = nf::os::perf_counter();
+        const float dt = float(double(int64_t(t1 - t0)) / double(int64_t(freq)));
         t0 = t1;
         if (a.spin) yaw += dt * 0.6f;
         if (win.resized()) r.resize(win.width(), win.height());
@@ -474,7 +451,3 @@ int app_main() {
     return 0;
 }
 
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-    nf::install_crash_report();
-    return nf::run_main([] { return app_main(); });
-}

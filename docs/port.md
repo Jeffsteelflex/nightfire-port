@@ -10,19 +10,23 @@ movimento e a colisão do próprio jogo. Não usa emulação nem arquivos conver
 ```
 build.bat                         :: Release em build\Release\nightfire.exe (32 bits, a versão de referência)
 build.bat Release x64             :: a versão de 64 bits em build\x64\Release\nightfire.exe (ver "64 bits")
+build.bat Release headless        :: só o código neutro e os testes, sem API do Windows (ver "Plataforma: interfaces e backends")
+python tools\check_platform.py    :: nada do sistema fora dos arquivos de backend
 build\Release\nightfire.exe --level 07000001
 ```
 
 Sem `--disc`, o executável procura o disco sozinho (a ordem está em "Instalação fácil": a cópia pessoal, a pasta dele,
-a pasta atual e as de cima, o `[game] disc` do `nightfire.ini`, os leitores de DVD) e, sem nenhum que sirva, mostra a
-tela de configuração. Quem compila tem os arquivos extraídos na raiz do repositório, que a procura acha a partir de
-`build\Release`; `--disc` (ou o nome antigo `--data`) indica outro.
+a pasta atual e as de cima, o `[game] disc` do `nightfire.ini`, os leitores de DVD). Aberto sem argumentos (ou só com
+`--config` e `--save-dir`), ele mostra antes do jogo a tela de entrada (o launcher: o disco, a resolução, o modo de tela, o
+VSync, o estilo dos menus, a camada 2D em HD; ver "Instalação fácil"), com JOGAR no foco; qualquer outro argumento a
+pula, e sem um disco que sirva ela aparece sempre. Quem compila tem os arquivos extraídos na raiz do repositório, que a
+procura acha a partir de `build\Release`; `--disc` (ou o nome antigo `--data`) indica outro.
 
 | Opção | Efeito |
 |-------|--------|
 | `--disc <caminho>` | o disco do jogo: uma imagem `.iso`, a pasta com os arquivos extraídos, um leitor (`D:`) ou um executável com a cópia pessoal (`--data` é o nome antigo). Só a versão americana (SLUS-20579) serve; ver "Instalação fácil" |
-| `--setup` | mostra a tela de configuração mesmo com um disco que sirva (trocar o disco, fazer a cópia pessoal) |
-| `--setup-pick <caminho>`, `--setup-input "<seq>"` | capturas da tela de configuração: a resposta da janela de escolha de arquivo e o roteiro (como `--input`, com `cmouse=x,y`; o relógio conta da tela) |
+| `--setup`, `--launcher` | mostra a tela de entrada mesmo com argumentos ou com "Show at startup" desligado (também nas capturas); sem argumentos ela já aparece sozinha |
+| `--setup-pick <caminho>`, `--setup-input "<seq>"` | capturas da tela de entrada: a resposta da janela de escolha de arquivo e o roteiro (como `--input`, com `cmouse=x,y`; o relógio conta da tela) |
 | `--pack-disc <caminho>` | faz a cópia pessoal em um arquivo só e sai (sem janela; o andamento no console); com `--out <arquivo.exe>` (padrão: `<executável>-personal.exe` ao lado dele) e `--pack-no-movies` (sem os filmes, uns 850 MB a menos) |
 | `--level <hash>` | começa direto nessa fase; sem ele, o menu principal do jogo (07000048) |
 | `--save-dir <pasta>` | a pasta do cartão de memória (padrão `saves\` ao lado do executável); com `--screenshot` e sem ele, o cartão fica em memória |
@@ -174,7 +178,7 @@ A procura (`find_disc`), quando a linha de comando não diz: (1) a cópia pessoa
 executável, com os arquivos ou com uma imagem `.iso` (a primeira que sirva, por nome); (3) a pasta atual e as três de
 cima do executável (a raiz do repositório a partir de `build\Release` e `build\x64\Release`: quem compila); (4) o `[game]
 disc` do `nightfire.ini`; (5) os leitores de CD/DVD (`D:\` com um `SYSTEM.CNF`). Os recusados no caminho (outra versão,
-uma imagem que sumiu) ficam anotados para a tela de configuração. As pastas da procura só contam com `FILES.BIN` ou
+uma imagem que sumiu) ficam anotados para a tela de entrada. As pastas da procura só contam com `FILES.BIN` ou
 `SYSTEM.CNF` dentro. `--disc` vale sozinho. Nas capturas sem `--config` o `nightfire.ini` não é lido, então o `[game]
 disc` também não: uma captura não depende das opções do jogador.
 
@@ -182,30 +186,75 @@ O pacote de texturas HD do jogador (formato do PCSX2) fica ao lado do disco: `te
 dele (a da imagem, para um `.iso`), senão na pasta do executável e nas de cima, senão na atual; com o disco num leitor de
 DVD, ao lado do executável (ou `--textures`).
 
-### A tela de configuração (`src/ui/modern_setup.h`, `src/render/setup_app.h`)
+### A tela de entrada (`src/ui/modern_setup.h`, `src/render/setup_app.h`)
 
-Sem um disco que sirva (ou com `--setup`), o `nightfire.exe` abre a janela e mostra a tela de configuração antes do
-jogo, no estilo Modern (o kit, docs/design.md "As telas"), sem nada do jogo (não há disco ainda): "Select your 007:
-Nightfire disc image (PS2, USA)", SELECT DISC IMAGE (a janela de escolha de arquivo do Windows, `IFileOpenDialog` numa
-thread STA própria; o laço continua desenhando), USE THE DISC IN DRIVE X: (um por leitor com um disco de PS2, procurados
-de novo a cada 2 s: um disco que entra aparece sozinho; o de outra versão com o cadeado e o motivo), PLAY, MAKE A
-SINGLE-FILE COPY e QUIT. Um disco escolhido é conferido (`probe_disc`); servindo, vai para o `[game] disc` do
-`nightfire.ini` e o foco vai para PLAY; senão, a caixa diz por quê (os textos em `PcText`, inglês e português por `[ui]
-language_pc`). PLAY segue a partida normal (o menu principal do jogo); da próxima vez a procura acha o disco pelo `.ini`.
-Teclado, mouse e controle como nas outras telas Modern (`NavState`).
+Antes do jogo, como os lançadores dos jogos de PC (o "launcher"; pedido do usuário em 12/10/2026). Ela era a tela de
+configuração da primeira partida, que só aparecia sem um disco; agora:
+
+- **quando aparece** (`launcher_reason`, sem GPU e testada): (1) com `--setup` ou `--launcher`, sempre (também nas
+  capturas); (2) sem um disco que sirva, sempre, como antes (então ela pede a imagem do disco); (3) com a linha de comando
+  dizendo o que rodar, nunca: qualquer argumento além de `--config <ini>`, `--save-dir <pasta>`, `--setup`, `--launcher`,
+  `--setup-pick` e `--setup-input` (`launcher_command_line`), então `--level`, `--screenshot`, `--bench`, `--frames-dump`,
+  `--movie-frame`, `--open-menu-page`, `--disc`, `--width`... rodam como antes; (4) numa partida normal, com
+  **Show at startup** ligado (`[ui] launcher`, ligado por padrão); (5) desligado, com o **Shift** seguro enquanto o jogo
+  abre (`os::key_held`, a interface de `platform/os.h`: `GetAsyncKeyState` no Windows, nada no backend nulo; lido só quando
+  decide);
+- **o que mostra**: à esquerda "NIGHTFIRE PC /", o título do port, o disco em uso (o tipo, o nome e o estado; sem disco, o
+  pedido da imagem e a frase de que nada é baixado) e embaixo a lista grande JOGAR (no foco ao abrir) e SAIR; no meio as
+  linhas, em quatro seções: DISCO (o disco em uso: escolher outra imagem pela janela de escolha de arquivo; USE THE DISC
+  IN DRIVE X:, uma linha por leitor com um disco de PS2, travada com o motivo se for outro jogo ou outra versão, "In use" se
+  for o disco em uso; a cópia em arquivo único, com o tamanho), TELA (a resolução, o modo de tela e o VSync, com as listas e
+  as regras da página VIDEO do jogo: `resolution_choices` com os modos do monitor, sem bordas mostra o monitor,
+  `fit_resolution_to_mode` ao trocar o modo), INTERFACE (o estilo dos menus, Modern ou Original, e a camada 2D em HD, que
+  muda o HUD e os menus Original: os menus Modern são sempre desenhados na resolução nativa) e AO ABRIR (Show at
+  startup); à direita a descrição da linha com o foco (o que ela faz, o valor atual e, com mudanças, o aviso de que o
+  JOGAR as grava). Não há predefinições de gráficos, o adaptador nem o idioma dos textos do port (decisão do usuário);
+- **o que JOGAR faz**: a tela devolve as opções (`LauncherSettings`: as opções de vídeo e `[ui] launcher`) e o laço do
+  `nightfire.exe` as grava no `nightfire.ini` (`store_launcher_settings`: só as que mudaram, com as chaves e a escrita das
+  opções do jogo, `store_video_settings`: `[video] width/height`, `window_mode` (a chave antiga `fullscreen` sai),
+  `vsync`, `[ui] menu_style`, `hd`, e `[ui] launcher`; só quando o arquivo pode ser escrito: nas capturas sem `--config`,
+  não) e segue a partida como se elas viessem do arquivo: a janela troca de tamanho ou de modo antes do primeiro quadro do
+  jogo, a tela cheia exclusiva liga onde sempre ligou, e o estilo e a camada HD já nascem com o valor novo. Se a tela cheia
+  exclusiva não abrir (o monitor recusa o modo, o monitor está em outra placa), o jogo começa numa janela que cabe no
+  monitor (`fit_resolution_to_mode`), em toda partida, não só depois da tela de entrada; o `nightfire.ini` fica como
+  estava. A tela de entrada mesma nunca está em tela cheia exclusiva (a janela nasce com bordas ou sem bordas), então
+  ela serve para desfazer um modo ruim (com o Shift, se estiver desligada). SAIR fecha sem gravar nada; o disco escolhido
+  vai para o `[game] disc` na hora, como antes;
+- **a entrada**: teclado, mouse e controle como nas outras telas Modern (`NavState`): na coluna da esquerda cima/baixo e
+  Enter (A no controle); a direita (ou o mouse) entra nas linhas; nas linhas cima/baixo andam, esquerda/direita trocam o
+  valor (nas linhas de ação, a esquerda volta a JOGAR), Enter abre a lista ou alterna a chave, Esc volta a JOGAR; o Start
+  do controle joga de qualquer lugar; o clique escolhe, a roda rola, o botão direito volta.
+
+O resto continua: SELECT DISC IMAGE (agora a linha do disco) abre a janela de escolha do Windows (`IFileOpenDialog` numa
+thread STA própria; o laço continua desenhando); os leitores são procurados de novo a cada 2 s (um disco que entra aparece
+sozinho); um disco escolhido é conferido (`probe_disc`); servindo, vai para o `[game] disc` e o foco vai para JOGAR;
+senão, a caixa diz por quê. A cópia em arquivo único abre a caixa do andamento (a barra e Cancel) e a do fim. Uma cópia
+pessoal sozinha numa pasta qualquer tira o `hd_ui` dela antes da tela (as fontes do estilo Modern). Os textos estão em
+`PcText` (inglês, e português por `[ui] language_pc`).
 
 Capturas: `--screenshot` desenha a tela fora da janela no relógio fixo de 60 quadros por segundo; `--setup-pick
 <caminho>` responde a janela de escolha e `--setup-input` é o roteiro; se o `--wait` passa com a tela aberta, grava a
-imagem e o `.txt` (`configuracao foco linhas pronto problema copia leitores dialogo escolhendo mouse disco`, o disco
-escolhido, os recusados e os leitores) e sai. Ex.: num lugar sem disco,
-`nightfire.exe --config out/s.ini --setup-pick "<iso>" --setup-input "none:0.5 enter:0.1 none:0.5 enter:0.1" --input
-"none:4.5 enter:0.1" --wait 7 --screenshot out/shots/s.png` escolhe a imagem, a grava em `out/s.ini`, joga e captura o
-menu principal (igual, pixel a pixel, ao de antes).
+imagem e o `.txt` (a linha `configuracao zona foco linhas pronto problema copia leitores dialogo escolhendo mouse
+lista_aberta opcao rolagem | opcoes resolucao modo vsync estilo hd mostrar mudou | disco`, a linha `tela_entrada motivo
+monitor modos`, o disco escolhido, os recusados e os leitores) e sai. Nas capturas a lista das resoluções é a do monitor da
+máquina. Exemplos (com um `--config` de rascunho, nunca o `nightfire.ini` do jogador):
+
+```
+nightfire.exe --setup --config out/l.ini --width 1920 --height 1080 --wait 1.5 --screenshot out/shots/launcher.png
+:: uma linha com o foco (a direita entra nas linhas, seis vezes para baixo: a camada 2D em HD)
+nightfire.exe --setup --config out/l.ini --setup-input "none:0.5 right:0.1 none:0.1 down:0.1 none:0.1 down:0.1 none:0.1 down:0.1 none:0.1 down:0.1 none:0.1 down:0.1 none:0.1 down:0.1 none:0.3" --wait 2.5 --screenshot out/shots/launcher_row.png
+:: a lista das resoluções aberta
+nightfire.exe --setup --config out/l.ini --setup-input "none:0.5 right:0.1 none:0.1 down:0.1 none:0.1 down:0.1 none:0.1 enter:0.1 none:0.5" --wait 2 --screenshot out/shots/launcher_list.png
+:: num lugar sem disco: escolher a imagem, gravá-la em out/s.ini, jogar e capturar o menu principal
+nightfire.exe --config out/s.ini --setup-pick "<iso>" --setup-input "none:0.5 enter:0.1 none:0.5 enter:0.1" --input "none:4.5 enter:0.1" --wait 7 --screenshot out/shots/s.png
+```
+
+A janela de verdade: ver "Conferências" abaixo.
 
 ### A cópia pessoal em um arquivo só (`src/platform/disc_pack.h`)
 
 Para o próprio jogador: `nightfire.exe --pack-disc <iso|pasta|leitor> [--out <arquivo.exe>] [--pack-no-movies]`, ou MAKE
-A SINGLE-FILE COPY na tela de configuração (a thread da cópia, a barra de andamento e Cancel na caixa). O resultado é uma
+A SINGLE-FILE COPY na tela de entrada (a thread da cópia, a barra de andamento e Cancel na caixa). O resultado é uma
 cópia do executável em uso com os arquivos do disco depois da imagem PE (o "overlay", que o carregador do Windows não
 mapeia) e um rodapé de 64 bytes no fim (o tamanho do programa, onde está o índice, o formato, se tem os filmes, o código do
 disco e a marca `NFPC-DISC-PACK-1`). Entra só o que o port usa: `ACTION.ELF`, `SYSTEM.CNF`, `FILES.BIN`, `PS2\` e, se não
@@ -223,7 +272,7 @@ Tamanho e o Windows (12/10/2026, esta máquina): com os filmes, 1 909 214 396 by
 (1,8 GB: `FILES.BIN` 764 MB, `MOVIES\` 848 MB, `PS2\` 290 MB, o `hd_ui` 2 MB); sem eles, ~1,06 GB. O Windows 11 roda as
 duas nesse tamanho, também sozinhas numa pasta qualquer (o `hd_ui` tirado para a pasta do usuário): a primeira partida
 de uma cópia nova demorou 7 a 14 s (o Defender lê o arquivo inteiro), as seguintes 1,5 s, como o executável comum. A
-cópia feita pela tela de configuração, conferida com o `nf_disc_check` contra a imagem: os 137 arquivos do disco iguais. A
+cópia feita pela tela de entrada, conferida com o `nf_disc_check` contra a imagem: os 137 arquivos do disco iguais. A
 versão de 32 bits precisa do runtime do Visual C++ (`msvcp140.dll`, `vcruntime140.dll`: no zip ao lado dele, ou o
 instalado no sistema); a de 64 bits o tem dentro (`/MT`) e roda sozinha em qualquer pasta.
 
@@ -252,6 +301,20 @@ para o de 32 bits, mais nada (os shaders são compilados do texto que está no e
   saída.
 - As capturas da imagem, do leitor e da cópia pessoal são iguais, pixel a pixel, às da pasta (07000012 a 2 s e 9 s, 07000001
   a 11,7 s, o menu principal Modern e Original, um quadro de filme e a abertura de uma missão; os WAV também).
+- A tela de entrada (12/10/2026): como toda execução com argumentos a pula, a versão de 32 bits ficou igual à main: o
+  `nf_tests` (785 testes: os 779 da main, com os dois da tela de configuração reescritos, e 6 novos em
+  `tests/test_launcher.cpp`), o `nf_level_check` (35 fases, 0 não resolvidas), o `nf_loader_check` (36 pacotes, 0
+  diferenças, a saída igual com os endereços mascarados), as capturas (07000012 aos 9 s com `--fixed-video-hz 60`, a
+  pausa Modern, o menu principal Modern e Original, as opções Modern) iguais pixel a pixel (nos relatórios só os campos de
+  relógio de parede), o `check_platform.py` com 0 usos fora dos backends, a build sem o sistema (785 testes) e a de 64
+  bits (788 testes). Uma captura com o roteiro mudando a resolução e o estilo dos menus e jogando: o `nightfire.ini` de
+  rascunho ganhou só `[video] width/height` e `[ui] menu_style = original`, e o menu principal abriu no estilo Original.
+- A janela de verdade (o `nightfire.exe` de 32 bits sem argumentos além de `--config` e `--save-dir` de rascunho, os
+  filmes e o som desligados no `.ini`): a janela abriu em 0,2 s com a tela de entrada e o foco (o Windows a pôs na frente
+  sozinha), Enter abriu o menu principal do jogo (o "Press START") e o `WM_CLOSE` fechou com 0; com `[ui] launcher = 0` o
+  jogo abriu direto, e com o Shift seguro na partida a tela voltou. Nas execuções seguintes o Windows não deu o foco à
+  janela nova (outro programa na frente) e o teste não manda teclas sem ele, então trocar a resolução pelo teclado e ver a
+  janela mudar de tamanho ficou sem conferir numa janela de verdade (as capturas desenham fora da janela).
 
 ## Arquitetura
 
@@ -261,8 +324,9 @@ para o de 32 bits, mais nada (os shaders são compilados do texto que está no e
 | `src/engine` | código decompilado do ACTION.ELF: matemática, tabela de hashcodes, GameFlow, memória, carregador (`ResetMap_Load`, `LoaderLoad`, `parsemap_*`) | as mesmas funções |
 | `src/data` | ELF, `FILES.BIN`, pacotes de fase, itens de mapa; decodificação de texturas e da geometria do bloco 0x2d; interpretador MIPS (`mips_interp`) para os construtores estáticos do ELF | leitura de formato usada pelo backend e pelas ferramentas; o `__main` do crt0 |
 | `src/game` | `boot` (índice `FileList`, tabelas dos construtores estáticos), `static_init` (`weapon_data`, `ammo_data`), `LevelScene` (leitor independente, usado só pelo `nf_level_check`), tipos de objeto, câmera inicial | |
-| `src/render` | Direct3D 11, malhas rígidas e com skinning (skinning na GPU), estado do GS por parte de malha, iluminação da VU1 por vértice (tweak, luzes, mapa de ambiente), passada de névoa, sprites de partículas, triângulos soltos (estilhaços), o 2D na tela (sprites e texto); `runtime_gfx` liga as estruturas do jogo ao renderizador; `ui_hd*`, a camada 2D em alta definição (Direct2D, DirectWrite, WIC); `remix_d3d9`, o protótipo de Direct3D 9 de função fixa para o RTX Remix (`--renderer d3d9ff`) | GS, VU1 (`DrawThisBox`, microprogramas), VU0 do skinning (`SkinIt`) |
-| `src/platform` | janela Win32, Raw Input, tela cheia; `psi*` (relógio, heap, arquivos, recursos gráficos, registro do desenho de cada quadro, inclusive `psiDrawSkinObjectMatrix`, `psiDrawParticleList`, as luzes, a névoa e os esmaecimentos (`psiFadeView`); a tela de carga (`psi_loading`); os estilhaços de vidro, `psi_shard`; o registro 2D, `psi_2d`); `vu1` (as contas das rotinas da VU1 e da névoa na CPU) | `libpad`, VBlank, saída NTSC, `malloc` do heap, CD, VRAM, cadeias de DMA do quadro |
+| `src/app` | `app_main.cpp`, o laço do `nightfire.exe` (o antigo `src/main.cpp`): as opções, o roteiro de `--input`, os ticks, a interpolação, as capturas e o `--bench`, sem nada do sistema (ver "Plataforma: interfaces e backends") | o `main` do jogo |
+| `src/render` | `renderer.h`, a fachada do renderizador sem tipos do Direct3D, e o backend Direct3D 11 (`renderer_d3d11`): malhas rígidas e com skinning (skinning na GPU), estado do GS por parte de malha, iluminação da VU1 por vértice (tweak, luzes, mapa de ambiente), passada de névoa, sprites de partículas, triângulos soltos (estilhaços), o 2D na tela (sprites e texto); `runtime_gfx` liga as estruturas do jogo ao renderizador; `ui_hd*`, a camada 2D em alta definição (Direct2D e DirectWrite em `ui_hd_draw_d2d`; os PNG pelo `platform/image_io.h`); `remix_d3d9`, o protótipo de Direct3D 9 de função fixa para o RTX Remix (`--renderer d3d9ff`) | GS, VU1 (`DrawThisBox`, microprogramas), VU0 do skinning (`SkinIt`) |
+| `src/platform` | as interfaces do sistema (`os.h`, `keys.h`, `window.h`, `entry.h`, `file_dialog.h`, `gamepad.h`, `audio_device.h`, `movie_decoder.h`, `image_io.h`, `crash_report.h`) com os backends do Windows (`*_win32.cpp`: janela Win32, Raw Input, tela cheia; `gamepad_xinput`, `audio_device_xaudio2`, `movie_decoder_mf`, `image_io_wic`) e os nulos (`os_null.cpp`, `backends_null.cpp`); o decodificador de MPEG-2 do port (`mpeg2_decoder`, neutro); `psi*` (relógio, heap, arquivos, recursos gráficos, registro do desenho de cada quadro, inclusive `psiDrawSkinObjectMatrix`, `psiDrawParticleList`, as luzes, a névoa e os esmaecimentos (`psiFadeView`); a tela de carga (`psi_loading`); os estilhaços de vidro, `psi_shard`; o registro 2D, `psi_2d`); `vu1` (as contas das rotinas da VU1 e da névoa na CPU) | `libpad`, VBlank, saída NTSC, `malloc` do heap, CD, VRAM, cadeias de DMA do quadro |
 
 Decisões:
 
@@ -410,13 +474,396 @@ vídeo é a do sistema).
 
 ### O que falta para o macOS
 
-A plataforma é só Windows: a janela e a entrada (Win32, Raw Input, XInput), o renderizador (Direct3D 11, Direct2D,
-DirectWrite, WIC), o som (XAudio2), os filmes (Media Foundation), o relatório de falhas (dbghelp), a reserva da arena e
-a troca de pilha (`VirtualAlloc`, o TEB, MASM). O esquema de ponteiros de 4 bytes não depende do Windows: no macOS a
+A plataforma só tem os backends do Windows: a janela e a entrada (Win32, Raw Input, XInput), o renderizador (Direct3D 11,
+Direct2D, DirectWrite, WIC), o som (XAudio2), os filmes (Media Foundation), o relatório de falhas (dbghelp), a reserva
+da arena e a troca de pilha (`VirtualAlloc`, o TEB, MASM). Desde a etapa 2 eles ficam atrás de interfaces neutras: a
+seção seguinte, "Plataforma: interfaces e backends", tem o mapa e a lista do que a etapa 3 tem de fazer. O esquema de ponteiros de 4 bytes não depende do Windows: no macOS a
 janela começa na imagem do mesmo jeito (com `mmap` perto dela para a arena) e a pilha do jogo pode ser a de uma thread
 criada com `pthread_attr_setstack` dentro da arena. Com o clang, `-ffp-contract=off` evita que contas de `float` virem
 FMA (o ARM64 contrai por padrão), e as funções matemáticas da libm do macOS diferem das do Windows: para os mesmos
 resultados, o port teria de levar as próprias.
+
+## Plataforma: interfaces e backends
+
+Etapa 2 do macOS (a 1 foi a versão de 64 bits, acima): tudo o que é do Windows fica atrás de interfaces sem nada do
+sistema, para a etapa 3 pôr os backends do macOS sem mexer no código do jogo nem nos do Windows. No Windows nada muda:
+os backends usam exatamente as APIs de antes (Win32 e Raw Input, XInput, Direct3D 11, Direct2D, DirectWrite, WIC,
+XAudio2, Media Foundation, dbghelp, `VirtualAlloc`, a janela de escolha de arquivo, os leitores de DVD); esta etapa só
+os mudou de lugar. Não há SDL nem uma camada gráfica portátil por baixo do Windows.
+
+### O mapa: interface, backend do Windows, o que o macOS precisa
+
+| Interface (sem nada do sistema) | O que dá | Backend do Windows | Backend nulo (`NF_HEADLESS`) | Etapa 3 (macOS) |
+|---------------------------------|----------|--------------------|------------------------------|-----------------|
+| `platform/os.h` | caminhos (o executável, a pasta atual e a de dados do usuário, `kPathSep`, `join`), arquivos (`open_file`, listar, apagar, `file_open_read`/`file_read_at`/`file_write` para as fontes do disco e a cópia pessoal), os leitores de CD/DVD, o caractere de uma tecla no layout, o relógio de alta resolução e a espera do limite de quadros, a memória virtual (o heap; a arena de 64 bits: `image_end`, `vm_largest_free`, `vm_reserve_at`, `vm_commit`...), a `Mutex` da arena, o console, a caixa de erro, o fim do processo | `os_win32.cpp`: `GetModuleFileNameW`, `CreateFileW`/`ReadFile` com `OVERLAPPED`, `FindFirstFileW`, `GetLogicalDriveStringsW`/`GetDriveTypeW`, `SetErrorMode`, `MapVirtualKeyW`, `QueryPerformanceCounter`, `CreateWaitableTimerExW` de alta resolução, `VirtualAlloc`/`VirtualQuery`/`VirtualProtect`, `SRWLOCK`, `AttachConsole`/`WriteConsoleW`, `MessageBoxW`, `SHGetKnownFolderPath`, `GetProcessMemoryInfo` | `os_null.cpp`: `std::filesystem`, `std::chrono`, o C runtime | POSIX (`open`/`pread`, `opendir`), `_NSGetExecutablePath`, `mach_absolute_time`, `nanosleep`/`mach_wait_until`, `mmap` perto da imagem, `os_unfair_lock`, `NSAlert`, os volumes ópticos (DiskArbitration ou `getfsstat`), `UCKeyTranslate`, `task_info` |
+| `platform/keys.h` | os códigos de tecla do port (os números dos `VK_` do Windows; letras e dígitos são o caractere) | `window_win32.cpp` passa os do Windows direto (`static_assert` de cada um) | — | traduzir os `kVK_*` do Carbon/NSEvent para estes |
+| `platform/window.h` (`nf::Window`) | a janela, o tamanho, o foco, as teclas (`key_down`, `key_pressed`), o mouse em contagens do sensor, a roda, a captura do cursor, a tela cheia sem bordas, `native_handle()` para o renderizador, `set_topmost` (`--bench`) | `window_win32.cpp`: Win32, Raw Input, `GetAsyncKeyState`, `ClipCursor`, `WM_SETCURSOR` | — | `NSWindow`/`NSView` com `CAMetalLayer`, `NSEvent` (deltaX/deltaY sem aceleração), `CGAssociateMouseAndMouseCursorPosition`, `toggleFullScreen` |
+| `platform/entry.h` (`nf_app_main`) | o ponto de entrada dos programas de janela (`nightfire.exe`, `nf_driving.exe`): o relatório de falhas, a linha de comando, a pilha do jogo (`nf::run_main`) | `entry_win32.cpp`: `wWinMain` e `CommandLineToArgvW` (o `argv` passa sem cópia) | — | `main` com o `NSApplication` (a janela bombeada pelo laço do jogo, `nextEventMatchingMask`) |
+| `platform/file_dialog.h` (`nf::FilePicker`) | a janela de escolha de arquivo sem travar o laço (a tela de entrada) | `file_dialog_win32.cpp`: `IFileOpenDialog` numa thread STA própria | não abre | `NSOpenPanel` (na thread principal, com `beginWithCompletionHandler`) |
+| `platform/gamepad.h` (`system_pad_source`) | até 4 controles no formato do XInput e a vibração | `gamepad_xinput.cpp`: XInput 1.4 | nenhum conectado | GameController (`GCExtendedGamepad`), Core Haptics para a vibração |
+| `platform/audio_device.h` | uma fila de PCM de 48 kHz estéreo de 16 bits (`queued_buffers`, `submit`, `played_frames`); `audio_out.cpp` decide o resto (a linha do tempo do jogo, o WAV, o descarte) | `audio_device_xaudio2.cpp`: XAudio2 2.9 | sem aparelho (mudo, como nas capturas) | Core Audio (`AudioQueue` ou uma `AudioUnit` com um anel), com as mesmas contas de fila |
+| `platform/movie_decoder.h` (`Mpeg2Decoder`) | MPEG-2 para NV12 em ordem de exibição; a escolha do decodificador, o do port (`platform/mpeg2_decoder.h`, neutro), a conversão de cor do IPU (`nv12_to_bgra`) e a fila de quadros ficam no neutro | `movie_decoder_mf.cpp` (`open_system_mpeg2_decoder`): o MFT de MPEG-2 do Media Foundation; sem ele, o do port | nenhum do sistema: o do port | feito: o decodificador do port (12/10/2026; ver "Filmes"); o VideoToolbox só se um dia valer a pena |
+| `platform/image_io.h` | PNG RGBA e BGRA em arquivo (as capturas, o inventário do 2D), imagens lidas em BGRA (as substitutas PNG da camada HD) | `image_io_wic.cpp`: WIC | não lê nem grava | ImageIO (`CGImageDestination`, `CGImageSource`) |
+| `platform/crash_report.h` | a pilha de chamadas de uma falha | `crash_report_win32.cpp`: `SetUnhandledExceptionFilter`, dbghelp `StackWalk64` com o PDB | uma linha | `sigaction` (SIGSEGV, SIGBUS) com `backtrace` e `dladdr` |
+| `platform/arena.h` (`call_on_stack`) | a pilha do jogo dentro da janela dos ponteiros de 32 bits (só 64 bits) | `arena_win32.cpp`: os limites no TEB, `arena_stack_x64.asm`, o SEH | só 32 bits | uma thread com `pthread_attr_setstack` dentro da arena, esperada com `join`; `NF_IMAGE_BASE` = `_mh_execute_header` (`platform/ptr32.h`) |
+| `platform/compiler.h`, `platform/crt_compat.h` | o que é de um compilador só: `NF_DEBUGBREAK`, `NF_FORCEINLINE`, `NF_NOINLINE`, `NF_FENV_ACCESS_ON`, `nf::RoundTowardZero` (o arredondamento do EE na pontuação), `nf::ctz64`; `fopen_narrow`, `NF_SSCANF`, `str_icmp`, `str_nicmp`, `str_copy_trunc`, `get_env_narrow` | os ramos do MSVC: `__debugbreak`, `__forceinline`, `#pragma fenv_access`, `_controlfp_s`, `_BitScanForward64`, `fopen_s`, `sscanf_s`, `_stricmp`, `strncpy_s`, `_dupenv_s` | os mesmos (MSVC) | os ramos do clang (já escritos): `__builtin_trap`, `_Pragma("STDC FENV_ACCESS ON")`, `fesetround`, `__builtin_ctzll`, `strcasecmp`... |
+| `render/renderer.h` (`Renderer`, `GpuImage`) | o 3D da lista de desenho, o 2D, a névoa, o desfoque e o rastro, a tela de carga, o quadro dos filmes, o desenho vetorial dos menus Modern e da camada HD (`draw_modern`, `modern_measure`, os lotes `UiHdBatch`), as medidas do `--bench`, as opções de vídeo; `GpuImage` é uma textura vista de fora (um ponteiro opaco) | `renderer_d3d11.{h,cpp}` (o `Renderer::Impl`, com os shaders HLSL), `movie_layer_d3d11`, `ui_hd_draw_d2d` e `ui_modern_draw_d2d` (Direct2D e DirectWrite), `gpu_adapters_dxgi` | — (sem renderizador) | Metal (os mesmos shaders em MSL, a profundidade invertida, o MSAA, as consultas de tempo), o desenho vetorial (Core Text e Core Graphics, ou um atlas de glifos na GPU) e um leitor de SVG (os glifos dos menus e as substitutas da camada HD: o Direct2D lê SVG, o macOS não) |
+| `render/gpu_adapters.h` | os adaptadores de vídeo (`--list-adapters`, `[video] adapter`) | `gpu_adapters_dxgi.cpp`: DXGI | — | `MTLCopyAllDevices` |
+| `render/remix_d3d9.h` | o caminho de Direct3D 9 para o RTX Remix (`--renderer d3d9ff`) | `remix_d3d9.cpp` | — | nenhum: uma `create_remix_d3d9` que devolve nulo |
+| `driving_app/drv_renderer.h` | o renderizador do `nf_driving` | `drv_renderer_d3d11.cpp` | — | Metal, se a ferramenta for para o Mac |
+
+O laço do `nightfire.exe` (`src/app/app_main.cpp`: as opções, o roteiro de `--input`, o laço de ticks e `plan_tick`, a
+interpolação, as capturas e os relatórios, o `--bench`) e o do `nf_driving` (`src/driving_app/nf_driving.cpp`) não têm
+nada do sistema; o ponto de entrada é o de `platform/entry.h`. A matemática da câmera livre e das matrizes de visão do
+laço usa o DirectXMath (só cabeçalhos, MIT, `github.com/microsoft/DirectXMath`, com caminhos SSE e NEON): no macOS, a
+cópia do GitHub (ou contas próprias, conferidas contra as capturas).
+
+### O inventário: o que era do Windows e onde está
+
+| Antes | O que usava | Agora |
+|-------|-------------|-------|
+| `src/main.cpp` | `wWinMain`, `CommandLineToArgvW`, `GetModuleFileNameW`, `GetCurrentDirectoryW`, `GetFileAttributesW`, `_wfopen_s`, as conversões UTF-8, `AttachConsole`/`WriteConsoleW`, `CreateWaitableTimerExW`, `Sleep`, `MessageBoxW/A`, `SetWindowPos`, `HWND`, `IDXGIAdapter1`, `ID3D11ShaderResourceView`, os `VK_`, `sscanf_s`, `swprintf` com `%hs` | `src/app/app_main.cpp` neutro (`os::`, `nf::key::`, `Window::set_topmost`, `GpuImageRef`, `NF_SSCANF`, `%ls`) e `platform/entry_win32.cpp` |
+| `platform/window.{h,cpp}` | `HWND`, `WINDOWPLACEMENT`, a função de janela no cabeçalho | `window.h` neutro, `window_win32.cpp` |
+| `platform/psi.cpp` | `QueryPerformanceCounter`, `VirtualAlloc`, `MessageBoxW`, `ExitProcess` | `os::perf_counter`, `os::vm_alloc`, `os::show_error`, `os::exit_process` |
+| `platform/psi_loading.cpp`, `psi_movie.cpp` | `QueryPerformanceCounter`; `GetEnvironmentVariableW`, `_wfopen_s` | `os::` |
+| `platform/settings.cpp`, `core/binary.cpp` | `GetModuleFileNameW`; `std::ifstream` com `std::wstring` (uma extensão do MSVC) | `os::exe_path`; `std::filesystem::path` |
+| `platform/psi_card.cpp` (o libmc) | `GetFileAttributesW`, `CreateDirectoryW`, `_wfopen_s`, `DeleteFileW`, `RemoveDirectoryW`, `FindFirstFileW`, `GetModuleFileNameW`, `'\\'` | `os::` e `os::kPathSep` |
+| `platform/disc_source.cpp`, `disc_pack.cpp` | `CreateFileW`/`ReadFile`/`WriteFile`, `GetFileSizeEx`, `SetErrorMode`, `GetDriveTypeW`, `GetLogicalDriveStringsW`, `GetFullPathNameW`, `GetDiskFreeSpaceExW`, `MoveFileExW`, `DeleteFileW`, `SHGetKnownFolderPath`, `GetFileAttributesExW`, `_wcsicmp`, `'\\'` | `os::file_*`, `os::QuietDriveErrors`, `os::optical_drives`... |
+| `platform/input_bindings.cpp`, `psi_input.cpp`, `src/ui/modern_*.cpp`, os testes | os `VK_`; `MapVirtualKeyW` | `nf::key::`; `os::key_char` |
+| `platform/audio_out.cpp` | XAudio2, `CoInitializeEx`, `_wfopen_s` | `audio_device.h` + `audio_device_xaudio2.cpp`; `os::open_file` |
+| `platform/movie_decoder.cpp` | Media Foundation, COM | `movie_decoder.cpp` (a cor do IPU, a fila) + `movie_decoder_mf.cpp` |
+| `platform/gamepad.cpp` | XInput | `gamepad.cpp` (a fonte em uso, a dos testes) + `gamepad_xinput.cpp` |
+| `platform/crash_report.cpp` | dbghelp, `_EXCEPTION_POINTERS` no cabeçalho | `crash_report_win32.cpp`; o cabeçalho recebe `void*` |
+| `platform/arena.cpp` (x64) | `VirtualAlloc`/`VirtualQuery`/`VirtualProtect`, `SRWLOCK`, `MessageBoxA`, `ExitProcess`, o TEB, o SEH, `_BitScanForward64`, o cabeçalho PE | a arena neutra com `os::vm_*`, `os::Mutex`, `nf::ctz64`; `arena_win32.cpp` (o TEB, o MASM, o SEH) |
+| `platform/ptr32.h` | `__ImageBase` | `NF_IMAGE_BASE` (só `_WIN32`; o macOS dá o seu) |
+| `engine/player_stats.cpp` | `#pragma fenv_access`, `_controlfp_s` | `NF_FENV_ACCESS_ON`, `nf::RoundTowardZero` (platform/compiler.h); o código gerado é o de antes |
+| `platform/sfx_iop.cpp`, `psi_file.cpp`, `driving/eagl_loader.cpp`, `driving_app/nf_driving.cpp`, os testes | `_dupenv_s`, `fopen_s`, `_strnicmp`, `_stricmp`, `strncpy_s`, `freopen_s` | `platform/crt_compat.h`, `os::attach_parent_console` |
+| `driving/physics/simulation.h` | `#pragma warning` | dentro de `#if defined(_MSC_VER)` |
+| `data/texture_pack.cpp`, `render/ui_hd_app.cpp`, `ui_modern_app.cpp`, `setup_app.cpp` | `'\\'` nos caminhos, `GetFileAttributesW`, `_wfopen_s`, `GetModuleFileNameW`, `GetCurrentDirectoryW`, `WideCharToMultiByte`, o `IFileOpenDialog`, os `VK_` | `os::join`, `os::`, `platform/file_dialog.h`, `nf::key::` |
+| `render/renderer.{h,cpp}` | Direct3D 11, DXGI, WIC e os tipos deles no cabeçalho (`HWND`, `IDXGIAdapter1`, `ID3D11ShaderResourceView` em `Quad2D` e nos retornos) | `renderer.h` neutro (`GpuImage`, `GpuImageRef`, o adaptador como `AdapterInfo`), `renderer_d3d11.{h,cpp}` |
+| `render/ui_hd_draw.*`, `ui_modern_draw.*`, `movie_layer.*`, `gpu_adapters.*` | Direct2D, DirectWrite, WIC, Direct3D 11, DXGI | `*_d2d`, `*_d3d11`, `*_dxgi` (as imagens pelo `platform/image_io.h`) |
+| `render/remix_d3d9.h` | Direct3D 9 no cabeçalho | a interface e a fábrica neutras; a classe em `remix_d3d9.cpp` |
+| `driving_app/drv_renderer.*`, `nf_driving.cpp` | `HWND`, WIC; `wWinMain`, `CommandLineToArgvW`, `QueryPerformanceCounter`, psapi | `drv_renderer.h` neutro (`void*`), `drv_renderer_d3d11.cpp`, `image_io`; `nf_driving.cpp` neutro |
+
+O que não muda e não é do Windows: os caminhos continuam `std::wstring` (UTF-16 no Windows; o backend do macOS converte
+para UTF-8 nas chamadas do sistema), e as funções de `float` com o resultado do x86 continuam em `platform/fmath.h`.
+
+### Regras para código novo
+
+- Nada do sistema fora dos backends: nenhum `#include` de cabeçalho do Windows, do COM, das APIs gráficas ou de som,
+  nenhuma função ou tipo deles (`HWND`, `DWORD`, `ComPtr`, `ID3D11*`, `VK_*`...), nenhuma construção só do MSVC
+  (`__declspec`, `__try`, `#pragma fenv_access`, `_controlfp_s`, `fopen_s`...). Os backends são os arquivos com o
+  sistema ou a API no fim do nome: `*_win32.cpp`, `*_d3d11.*`, `*_d2d.*`, `*_dxgi.*`, `*_xaudio2.cpp`, `*_mf.cpp`,
+  `*_wic.cpp`, `*_xinput.cpp`, e `render/remix_d3d9.cpp`. `python tools/check_platform.py` e o teste
+  `platform_code_stays_behind_the_interfaces` do `nf_tests` conferem (as regras em `tools/platform_rules.txt`; uma
+  exceção nova entra ali, com o motivo).
+- Precisa de algo do sistema: uma função em `platform/os.h` (ou uma interface nova em `src/platform`), com o backend do
+  Windows (`os_win32.cpp`) e o nulo (`os_null.cpp`).
+- Teclas: `nf::key::` (`platform/keys.h`). Caminhos: `os::join` e `os::kPathSep` (no Windows saem com `\` como antes:
+  relatórios e mensagens iguais), `os::open_file` para um `FILE*`, `std::filesystem::path` para os fluxos do C++.
+- O C runtime da Microsoft pelos nomes de `platform/crt_compat.h`; nos formatos largos, `%ls` (o `%hs` e o `%s` de texto
+  estreito são do MSVC).
+- Em x86, uma função curta que devolve `float` e era em linha continua em linha (num cabeçalho): fora de linha, o
+  resultado volta pela pilha do x87 e a conta de quem chama pode mudar no último bit (ver "64 bits").
+- A linha `arena` do relatório da versão de 64 bits conta cada alocação do C++: as interfaces alocam como o código que
+  substituíram (as duas formas de `os::join` como `dir + L"\\nome"` e `dir + L"\\" + nome`, o `image_io` grava sem
+  copiar os pixels, os argumentos chegam ao `nf_app_main` como o `argv` do sistema), e a linha ficou igual. Uma alocação
+  nova por quadro ou por arquivo aparece ali.
+
+### A prova: a build sem o sistema (`build.bat Release headless`)
+
+A opção `NF_HEADLESS` do CMake compila as bibliotecas neutras, o `nf_tests` e as ferramentas de conferência de console
+(`nf_level_check`, `nf_loader_check`, `nf_disc_check`, `nf_driving_check`) com os backends nulos (`os_null.cpp`,
+`backends_null.cpp`: só o C++ padrão), sem nenhum backend do Windows nem as bibliotecas dele; o `nightfire.exe` e o
+`nf_driving.exe` não entram (precisam de janela e renderizador). Só em 32 bits. Resultado (12/10/2026): o `nf_tests` dela passa (779 testes, 0 falhas), e todos os executáveis importam só o C++
+runtime (`MSVCP140`, `VCRUNTIME140`), o C runtime (`api-ms-win-crt-*`) e o `KERNEL32` (as funções que o próprio runtime
+usa); a build normal importa ainda `dbghelp`, `XINPUT1_4`, `ole32`, `SHELL32`, `MFPlat`, `USER32`... Com os dados de
+verdade, as ferramentas dela dão o mesmo que a build normal: `nf_level_check` 35 fases e 0 não resolvidas, a saída do
+`nf_loader_check` igual linha a linha (com os endereços mascarados), o `nf_disc_check` da imagem contra a pasta e o
+`nf_driving_check --casos 4000 --quadros 600` com 0 diferentes. O código neutro não depende de nada do Windows para dar
+os mesmos resultados.
+
+### O compilador clang
+
+Esta máquina não tem o compilador clang: o Build Tools 2026 não traz o LLVM, e o que há do LLVM (no VS 2022 Community e
+no Build Tools 2019) são só o `clang-format` e o `clang-tidy`, sem o `clang`/`clang-cl`; nada foi baixado. A conferência
+possível foi o front end do clang que vem no `clang-tidy` 19.1.5: cada `.cpp` da build headless (o código neutro, os
+backends nulos e os testes: 261 arquivos) analisado com `--target=i686-pc-windows-msvc -ffp-contract=off`, sem checagens
+(só os diagnósticos do compilador; `-D_CRT_USE_BUILTIN_OFFSETOF` porque o `offsetof` da UCRT não passa no clang):
+**0 erros**. Isso confere que o código neutro é C++ que o clang aceita (ainda com os cabeçalhos do MSVC e da UCRT); não
+confere a geração de código nem a libc++ do macOS, que ficam para a etapa 3. Os ramos do clang em `platform/compiler.h`
+e `platform/crt_compat.h` (`__builtin_trap`, `_Pragma("STDC FENV_ACCESS ON")`, `fesetround`, `__builtin_ctzll`,
+`strcasecmp`...) estão escritos mas não foram compilados por um clang.
+
+Para a etapa 3, o clang precisa de `-ffp-contract=off` em todo o código compartilhado: no ARM64 ele junta multiplicação
+e soma em FMA por padrão, e a física das missões de carro (conferida bit a bit contra o `DRIVING.ELF`) e a pontuação
+(com o arredondamento do EE) deixariam de bater. O MSVC não contrai sem `/fp:contract`, que o port não usa.
+
+### Conferência (12/10/2026)
+
+Cada commit desta etapa foi compilado e conferido em 32 bits contra a main (50198f9); o fim, também em 64 bits. Tudo com
+os dados da cópia principal; as capturas sem `--config` (não tocam o `nightfire.ini` nem os saves do jogador).
+
+| Conferência | x86 (a referência) | x64 |
+|-------------|--------------------|-----|
+| `nf_tests` | 779 testes, 0 falhas (os 776 de antes, iguais, e os 3 de `test_platform.cpp`) | 782, 0 falhas |
+| `nf_level_check .` | 35 fases, 0 não resolvidas | igual |
+| `nf_loader_check .` | a saída igual linha a linha (endereços mascarados) | igual à da main x64 |
+| `nf_driving_check . --casos 4000 --quadros 600` | 0 diferentes em tudo, saída igual | igual |
+| `nf_driving --check --verify` | os mesmos totais (63 carros, 7018 lotes, 494 099 vértices, `cor_dif 80`, `adc_a_mais 0`) | igual |
+| `nf_disc_check` (a ISO contra a pasta) | 177 arquivos iguais, 0 diferentes | igual |
+| 21 capturas (fases, menus Modern e Original, a tela de configuração, a roda, MSAA, a camada HD em 4K, um filme, os resultados, 30 quadros a 144 Hz, a ISO, a neve, a morte) | PNG idênticos byte a byte; relatórios iguais (só os campos de relógio de parede do filme) | PNG idênticos aos da main x64 e aos da x86 |
+| WAV (o tiroteio de 07000012, o filme de 07000001) | idênticos byte a byte | idênticos (e iguais aos da x86) |
+| O carro do `nf_driving` (`vanquish`) | igual | igual |
+| `--renderer d3d9ff` (07000012 e 07000001, sem o Remix) | PNG e `rtx.conf` idênticos | — |
+| A linha `arena` do relatório | — | a da main, a menos de duas alocações fixas na partida (os objetos por trás das fachadas `Window` e `Renderer`) e de um pedaço a menos no total (a imagem cresceu) |
+
+`--bench 10` no iGPU (Radeon, 1920x1080 fora da tela, girando; as duas builds alternadas, três rodadas de cada lado):
+em 0700000c o iGPU tem dois estados de relógio (245 e 227 fps, o tempo de GPU de todas as passadas 8% maior no lento), e
+quem roda primeiro na rodada, depois de 07000012, pega o lento, seja qual for a build: com a main primeiro, a nova
+243,9-245,9 fps e a main 226-245; com a nova primeiro, a main 245,3-246,2 e a nova 227,0-227,6. No mesmo estado as duas
+dão o mesmo: 244-246 fps em 0700000c e 445-464 em 07000012 (1% low 179-185 e 291-294). Em 64 bits (a main primeiro): a
+nova 245,9 e 460,1, a main 226,7 (o estado lento) e 455,7. Dentro do ruído.
+
+A sessão de janela de verdade (o `nightfire.exe` x86 e o x64 numa janela 1280x720 com um `--config` e um `--save-dir`
+de rascunho, 07000005, fechado pelo `WM_CLOSE`): a janela abre em 0,24 s, o jogo desenha (a foto da janela pelo
+`PrintWindow`), o título se atualiza (`240 fps · lógica 60 Hz · interpolado`), o processo carrega `d3d11`, `dxgi`,
+`d2d1`, `dwrite`, `xaudio2_9`, `xinput1_4`, `mfplat` e `dbghelp`, e sai com 0. O teclado não foi testado ali: o Windows
+não deu o foco à janela (outro programa na frente), e o teste não força o foco.
+
+### O que a etapa 3 (macOS) tem de fazer
+
+1. Os backends da tabela acima, em arquivos `*_macos.mm` (ou `*_metal.mm`, `*_coreaudio.cpp`...), e a lista deles no
+   `CMakeLists.txt` (o `if(WIN32)` de cada grupo ganha o seu `elseif(APPLE)`; hoje o CMake recusa o que não é Windows).
+2. A arena de 64 bits (o macOS só roda 64 bits): `NF_IMAGE_BASE` = `_mh_execute_header`, a região livre depois da imagem
+   com `mach_vm_region`, `mmap(MAP_FIXED)` para reservar, `mprotect`, e a pilha do jogo numa thread com
+   `pthread_attr_setstack` (o `call_on_stack` de `arena.h`). O `operator new` da arena (`arena_new.cpp`) vale igual.
+3. O clang com `-ffp-contract=off` em todo o código compartilhado (o ARM64 junta multiplicação e soma em FMA por
+   padrão, e a física das missões de carro e a pontuação deixariam de bater bit a bit), e a libm do macOS difere da do
+   Windows: para as mesmas imagens, as funções de `platform/fmath.h` teriam de ser do port. (Na etapa 3a as funções de
+   `fmath.h` deram os mesmos bits do Windows no macOS e no Linux em 131 mil entradas cada: ver "Determinismo no ARM64";
+   levar as próprias fica para se uma captura do macOS divergir.)
+4. O renderizador em Metal: os shaders HLSL de `renderer_d3d11.cpp` (a rotina da VU1, o skinning, os morphs, a névoa,
+   o alpha-to-coverage, o desfoque, a redução) em MSL; o desenho vetorial dos menus Modern e da camada HD (texto com
+   espaçamento, contorno de glifos, degradês, recortes) em Core Text e Core Graphics, mais um leitor de SVG.
+5. Os filmes: feito, o decodificador de MPEG-2 do port (`platform/mpeg2_decoder.h`, "Filmes"). O som: Core Audio. Os
+   controles: GameController.
+6. A cópia pessoal (`disc_pack`) põe os arquivos depois da imagem PE e acha o fim do programa pelo rodapé; no Mac o
+   pacote `.app` pede outro desenho (os arquivos dentro do pacote, ou ao lado), e a pasta de dados é
+   `~/Library/Application Support/Nightfire PC`.
+
+Os itens 2 e 3 (e o começo do 1: o CMake fora do Windows e o backend do sistema operacional) são a etapa 3a, na seção
+seguinte.
+
+## macOS: compilação e CI
+
+Etapa 3a do macOS: o código compartilhado compila com o clang da Apple e com o GCC, e a build headless (o código neutro,
+o `nf_tests` e as ferramentas de conferência de console) roda no macOS e no Linux com um backend POSIX de verdade para o
+sistema operacional, inclusive a arena de 64 bits e a pilha do jogo. Não há Mac aqui, e o Windows não compila código do
+macOS: quem compila e testa é a CI do GitHub (GitHub Actions) no repositório privado (`origin`). A janela, o
+renderizador (Metal), o som, os controles e os filmes do macOS são as etapas seguintes (3c, 3d, 3e).
+
+### A build
+
+```
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNF_HEADLESS=ON    # macOS (clang da Apple) ou Linux (GCC, clang)
+cmake --build build
+./build/nf_tests
+./build/nf_level_check <pasta do disco>                                      # com os dados do jogo (nunca na CI)
+```
+
+- Fora do Windows o CMake só aceita `NF_HEADLESS` e só em 64 bits: liga `NF_ARCH64` sozinho (os ponteiros de 4 bytes
+  das estruturas do jogo, a arena, o `operator new` dela, `NF_P32_CHECK`). No Windows nada mudou: as linhas de
+  compilação e ligação das três builds do MSVC (x86, x64, headless) são as da main (os `build.ninja` comparados objeto
+  por objeto).
+- As opções do clang e do GCC dão ao código compartilhado a semântica que ele tem no MSVC, a referência:
+  `-ffp-contract=off` (nada de `a * b + c` numa FMA: o ARM64 junta por padrão, e a física das missões de carro e a
+  pontuação são conferidas bit a bit), `-fno-strict-aliasing` (o código decompilado lê um `float` como `uint32_t` e
+  campos por deslocamento), `-fwrapv` (o estouro de um inteiro com sinal dá a volta, como no MIPS: os sorteios, os
+  hashes), `-fno-delete-null-pointer-checks`, e `-frounding-math` na pontuação (`player_stats.cpp`: o
+  `nf::RoundTowardZero` muda o modo de arredondamento com o `fesetround`, e o GCC ignora o `#pragma STDC FENV_ACCESS`).
+  O C++20 sem as extensões do GNU, o Release em `-O2 -g1`.
+- Os backends: `os_posix.cpp` (o `platform/os.h` do macOS e do Linux), `arena_posix.cpp` (a pilha do jogo),
+  `crash_report_posix.cpp` (o relatório de falhas); o resto é o nulo (`backends_null.cpp`: sem controle, sem som, sem
+  filmes, sem PNG, sem a escolha de arquivo). `tools/platform_rules.txt` ganhou os backends `*_posix` e `*_macos` e os
+  cabeçalhos e as funções do POSIX, do macOS e do Linux (fora deles, `check_platform.py` acusa).
+
+### O sistema operacional no POSIX (`os_posix.cpp`)
+
+Os caminhos (o executável por `_NSGetExecutablePath` ou `/proc/self/exe`, a pasta atual, a de dados do usuário:
+`~/Library/Application Support` no macOS, `$XDG_DATA_HOME` ou `~/.local/share` no Linux), os arquivos (`stat`,
+`open`/`pread`/`write` para as fontes do disco, `opendir`), os volumes ópticos montados (ISO 9660 e UDF: `getmntinfo` no
+macOS, `/proc/mounts` no Linux), o relógio (`clock_gettime(CLOCK_MONOTONIC)`) e a espera do limite de quadros
+(`nanosleep` até ~1 ms antes, depois `sched_yield`), a memória virtual, a trava (`os_unfair_lock` no macOS; no Linux
+uma trava de giro que cede a CPU), o console e o fim do processo. O que só a janela dá (a caixa de erro do `NSAlert`, o
+caractere de uma tecla no layout do usuário) fica para a etapa 3c: aqui o stderr e 0. Os caminhos continuam
+`std::wstring` (UTF-32 fora do Windows) e viram UTF-8 nas chamadas do sistema.
+
+### A janela dos ponteiros e a pilha do jogo
+
+O esquema da versão de 64 bits ("64 bits", acima) é o mesmo: uma janela de 4 GB que começa na imagem do executável, com
+a arena na maior região livre depois dela.
+
+- O começo da imagem (`NF_IMAGE_BASE`, `platform/ptr32.h`) é o `__mh_execute_header` no macOS (o cabeçalho Mach-O, que o
+  ld da Apple define) e o `__executable_start` no Linux (o primeiro segmento de um PIE, do ld do GNU), declarados como
+  `char` para que o endereço seja uma constante antes de qualquer construtor (o `operator new` da arena roda antes
+  deles). O fim da imagem é o fim do último segmento (os comandos `LC_SEGMENT_64` do cabeçalho Mach-O mais o
+  deslocamento do ASLR; no Linux, o `dl_iterate_phdr`).
+- As regiões livres da janela: `mach_vm_region` no macOS, `/proc/self/maps` no Linux (lido com um buffer fixo: isto roda
+  dentro da primeira alocação do programa, e não pode alocar). A reserva é um `mmap(PROT_NONE)` no endereço (no Linux
+  com `MAP_FIXED_NOREPLACE`; no macOS o endereço como sugestão, conferido depois), comprometer é `mprotect`, devolver
+  é um `mmap(MAP_FIXED)` de páginas novas por cima. Medido na CI (`NF_ARENA_INFO`): no macOS 14 ARM64 a imagem ficou em
+  `0x102d88000` e `0x1044a4000` (o ASLR muda de uma rodada para outra) e a arena com 1307 e 1145 MB, a 12 e a 443 MB da
+  imagem (as regiões do `malloc` do sistema e a pilha da thread principal ficam na mesma faixa, abaixo do cache
+  compartilhado do sistema em `0x1_8000_0000`); no Linux a imagem fica em `0x55..._....` e a arena com uns 3,5 GB, a
+  ~520 MB dela (depois do heap do `brk`). O jogo usa uns 90 MB da arena (o heap de 64 MB e a pilha de 16 MB).
+- Os ponteiros decodificados não herdam a origem do símbolo. Como o símbolo é um `char`, o GCC e o clang viam
+  `kP32Base + v` como "um ponteiro para dentro de um objeto de 1 byte": o `_FORTIFY_SOURCE` (ligado por padrão no
+  Ubuntu e no macOS) parou o `nf_tests` num `memset` de 0x60 bytes, o GCC deu 15 mil avisos `-Warray-bounds`, e a
+  análise de aliasing podia supor que esses ponteiros não tocam em mais nada. `nf::p32_window_base()` devolve a base
+  atrás de um `asm` vazio (nenhuma instrução), que apaga a origem; o MSVC continua com `kP32Base + v`.
+- A pilha do jogo: no Windows a mesma thread troca de pilha (`arena_stack_x64.asm`); aqui `call_on_stack` cria uma
+  thread com `pthread_attr_setstack` sobre a pilha que a arena separou (16 MB, com a página de guarda embaixo) e espera
+  o fim com `pthread_join`. O glibc guarda o descritor da thread e o TLS estático no topo dessa pilha; o macOS os guarda
+  à parte. Um sinal de falha roda numa pilha alternativa (`sigaltstack`), também num estouro da pilha do jogo. Para a
+  etapa 3c: o AppKit quer a janela e os eventos na thread principal; com o jogo nesta thread, ou a principal bombeia os
+  eventos e o jogo pede o resto a ela, ou `call_on_stack` passa a trocar a pilha na própria thread principal, como no
+  Windows (um trecho de assembly de ARM64).
+- O relatório de falhas (`crash_report_posix.cpp`): `sigaction` para SIGSEGV, SIGBUS, SIGILL, SIGFPE e SIGABRT (uma
+  exceção não tratada chega como SIGABRT), a pilha pelo `backtrace_symbols_fd` (sem alocar) e a base da imagem; na CI,
+  `tools/ci/symbolize.py` passa os endereços pelo `addr2line` (Linux, com `-g1` e `-rdynamic`) ou pelo `atos` (macOS).
+
+### A CI (`.github/workflows/portable.yml`)
+
+- Quando roda: um push no ramo `ci/portable` (`git push origin HEAD:refs/heads/ci/portable` a partir do ramo que se quer
+  testar) ou à mão (Actions > portable > Run workflow, ou `gh workflow run portable --ref <ramo> -f macos=false`), o que
+  só vale depois que o arquivo estiver no `main`. Nunca a cada push no `main`. Um push novo no mesmo ramo cancela a
+  rodada em andamento (`concurrency`).
+- O que roda, do mais barato ao mais caro: (a) o Linux (`ubuntu-24.04`, x86_64), com o GCC e com o clang em paralelo:
+  compilar tudo, `nf_tests`, `check_platform.py`; (b) só se o Linux passou, o macOS 14 (`macos-14`, ARM64, o clang da
+  Apple): a sonda do Metal (antes de compilar), compilar, `nf_tests`, `check_platform.py` e os autotestes das ferramentas
+  Python que não precisam dos dados do jogo (`vudis.py --test`, `xbox.py test`, `xbox_match.py test`, `driving_sym.py
+  test`, `driving_data.py test`, `movies.py test`, `sound.py test`, `pcsx2_pine.py test`).
+- Nenhum dado do jogo, nenhum segredo, nenhum artefato: o único cache é o do `ccache` (os objetos compilados do código),
+  que faz uma rodada que muda poucos arquivos recompilar só eles (um cabeçalho como `ptr32.h` recompila tudo).
+- Os minutos: no repositório privado o Linux conta 1x e o macOS 10x, e o plano gratuito tem poucos minutos de macOS. Por
+  isso o Linux vem primeiro e pega a maior parte dos problemas (o clang do Linux achou os mesmos erros de compilação que
+  o clang da Apple acharia: o macOS passou na primeira rodada em que rodou), e o macOS só roda com o Linux verde. Sem
+  cache, compilar leva ~2,5 min no GCC e ~5 min no clang do Linux (4 núcleos) e 45 s no macOS (um M2 Pro virtual de 5
+  núcleos); com o cache, um job do Linux leva 40 a 60 s e o do macOS cerca de 1 min, de ponta a ponta.
+- O `gh` desta máquina usa uma conta de trabalho: para ver as rodadas do repositório privado, `GH_TOKEN=$(gh auth token
+  --hostname github.com --user <dono>) gh run list -R <dono>/<repositório>` (o dono é o do URL do `origin`).
+- Uma queda do `nf_tests` na CI sai com a pilha traduzida (`tools/ci/symbolize.py`); com `NF_ARENA_INFO` no ambiente
+  (a CI liga) o `nf_tests` diz onde ficaram a janela e a arena.
+
+### O que o clang e o GCC acharam
+
+O código compartilhado já compilava quase inteiro (a etapa 2 tinha passado o front end do clang nele); o que a CI achou
+foi pouco, e quase tudo era código que compilava e fazia outra coisa:
+
+- **A origem dos ponteiros decodificados** (acima): o `_FORTIFY_SOURCE` parou o `nf_tests` no GCC (`Coll_AddHitToList`)
+  e o GCC deu 15 mil avisos `-Warray-bounds` sobre "o objeto `__executable_start` de 1 byte". Resolvido com
+  `p32_window_base()`.
+- **O alinhamento das globais**: `UseableGuns`, `PickupMatrix` e `MusicVars` são definidas com `alignas(4)` e eram
+  declaradas sem ele; o ABI do x86-64 deixa o clang supor 16 bytes para um vetor global de 16 bytes ou mais declarado
+  sem alinhamento, e o `nf_tests` caía num `movaps` (`test_pickup`). As declarações levam o `alignas(4)` (antes do
+  `extern`: no meio dos especificadores o clang recusa, o MSVC aceitava).
+- **Um `?:` entre um `P32<char>` e um texto literal** (`HUD_Describe`): o GCC e o clang convertem o literal num `P32`
+  (texto literal para `char*` é uma extensão deles), e o `snprintf` recebia no `%s` os 4 bytes do campo e caía. Os dois
+  lados agora são `const char*` (`nf::raw`), e texto literal para `char*` é erro fora do MSVC.
+- **O JSON**: `std::vector<std::pair<std::string, JVal>>` dentro do próprio `JVal` não compila no clang com a
+  libstdc++ (os construtores condicionais do `pair` perguntam pelo `JVal` enquanto ele é definido): os membros de um
+  objeto são `JMember` (`first`, `second`).
+- **Os caminhos**: as pastas candidatas a disco procuravam `FILES.BIN` e `SYSTEM.CNF` com um `\` literal (fora do
+  Windows, um caractere do nome): `os::join`. E um teste da cópia pessoal esperava `C:\g\...`; agora com o separador do
+  sistema.
+- Avisos que ficaram (não mudam nada): funções sem uso, `&` entre dois `bool` de propósito nas conferências do
+  `nf_driving_check`, `sprintf` marcado como obsoleto no macOS (o código do jogo usa como o original), os vetores de
+  tamanho 1 no fim de estruturas indexados além do fim nos testes (o layout do PS2).
+
+No Windows nada disso muda o que sai: as linhas de compilação e ligação das três builds do MSVC são as da main
+(`build.ninja` comparados, as raízes trocadas), e as conferências dão o mesmo (abaixo).
+
+### Determinismo no ARM64
+
+O `nf_tests` inteiro passa no macOS 14 ARM64 e no Linux x86_64 (GCC e clang): 793 testes, 0 falhas, os mesmos do Windows
+x64 (o x86 tem 790: os 3 da arena são só de 64 bits). Entre eles os testes bit a bit da aritmética do PS2
+(`ps2_float_*`), do interpretador das VUs (`vu_*`), do interpretador MIPS com a FPU do EE (`mips_*`), da física das
+missões de carro (`driving_physics_*`) e da pontuação com o arredondamento do EE (`player_stats_score_*`).
+
+Para não depender só das propriedades que cada teste confere, `tests/test_determinism.cpp` resume em XXH3-64 o que tem de
+repetir bit a bit e compara com o resumo do Windows (o x86 e o x64 dão o mesmo; o teste falha se mudar):
+
+| Resumo | O que entra | Windows x86/x64 | Linux GCC | Linux clang | macOS ARM64 |
+|--------|-------------|-----------------|-----------|-------------|-------------|
+| `ps2_float` | soma, subtração, produto, multiplica-e-soma/subtrai, divisão, raiz, raiz inversa e conversões do PS2, 131 mil entradas de bits aleatórios | `6fcf9ff7c126fb1c` | igual | igual | igual |
+| `fisica_carros` | seis caixas largadas num chão plano, 600 quadros do passo inteiro (`ESimFrameUpdate`), o estado de cada corpo em cada quadro | `1522d892ad13f50e` | igual | igual | igual |
+| `float_ieee` | `a * b + c`, `a * b - c * d`, `a / b`, a raiz, em float (o `-ffp-contract=off`) | `46d2dae1212f1c87` | igual | igual | igual |
+| `arredonda_zero` | as mesmas sob `nf::RoundTowardZero` (`fesetround` contra `_controlfp_s`) | `20b9b32fe50f24c3` | igual | igual | igual |
+| `fmath` (só informado) | as onze funções de `platform/fmath.h` (a `double` da libm de cada sistema, arredondada) | `90b6f870987728a0` | igual | igual | igual |
+| `efu` (só informado) | ESIN, EATAN, EEXP (a libm em `double`, truncada) | `71aa6515feb3b4d8` | igual | igual | igual |
+| `vecmath` (só informado) | `PS2Sinf`, `ATAN2_APPROX`, `RotMatrix`, `Mat_Inverse`, `Quat_Slerp` do jogo | `3052af0dc5d3dbe7` | igual | igual | igual |
+
+Nada precisou mudar no código para isso: o `-ffp-contract=off`, o `-frounding-math` da pontuação e a aritmética do PS2
+feita em `double` (exata para dois floats de 24 bits, depois truncada) bastam. As funções da libm deram os mesmos bits
+nas três libms (a UCRT, a glibc e a do macOS) nestas entradas; uma diferença de 1 ulp na `double` raramente muda o
+`float` arredondado, mas pode acontecer em outras entradas: se uma captura do macOS divergir (etapa 3e), as funções de
+`fmath.h` passam a ser do port. O que estes resumos não cobrem e pode diferir no ARM64: a conversão de um `float` fora
+da faixa (ou NaN) para inteiro (o x86 dá `0x80000000`, o ARM64 satura e dá 0 para NaN; `(uint8_t)` de um negativo
+dá 0 no ARM64), um comportamento indefinido que o código decompilado talvez tenha em algum canto; as capturas da
+etapa 3e é que vão dizer.
+
+### Metal no runner do macOS
+
+A sonda (`tools/ci/metal_probe.m`, um passo da CI antes de compilar) achou: `MTLCreateSystemDefaultDevice()` devolve
+nulo (o processo da CI não tem a sessão gráfica), mas `MTLCopyAllDevices()` lista um dispositivo, o "Apple Paravirtual
+device" (a GPU paravirtualizada da máquina virtual do runner: memória unificada, família `MTLGPUFamilyMac2`, sem as
+famílias Apple7/Apple8/Metal3, MSAA 4x, sem contadores de tempo nas fronteiras de estágio, 9557 MB recomendados). Com
+ele, um MSL compilado em tempo de execução, um kernel de compute e um triângulo desenhado numa textura fora da tela e
+lido de volta (o pixel certo, 64 128 191 255) funcionam. Para a etapa 3e: os testes de conformidade do renderizador
+podem rodar ali, pegando o dispositivo da lista (não o padrão) e sem janela; as imagens de referência têm de ser as da
+própria GPU paravirtual (ou comparadas com tolerância), e o `--bench` não terá os tempos de GPU por estágio.
+
+### Conferência (12/10/2026)
+
+As rodadas da CI (no repositório privado; os links pedem a conta dele):
+
+| Rodada | Linux GCC | Linux clang | macOS 14 ARM64 | O que mostrou |
+|--------|-----------|-------------|----------------|---------------|
+| 1 (`38318275568`) | queda (`_FORTIFY_SOURCE`) | erro de compilação (o JSON) | não rodou | a origem dos ponteiros; o `std::pair` recursivo |
+| 3 (`38319312934`) | queda no `HUD_Describe` | queda no `movaps` | não rodou | o `?:` do `P32`; o alinhamento das globais |
+| 6 (`38320191244`) | 2 falhas | 2 falhas | não rodou | o caminho com `\` do teste da cópia pessoal |
+| 7 (`38320388119`) | 788 testes, 0 falhas | 788, 0 | 788, 0 | o macOS verde na primeira vez |
+| 8 (`38320902767`) | 793, 0 | 793, 0 | 793, 0 | os resumos do determinismo iguais; o Metal paravirtual |
+| 9 (`38321236986`) | 793, 0 | 793, 0 | 793, 0 | o commit final (83 s do push ao fim) |
+
+Os minutos (o tempo dos jobs): o Linux, 33 min em nove rodadas (contando as canceladas por um push novo); o macOS, 2,1 min
+em três (4 min arredondados por job, x10 no plano: 40). Com o cache, uma rodada inteira leva uns 2 minutos de relógio.
+
+No Windows (a main em b3455cf, exportada com `git archive` e compilada ao lado, contra este ramo; os dados da cópia
+principal): as linhas de compilação e ligação das três builds do MSVC iguais às da main; `nf_tests` 785 (x86), 788 (x64)
+e 785 (headless) com 0 falhas nos dois lados, mais os 5 de `test_determinism.cpp` neste ramo; `nf_level_check` 35 fases e 0
+não resolvidas, `nf_loader_check` com a saída igual linha a linha (endereços mascarados), `nf_driving_check --casos 4000
+--quadros 600` com 0 diferentes, em x86 e x64; as capturas 07000012 aos 9 s (`--fixed-video-hz 60`), 07000001 aos 11,7 s
+e a pausa Modern idênticas pixel a pixel em x86 e x64 (com o mesmo hash de build na barra dos menus Modern), os
+relatórios iguais a menos dos tempos de relógio e da pasta do `hd_ui`, e a linha `arena` do x64 igual;
+`tools/check_platform.py` sem nenhum uso do sistema fora dos backends. Atenção para quem confere: dois `nf_tests` ao mesmo
+tempo se atrapalham (os testes do disco usam pastas temporárias com o mesmo nome): rode um de cada vez.
+
+### O que as etapas 3c e 3d precisam
+
+- **3c (a janela e a entrada)**: `window_macos.mm` (`NSWindow`/`NSView` com `CAMetalLayer`, `NSEvent` para as teclas e
+  o mouse sem aceleração, `CGAssociateMouseAndMouseCursorPosition`, tela cheia), `entry_macos.mm` (o `main` com o
+  `NSApplication`), `key_char`/`key_held` de verdade (`UCKeyTranslate`, `CGEventSourceKeyState`), `show_error` com o
+  `NSAlert`, `file_dialog_macos.mm` (`NSOpenPanel`), `gamepad_macos.mm` (GameController). Decidir onde o jogo roda: hoje
+  `call_on_stack` cria uma thread para a pilha do jogo, e o AppKit quer a janela e os eventos na thread principal; ou a
+  principal bombeia os eventos e passa ao jogo, ou `call_on_stack` troca a pilha na própria thread principal (umas dez
+  linhas de assembly de ARM64, como o `arena_stack_x64.asm`).
+- **3d (som e filmes)**: `audio_device_coreaudio.cpp` (uma `AudioQueue` ou `AudioUnit` com a mesma fila de 48 kHz);
+  os filmes já decodificam pelo decodificador de MPEG-2 do port (a etapa 3b: `platform/mpeg2_decoder.h`, compilado e
+  testado na CI); `image_io_macos.mm` (ImageIO) para as capturas em PNG, que a etapa 3e precisa para comparar imagens.
+- O CMake: um `elseif(APPLE)` com essas listas, e o `nightfire` e o `nf_driving` fora do `if(NOT NF_HEADLESS)` no Mac;
+  a CI ganha um passo que compila o `nightfire` (sem rodar) para cada backend novo.
 
 ## Texturas em alta definição
 
@@ -706,8 +1153,8 @@ Peças (`src/render`):
 - `ui_hd_game.cpp`: o que a camada precisa do jogo a cada quadro (`UiHdEnv`): o tamanho das texturas
   `03xxxxxx` pela tabela de hashcodes, a identidade dos sprites do HUD (pane e índice, a mira é a pane -1,
   com o retângulo de cada pane) e a altura do 'H' de cada fonte do jogo.
-- `ui_hd_draw.h/.cpp`: Direct2D 1.1, DirectWrite e WIC no dispositivo Direct3D 11 do renderizador (criado
-  com `D3D11_CREATE_DEVICE_BGRA_SUPPORT`).
+- `ui_hd_draw_d2d.h/.cpp`: Direct2D 1.1 e DirectWrite no dispositivo Direct3D 11 do renderizador (criado
+  com `D3D11_CREATE_DEVICE_BGRA_SUPPORT`); as substitutas PNG pelo `platform/image_io.h` (WIC no Windows).
 - `ui_hd_app.h/.cpp`: acha a pasta `hd_ui`, lê o `map.json`, liga e desliga (F4) e faz o inventário.
 - O renderizador desenha cada lote na posição dele na lista (`DrawItem::ui`): as imagens pelo mesmo
   caminho do 2D original (`draw_2d`, com a substituta no lugar da textura), os textos com Direct2D no mesmo
@@ -1070,7 +1517,8 @@ Configuração (`platform/settings.h`, `platform/video_settings.h`): o `nightfir
 executável (ou `--config <ini>`), com comentários, ordem e chaves desconhecidas mantidos ao regravar. As
 chaves acima ficam em `[video]` e `[ui]` (a `[video] fullscreen` antiga ainda é lida: `1` vira
 `window_mode = borderless`; ao gravar, dá lugar a `window_mode`); `[controls]` e `[bindings]` são da página
-de controles; `[game]` e `[ui] subtitles` são as opções do próprio jogo (ver "Opções do codinome"). Na partida o arquivo é a base e as opções da linha de comando valem por cima (sem serem
+de controles; `[game]` e `[ui] subtitles` são as opções do próprio jogo (ver "Opções do codinome"); `[ui] launcher` é o
+"Show at startup" da tela de entrada (ver "Instalação fácil"). Na partida o arquivo é a base e as opções da linha de comando valem por cima (sem serem
 gravadas, a não ser que o jogador aplique na página). Com `--screenshot`, o arquivo só é lido e gravado com
 `--config`, então as capturas não dependem nem mexem nas opções do jogador. Exemplo:
 
@@ -1905,7 +2353,7 @@ data…".
 
 ## Laço principal
 
-`src/main.cpp` segue a estrutura do PS2 (`docs/engine.md`):
+`src/app/app_main.cpp` (o antigo `src/main.cpp`) segue a estrutura do PS2 (`docs/engine.md`):
 
 - O relógio do Windows gera o `VBlankCount` a 60 Hz (`psi_update_clock`).
 - A cada volta, os quadros de VBlank desde o último tick (no máximo 2) viram um tick de lógica;
@@ -1938,7 +2386,7 @@ data…".
 
 ## Interpolação entre ticks
 
-Só do port (`src/render/frame_interp.h`, `src/main.cpp`; opções `[video] interpolation`, `instant_mouse_look` e
+Só do port (`src/render/frame_interp.h`, `src/app/app_main.cpp`; opções `[video] interpolation`, `instant_mouse_look` e
 `fps_cap`). A lógica continua a 60 Hz como no PS2, e o `Game_Draw` roda uma vez por tick: o que ele guarda de um
 quadro para o outro (os relâmpagos e o trovão do céu, o céu que gira da 0700001b, o `GlobalBlur`, o
 `GameState.draws`, os números aleatórios que ele sorteia: o tremor das células com a flag 4, o giro do clarão) anda
@@ -2084,7 +2532,7 @@ idênticas às de antes).
 
 ## Adaptador de vídeo e benchmark
 
-Só do port (`src/platform/gpu_adapter.h`, `src/render/gpu_adapters.h`, `src/platform/bench_stats.h`, `src/main.cpp`,
+Só do port (`src/platform/gpu_adapter.h`, `src/render/gpu_adapters.h`, `src/platform/bench_stats.h`, `src/app/app_main.cpp`,
 `tools/bench_matrix.py`). A meta do usuário (10/10/2026): 60 fps em GPUs integradas com as opções padrão, sem
 upscaler.
 
@@ -2346,26 +2794,133 @@ pula, como no PS2.
 - **O arquivo**: `PssFile` (`platform/pss.h`) lê o PSS aos pedaços de 64 KB e separa o vídeo elementar (stream 0xE0, em
   unidades de um quadro cada com os cabeçalhos de antes, `Mpeg2Units`) e o áudio (o private stream 1 sem os 4 bytes de
   cada PES; o cabeçalho SShd/SSbd e os blocos de 0x200 bytes desintercalados em estéreo, `PssAudio`).
-- **O vídeo**: o decodificador de MPEG-2 do Windows, pelo Media Foundation (`platform/movie_decoder.h`), sem nada
-  baixado: `MFTEnumEx` da categoria de decodificadores de vídeo para `MFVideoFormat_MPEG2` e o primeiro da lista que ativa
-  e aceita o vídeo, saída NV12 na ordem de exibição (o MFT reordena os quadros B), na CPU. Nesta máquina (Windows 11,
-  processo de 32 bits) a lista tem dois, os dois da Microsoft: o **"MPEG2VideoExtension"** (o pacote
-  `Microsoft.MPEG2VideoExtension` 1.2.32 da loja, assinado pela Microsoft, que vem com o Windows) é o que funciona; o
-  "Microsoft MPEG Video Decoder MFT" (`msmpeg2vdec.dll`, presente em `SysWOW64`) recusa a ativação com `c004f011`
-  (`SL_E_PRODUCT_SKU_NOT_INSTALLED`, o licenciamento do MPEG-2 do Windows). Sem nenhum que sirva, o filme não abre (como
-  um arquivo que falta: as páginas seguem na hora, como antes deste porte) e o stderr diz por quê. Decodificar um quadro
-  de 512 x 448 e convertê-lo leva ~0.75 ms (máximo ~2 ms). A conversão para BGRA (`nv12_to_bgra`) é a do CSC do IPU:
-  BT.601 de faixa limitada com os coeficientes em 1/128 do IPU, o croma de cada bloco 2 x 2 sem interpolar, o alfa 0x80.
+- **O vídeo**: dois decodificadores de MPEG-2 atrás da mesma fachada (`Mpeg2Decoder`, `platform/movie_decoder.h`), os
+  dois na CPU, com a saída NV12 na ordem de exibição (os quadros B reordenados):
+  - o **do sistema**: no Windows o Media Foundation, sem nada baixado: `MFTEnumEx` da categoria de decodificadores de
+    vídeo para `MFVideoFormat_MPEG2` e o primeiro da lista que ativa e aceita o vídeo. Nesta máquina (Windows 11,
+    processo de 32 bits) a lista tem dois, os dois da Microsoft: o **"MPEG2VideoExtension"** (o pacote
+    `Microsoft.MPEG2VideoExtension` 1.2.32 da loja, assinado pela Microsoft, que vem com o Windows) é o que funciona; o
+    "Microsoft MPEG Video Decoder MFT" (`msmpeg2vdec.dll`, presente em `SysWOW64`) recusa a ativação com `c004f011`
+    (`SL_E_PRODUCT_SKU_NOT_INSTALLED`, o licenciamento do MPEG-2 do Windows). Nas outras plataformas, por enquanto,
+    nenhum;
+  - o **do port** (`platform/mpeg2_decoder.h`, ver "O decodificador de MPEG-2 do port" abaixo): C++ padrão escrito a
+    partir da norma, em qualquer plataforma.
+
+  A escolha é `[video] movie_decoder` / `--movie-decoder` (`auto`, o padrão: o do sistema quando ele existe e serve,
+  senão o do port; `mf`: só o do sistema; `own`: só o do port). No Windows com a extensão da loja nada muda (o mesmo MFT
+  de antes, as mesmas imagens); onde ela falta, os filmes passam a tocar pelo do port (antes não tocavam), e o stderr
+  diz por que o do sistema não serviu; no macOS e no Linux (a build headless) o do port é o único. Sem nenhum (só com
+  `mf` sem o do sistema), o filme não abre, como um arquivo que falta. A conversão para BGRA (`nv12_to_bgra`) é a do CSC
+  do IPU: BT.601 de faixa limitada com os coeficientes em 1/128 do IPU, o croma de cada bloco 2 x 2 sem interpolar, o
+  alfa 0x80 (em SSE2 onde houver, com as mesmas contas inteiras: o mesmo resultado bit a bit, ~0.02 ms por quadro;
+  antes, em C++ puro, ~0.65 ms).
 - **O som**: o PCM entra na entrada de dados do núcleo 0 da SPU2 (`Spu2::input_push`; no PS2, a transferência em bloco
   de `audioDecStart`), vezes o `BVOL` que `changeInputVolume` põe (`MovieVolume` x 100: com o volume dos efeitos em 100,
   0x2710 = 0.305, -10.3 dB), no seco e no reverb do núcleo 0 pelo `MMIX` 0xff0, e sai pela mistura de sempre
   (`audio_out`: o XAudio2, o WAV de `--audio-dump` ou nada). O volume é o que o jogo pede ao abrir o filme
   (`SFXGetVolume`): mudar os efeitos durante um filme só vale no próximo, como no PS2. Os fundos do menu não têm som.
-- **A imagem**: o renderizador começa o quadro pelo filme (`render/movie_layer.h`, como a cópia da imagem para o buffer de
+- **A imagem**: o renderizador começa o quadro pelo filme (`render/movie_layer_d3d11.h`, como a cópia da imagem para o buffer de
   quadro que o PS2 faz antes do resto do desenho, `PS2UploadBGMImage`): o alvo da cena preto e a imagem na tela do PS2 (a
   área 4:3 de `psi_2d_viewport`, então barras pretas dos lados numa janela larga), ampliada com um filtro bicúbico de
   Catmull-Rom (9 leituras bilineares; nítido em 1080p e 4K). O que o jogo desenha depois (as legendas, as páginas do menu
   no estilo Original) fica por cima. A névoa não é desenhada com um filme tocando (`psiDrawFogPass`, como no PS2).
+
+### O decodificador de MPEG-2 do port
+
+`platform/mpeg2_decoder.h` (`nf::Mpeg2VideoDecoder`): C++20 padrão, sem nada do sistema e sem nada do jogo (uma peça da
+plataforma que a "007 Anthology" pode levar), escrito a partir da ISO/IEC 13818-2 — a sintaxe da seção 6, as tabelas do
+Anexo B, as contas da seção 7 — sem código de outro decodificador (as patentes do MPEG-2 já caíram; o código é do
+port). Entrada: o vídeo elementar em pedaços que acabam no fim de uma imagem (as unidades de `Mpeg2Units`); saída: as
+imagens em planos Y/Cb/Cr na ordem de exibição, por uma função chamada durante `decode()`; a fachada as intercala em NV12.
+
+O que os filmes usam (um levantamento dos cabeçalhos dos 22; `docs/formats.md`, "O vídeo"): MPEG-2 MP@ML 4:2:0, só
+imagens de quadro progressivas, previsão de quadro e DCT de quadro (`frame_pred_frame_dct` 1), zigue-zague,
+`intra_vlc_format` 1 (a tabela B.15), `q_scale_type` 1 (a escala não linear), DC de 8 bits, a matriz não intra no
+cabeçalho de sequência, `f_code` até 4, I/P/B. O decodificador faz isso e o resto do perfil principal em imagens de
+quadro que custa pouco: previsão e DCT de campo (`frame_motion_type`, `dct_type`), a varredura alternada, a tabela B.14
+para os intra, a escala linear, DC de 8 a 11 bits, a extensão de matrizes, os vetores de ocultação, `macroblock_escape`,
+fatias no meio da linha; e o MPEG-1 (`full_pel`, o escape de 8/16 bits, o ajuste para ímpar no lugar do controle de
+descasamento, o enchimento de macroblocos). Não faz (conta em `Mpeg2Stats::unsupported`): imagens de campo, dual prime,
+4:2:2/4:4:4, escalabilidade, imagens D.
+
+As contas:
+
+- **VLC**: as tabelas B.1 a B.15 escritas como estão na norma (os bits em texto) e montadas em tabelas de consulta na
+  partida; os coeficientes em duas consultas (os 8 primeiros bits, e para os códigos que começam com seis zeros os 10
+  seguintes); o escape de 6 + 6 + 12 bits (8/16 no MPEG-1).
+- **Quantização inversa** (7.4): `(2 QF + k) W qs / 32` truncado para zero, saturado em [-2048, 2047], e o controle de
+  descasamento (a soma par troca o bit 0 de F[7][7]).
+- **IDCT**: separável, com a parte par e a ímpar de cada passada; as linhas em inteiros de 32 bits com `cos(k pi/16) x
+  2^16`, sem arredondar; as colunas com `cos x 2^20` e um só arredondamento no fim, `floor(x + 1/2)`. As colunas vão em
+  `double` porque o x86 de 32 bits não tem multiplicação de 64 bits rápida: os valores são inteiros abaixo de 2^53, então
+  a conta é exata e igual em qualquer CPU, compilador e modo de arredondamento. O erro contra a fórmula exata fica abaixo
+  de 0.002: o resultado é o da fórmula a menos de valores a essa distância de k + 1/2. Cumpre a IEEE 1180 (o teste) com
+  folga. Atalhos sem mudar o resultado: o bloco só com DC (`(DC + 4) >> 3`), as linhas vazias ou só com o X0, as colunas
+  quando só as linhas 0-3 têm algo, as colunas iguais.
+- **Previsão** (7.6): meio pixel `(a + b + 1) >> 1` e `(a + b + c + d + 2) >> 2`, a média das duas direções `(p + q + 1)
+  >> 1`, o vetor do croma `v / 2` truncado para zero; um vetor que sai da imagem (a norma não deixa) lê as bordas.
+- **Reordenação**: uma I ou P sai quando a próxima I ou P chega (ou no fim do stream); uma B sai logo. Um B sem as duas
+  referências (um GOP aberto pego no meio) não sai.
+- **Erros**: um código que não existe ou um macrobloco fora da imagem acaba a fatia; os macroblocos que faltarem são
+  copiados da referência mais recente (cinza numa I sem referência). Nunca lê fora do buffer (a entrada ganha 8 bytes de
+  zeros de folga).
+- **SSE2** onde houver (todo x86-64 e o x86 de 32 bits com SSE2, o padrão do MSVC): a previsão (`pavgb` é exatamente `(a
+  + b + 1) >> 1`; a de quatro em 16 bits), a soma dos blocos (`packus` satura como o `clamp`), as colunas da IDCT em pares
+  de `double`, o croma intercalado e o `nv12_to_bgra`; as mesmas contas inteiras, então o mesmo resultado bit a bit (os
+  testes comparam as duas versões). No ARM (macOS), o C++ puro.
+
+**A conferência contra o Media Foundation** (`nf_movie_check`, 12/10/2026; os 22 filmes, cada quadro dos dois decodificadores
+comparado plano a plano):
+
+| | |
+|---|---|
+| Quadros | 37 522 no stream, 37 522 do port, 37 522 do Media Foundation; a ordem de exibição do port (`temporal_reference`) sem nenhum erro; 0 erros de fluxo, 0 macroblocos ocultados, 0 recursos sem suporte |
+| Maior diferença | Y 10, Cb 10, Cr 10 (os filmes só com I e P: 07330048, 07350048, 07370048 e 07390048); 4 a 7 nos com quadros B |
+| Média de \|d\| | Y 0.027, Cb 0.020, Cr 0.020 (PSNR 63.7 / 64.7 / 64.6 dB); 2.6% dos pixels do Y diferem, quase todos por 1 |
+| Pela posição no GOP | os quadros I: diferença até 1, média 0.008; depois a média sobe (0.016 no quadro seguinte ao I, 0.03-0.04 nos últimos do GOP) |
+| Por filme | 07380048 (o logo da MGM) é o mais perto (média 0.008); 07350048 o mais longe (0.032) |
+
+De onde vem cada diferença (conferido com experimentos à parte, não no repositório):
+
+- **A IDCT do Media Foundation não é a exata.** Nos blocos intra dos quadros I, ela dá o arredondamento da fórmula exata
+  em 99.22% dos pixels, e só erra quando a parte fracionária do valor exato está entre 0.45 e 0.55: um erro de cerca de
+  ±0.05 sem viés (a chance de arredondar para cima cruza 50% em 0.497-0.5). A IDCT do port é a exata (erro < 0.002), então
+  as duas só discordam nesses quase empates, e por 1. Uma primeira versão com constantes de 12 bits e 3 bits entre as
+  passadas (erro ~±0.04) concordava em 98.0% e dobrava a diferença média (0.053 contra 0.026 no 07370048): por isso a
+  IDCT exata.
+- **Nada mais difere.** Decodificando cada quadro P a partir da referência do próprio Media Foundation (o 07370048), o
+  quadro do port fica a no máximo 1 do dele em 1.09% dos pixels, e todos esses estão onde o valor exato do resíduo cai a
+  menos de 0.075 de k + 1/2: os VLC, a quantização, os vetores, a previsão e a ordem são iguais.
+- **O desvio pela cadeia de P** é o descasamento de IDCT da própria norma (o controle de descasamento só cobre o
+  F[7][7]): um resíduo repetido quadro a quadro num quase empate acumula. O pior caso, o 07370048 (a abertura da EA, um
+  fade do preto): o bloco do Y em (240, 8) recebe a cada P os mesmos coeficientes F[1][0] = 2 e F[4][0] = 1, cuja linha
+  de cima vale 0.472; o port arredonda para 0 e o Media Foundation (e, pelo jeito, o codificador TMPGEnc) para 1, então a
+  linha dele sobe 1 por quadro e a do port fica (24 contra 33 no 9º P); o I seguinte (28) apaga os dois. Com quadros B a
+  cadeia de P é menor (5 por GOP) e a diferença máxima fica em 4-7.
+
+O relógio: os quadros que o decodificador dá são os do stream (37 522), na ordem, então `floor(ouvido / 1600)` mostra o
+quadro certo; o som de cada filme tem os mesmos quadros a menos de 3 (0730000D: 1700 quadros e som para 1703.0; 07370048:
+96 e 95.2) — o tocador segue pelo relógio da SPU2 depois que o som acaba, como antes.
+
+Os testes (`tests/test_mpeg2.cpp`, sem dados do jogo): cada código das tabelas digitado de novo e lido; a IDCT pelo
+procedimento da IEEE 1180 (as faixas da norma e a de 12 bits, os dois sinais, as duas versões: pico 1, erro quadrático e
+médio dentro dos limites; zero dá zero); a quantização inversa em casos feitos à mão; a previsão contra a fórmula; e um
+codificador mínimo do próprio teste (as tabelas, a DCT, a quantização, a previsão e a reconstrução escritas à parte) que
+gera sequências I/P/B com o que a norma permite — pulados, sem vetor, intra em P, vetores com meio pixel e negativos,
+previsão e DCT de campo, as duas varreduras e tabelas, a mudança de quantização, fatias no meio da linha,
+`macroblock_escape`, ocultação, DC de 10 bits, MPEG-1 com `full_pel` e o escape de 16 bits: o decodificador dá a
+reconstrução do codificador em todos os quadros, na ordem de exibição (|d| <= 1 em até 0.5% dos pixels, os empates da
+IDCT), e, num codificador comportado, a imagem fica a 38 dB da original. Um fluxo estragado não derruba nada e sai com o
+mesmo número de quadros. O codificador de teste não usa a libm (os cossenos são literais e as imagens de teste, contas
+inteiras: no macOS da CI o `std::cos` mudava o último bit e o fluxo saía outro), então os fluxos e os quadros
+decodificados são os mesmos em toda plataforma, e um teste confere o resumo XXH3 deles contra o do Windows (o x86, o
+x64 e o C++ puro dão o mesmo; `-DNF_MPEG2_SSE2=0 -DNF_MOVIE_SSE2=0` força o C++ puro no x86, e com ele os 22 filmes dão
+o mesmo hash por filme do `nf_movie_check`, a 0.76 ms por quadro).
+
+A velocidade (um núcleo, sem threads): 0.55 ms por quadro em média nos 22 filmes (`nf_movie_check`; o Media Foundation,
+0.15 ms, talvez com threads próprias); no tocador, decodificar e converter a abertura de 07000001 leva 0.70 ms por quadro
+(`--bench 8`) contra 0.16 ms do Media Foundation (0.84 ms antes da conversão em SSE2): 2% de um núcleo a 30 quadros por
+segundo. Os 0.55 ms são ~35% IDCT, ~30% VLC e quantização, ~10% previsão, o resto a análise dos macroblocos.
 
 ### O ritmo e a sincronia
 
@@ -2406,6 +2961,8 @@ não pulam). O trailer fica só no estilo Original (o AV Options do Modern é a 
 
 - `[video] movies = on|off` no `nightfire.ini` (padrão on); `--movies`/`--no-movies` por cima. Desligados, o filme não
   abre e o jogo segue como sem ele.
+- `[video] movie_decoder = auto|mf|own` (padrão auto); `--movie-decoder <auto|mf|own>` por cima (ver "Do arquivo à
+  tela"). O relatório diz qual decodificou (`decodificador "MPEG2VideoExtension"` ou `"MPEG-2 do port"`).
 - As capturas (`--screenshot`) e o `--bench` começam **sem** filmes (as capturas de antes continuam iguais pixel a pixel):
   `--movies` os liga. `--movie-frame <n>` liga os filmes e captura no quadro n do filme que tocar (`--movie <hash>`: só
   desse); o `--wait` e o `--shot-level` não contam. `--intro-movie` faz o `--level` pedir a fase com o filme de abertura,
@@ -2423,18 +2980,32 @@ não pulam). O trailer fica só no estilo Original (o AV Options do Modern é a 
 ./build/Release/nightfire.exe --level 07000004 --win 1 --movie 07300004 --movie-frame 450 --screenshot out/shots/fim.png  # o fim da missão
 ./build/Release/nightfire.exe --input "none:19 enter:0.1 none:8 enter:0.1" --movie 07330048 --movie-frame 90 --screenshot out/shots/fundo.png  # o menu principal sobre o fundo animado
 ./build/Release/nightfire.exe --level 07000001 --intro-movie --movie-frame 900 --audio-dump out/audio/m1.wav --screenshot out/shots/m1b.png  # o som do filme num WAV
+./build/Release/nightfire.exe --movie-frame 48 --movie 07370048 --movie-decoder own --screenshot out/shots/ea_own.png  # o mesmo quadro pelo decodificador do port
 python tools/movies.py list        # os filmes; info <hash>, demux <hash> <pasta> (o .m2v e o .wav em out/)
+./build/Release/nf_movie_check.exe .                      # os 22 filmes, o do port contra o do sistema, quadro a quadro
+./build/Release/nf_movie_check.exe . --movie 07370048 --where 79 --where-min 3   # os pixels que diferem num quadro
+./build/Release/nf_movie_check.exe . --movie 07370048 --dump out/movie_check --frames 40-49   # PNG e .yuv dos dois e a diferença
+./build/Release/nf_movie_check.exe . --own-only           # só o do port (o hash dos quadros por filme: o mesmo em qualquer CPU)
 ```
+
+As capturas com o decodificador do sistema (o padrão) continuam iguais às da main byte a byte (`--movie-frame 48 --movie
+07370048` e a abertura de 07000001 no quadro 330, também com `--movie-decoder mf`). Com `--movie-decoder own`: no quadro
+48 da abertura da EA (um quadro P), 6.5% dos pixels do Y diferem do Media Foundation, até 7 (o desvio acima); a captura
+da janela de 1600 x 900 (ampliada e em RGB), 19.6% dos pixels, até 12. No quadro 330 da abertura de 07000001, 0.8% do Y
+difere, até 1; na captura, 2.9%, até 4.
 
 O custo (10/10/2026, `--bench 8`, 1920 x 1080): o filme da abertura de 07000001 roda a 857 fps fora da tela e 637 numa
 janela no **Radeon integrado** (a GPU desenha o quadro em ~1.0 ms: o preto e a imagem com o Catmull-Rom), 8105 no RTX
 5090; o menu principal Modern sobre o fundo animado, 244 / 212 (como sem o filme: o desfoque e o Direct2D dominam), o
 Original 615 numa janela. Na CPU, decodificar e converter um quadro leva 0.74-0.87 ms em média (2.2 ms no pior), 30 vezes
-por segundo: 0.03-0.12 ms por quadro de vídeo. A meta de 60 fps no integrado sobra.
+por segundo: 0.03-0.12 ms por quadro de vídeo. A meta de 60 fps no integrado sobra. (12/10/2026: com a conversão em
+SSE2, o Media Foundation e a conversão levam 0.16 ms por quadro do filme; o decodificador do port e a conversão, 0.70.)
 
 O que fica de fora: o caminho Direct3D 9 do Remix não desenha os filmes; o trailer no estilo Modern (o AV Options do
 Modern é a categoria AUDIO, sem a linha do trailer); a memória do filme, que no PS2 sai do heap do jogo
-(`AllocateMovieMemory`, ~2.3 MB) e no PC não.
+(`AllocateMovieMemory`, ~2.3 MB) e no PC não. No decodificador do port: imagens de campo e dual prime (nenhum filme do
+jogo usa; um filme de outro jogo da "Anthology" pode usar), NEON no ARM (o C++ puro já é rápido o bastante), e a IDCT
+exata não reproduz o arredondamento do Media Foundation nos quase empates (não há como sem o algoritmo dele).
 
 ## Som
 

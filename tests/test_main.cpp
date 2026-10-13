@@ -4,6 +4,7 @@
 
 #include "platform/arena.h"
 #include "platform/crash_report.h"
+#include "platform/crt_compat.h"
 #include "platform/gamepad.h"
 #include "test_framework.h"
 
@@ -40,6 +41,14 @@ int main(int argc, char** argv) {
     nf::install_crash_report();                // uma queda escreve a pilha (o teste que caiu é o último sem "ok")
     char* filter = argc > 1 ? argv[1] : nullptr;
 #if NF_PTR64
+    // Com NF_ARENA_INFO no ambiente (a CI do macOS e do Linux), onde ficaram a janela e a arena.
+    if (nf::get_env_narrow("NF_ARENA_INFO", nullptr)) {
+        const nf::arena::Stats st = nf::arena::stats();
+        std::printf("arena: janela %p, reservada %p-%p (%llu MB, %llu MB depois da imagem)\n",
+                    reinterpret_cast<void*>(st.window_base), reinterpret_cast<void*>(st.begin),
+                    reinterpret_cast<void*>(st.end), static_cast<unsigned long long>((st.end - st.begin) >> 20),
+                    static_cast<unsigned long long>((st.begin - st.window_base) >> 20));
+    }
     // 64 bits: os testes rodam na pilha da arena, como o jogo (os campos do jogo guardam endereços de locais).
     return nf::arena::run_on_game_stack(run_all, filter);
 #else

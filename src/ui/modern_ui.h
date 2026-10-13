@@ -13,7 +13,7 @@
 // - Movimento: as curvas (cubic-bezier, como no CSS) e o Tween, que anda em tempo real (segundos), na taxa do
 //   monitor, fora dos 60 Hz da lógica.
 // - Lista de desenho (DrawList): o que os componentes (modern_kit.h) pedem, em coordenadas da tela virtual;
-//   o renderizador (render/ui_modern_draw.h) desenha com Direct2D e DirectWrite na resolução da janela.
+//   o renderizador (render/ui_modern_draw_d2d.h) desenha com Direct2D e DirectWrite na resolução da janela.
 
 #include <algorithm>
 #include <cstdint>
@@ -178,6 +178,12 @@ struct Tokens {
         float key_cell = 60.0f;        // uma tecla do teclado da tela
         float key_gap = 10.0f;
         float press_y = 908.0f;        // o "Press START" da tela de título
+        // A tela de entrada (o launcher, ui/modern_setup.h): linhas mais baixas que as das opções, para as quatro seções
+        // caberem sem rolar, e a lista grande (PLAY, QUIT) embaixo na coluna da esquerda.
+        float launch_row_h = 70.0f;
+        float launch_section_h = 56.0f;
+        float launch_option_h = 60.0f;  // opção de uma lista aberta
+        float launch_menu_y = 760.0f;   // centro de PLAY
     } space;
     // Movimento (segundos; as curvas como no CSS).
     struct {

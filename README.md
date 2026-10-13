@@ -21,7 +21,7 @@ The aim is to play the original game the way it was made, plus the PC features i
 | On-foot campaign (7 missions, 12 with the driving ones) | Every level loads and runs on the game's own code, and every objective has its mechanism. A complete playthrough of every mission has not been verified yet. |
 | Driving missions (Paris, Alpine Escape, Enemies Vanquished, Deep Descent, Island Infiltration) | Skipped for now: they count as done without a medal. They run in a separate EA engine (`DRIVING.ELF`), which is being ported. The prototype already draws the cars and runs the physics, both checked against the original code. |
 | Multiplayer | Not yet; planned last. |
-| macOS | Planned. The engine is being made 64-bit clean first, Windows-only, with the 32-bit build kept identical. |
+| macOS | In progress. The engine is 64-bit clean, the platform code sits behind interfaces, and the shared code builds and passes its tests on macOS (Apple Silicon) and Linux in CI. The Mac window, input, sound and Metal renderer come next. |
 | Decompilation | 2,103 of 2,550 functions of `ACTION.ELF` (79% of its code). |
 
 ### What works
@@ -37,8 +37,9 @@ The aim is to play the original game the way it was made, plus the PC features i
   - Scripted cutscenes, the HUD, mission objectives, statistics, score and medals.
 - **Menus.** The game's own menus, front end, codenames and saves, dossier and credits, all run by the game's code.
   - Two styles: **Original**, exactly as on the PS2, and **Modern**, the default: a redesigned look at native resolution that still drives the game's own menu logic.
+  - A launcher before the game, in the Modern style: the disc, resolution, display mode, VSync, menu style and HD 2D layer.
 - **Audio.** The game's sound driver (`SFX.IRX`) and the SPU2 are reproduced in software: effects, 3D positioning, reverb, speech with subtitles, and the interactive music.
-- **Movies.** The PSS movies play at the points where the game plays them. They need an MPEG-2 decoder in Windows; without one they are skipped.
+- **Movies.** The PSS movies play at the points where the game plays them. Windows' own MPEG-2 decoder is used when it is installed; otherwise the port's own MPEG-2 decoder plays them.
 - **PC controls.**
   - Raw mouse and keyboard with PC-standard defaults, all rebindable.
   - XInput controllers through the game's own pad layer (its 8 button layouts, dead zone, curves and rumble).
@@ -61,7 +62,6 @@ The aim is to play the original game the way it was made, plus the PC features i
 - To build (not needed to play with the release zip):
   - Visual Studio Build Tools with the C++ workload (MSVC, x86 target), CMake and Ninja;
   - Python 3.12 for the tools (standard library only).
-- Optional: Microsoft's *MPEG-2 Video Extension* (Microsoft Store), for the movies.
 
 ## Building
 
@@ -98,20 +98,24 @@ another version.
 
 1. Unzip it anywhere and run `nightfire.exe` (the 32-bit build, the reference; `nightfire64.exe` is the experimental
    64-bit build).
-2. The first time, a setup screen asks for your disc: **Select disc image** opens a file picker for the `.iso` of your
-   *007: Nightfire* PS2 disc (USA), or **Use the disc in drive X:** reads the disc in your DVD drive. The choice is
-   saved in `nightfire.ini`; **Play** starts the game, and next time it starts directly. An `.iso` placed next to
-   `nightfire.exe` is found without the setup screen.
-3. Optional: **Make a single-file copy** writes one `.exe` with your game inside (about 1.8 GB) to play without the
-   disc image. It contains your copy of the game: it is for you only, do not share it.
+2. A launcher opens before the game, with **Play** selected: press Enter (or A/Start on a controller, or click Play)
+   to start. The first time it asks for your disc: the **Disc** row opens a file picker for the `.iso` of your
+   *007: Nightfire* PS2 disc (USA), or **Use the disc in drive X:** reads the disc in your DVD drive (the choice is
+   saved in `nightfire.ini`; an `.iso` placed next to `nightfire.exe` is found on its own). The launcher also sets the
+   resolution, the display mode (windowed, borderless or exclusive fullscreen) and VSync, the menu style (Modern or
+   Original) and the HD 2D layer; **Play** saves your changes in `nightfire.ini`, **Quit** leaves without saving.
+3. Turn **Show at startup** off to start the game directly next time; hold **Shift** while the game starts to see the
+   launcher again.
+4. Optional: **Single-file copy** writes one `.exe` with your game inside (about 1.8 GB) to play without the disc
+   image. It contains your copy of the game: it is for you only, do not share it.
 
 **From a build:**
 
 ```bat
-build\Release\nightfire.exe                                   :: the game's front end (Press START, codenames, mission map)
+build\Release\nightfire.exe                                   :: the launcher, then the game's front end (Press START, codenames...)
 build\Release\nightfire.exe --level 07000001                  :: start a level directly
 build\Release\nightfire.exe --disc "D:\007 - Nightfire.iso"   :: use this disc: an .iso, a folder, a drive ("E:")
-build\Release\nightfire.exe --setup                           :: show the setup screen again
+build\Release\nightfire.exe --launcher                        :: show the launcher (also --setup); other arguments skip it
 build\Release\nightfire.exe --pack-disc <disc> --out <file.exe>   :: make the single-file copy (never inside a git repository)
 ```
 

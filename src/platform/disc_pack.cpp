@@ -2,13 +2,12 @@
 
 #include "platform/disc_pack.h"
 
-#include <windows.h>
-#include <shlobj.h>
-
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+
+#include "platform/os.h"
 
 namespace nf {
 
@@ -32,19 +31,9 @@ struct Footer {
 };
 static_assert(sizeof(Footer) == kFooter, "o rodapé tem 64 bytes");
 
-std::string narrow_utf8(const std::wstring& w) {
-    if (w.empty()) return {};
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), int(w.size()), nullptr, 0, nullptr, nullptr);
-    std::string s(size_t(std::max(0, n)), '\0');
-    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.data(), int(w.size()), s.data(), n, nullptr, nullptr);
-    return s;
-}
+std::string narrow_utf8(const std::wstring& w) { return os::to_utf8(w); }
 
-std::wstring full_path(const std::wstring& p) {
-    wchar_t buf[MAX_PATH * 4];
-    const DWORD n = GetFullPathNameW(p.c_str(), DWORD(std::size(buf)), buf, nullptr);
-    return n > 0 && n < std::size(buf) ? std::wstring(buf, n) : p;
-}
+std::wstring full_path(const std::wstring& p) { return os::full_path(p); }
 
 std::wstring parent_of(const std::wstring& p) {
     const size_t cut = p.find_last_of(L"\\/");
@@ -62,26 +51,15 @@ uint64_t align_up(uint64_t v, uint64_t a) { return (v + a - 1) / a * a; }
 // Um arquivo de saída com escrita em blocos grandes.
 class Out {
 public:
-    explicit Out(const std::wstring& path) {
-        h_ = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (h_ == INVALID_HANDLE_VALUE) h_ = nullptr;
-    }
+    explicit Out(const std::wstring& path) { h_ = os::file_create(path); }
     ~Out() { close(); }
     bool ok() const { return h_ != nullptr && good_; }
     uint64_t pos() const { return pos_; }
     void write(const void* p, size_t n) {
-        const auto* b = static_cast<const uint8_t*>(p);
-        while (good_ && n > 0) {
-            DWORD put = 0;
-            const DWORD chunk = DWORD(std::min<size_t>(n, size_t(1) << 26));
-            if (h_ == nullptr || !WriteFile(h_, b, chunk, &put, nullptr) || put == 0) {
-                good_ = false;
-                break;
-            }
-            b += put;
-            n -= put;
-            pos_ += put;
-        }
+        if (!good_ || n == 0) return;
+        const size_t put = os::file_write(h_, p, n);
+        pos_ += put;
+        if (put < n) good_ = false;
     }
     void pad_to(uint64_t at) {
         static const uint8_t zeros[4096] = {};
@@ -90,15 +68,15 @@ public:
     bool close() {
         bool r = good_;
         if (h_ != nullptr) {
-            r = FlushFileBuffers(h_) && r;
-            r = CloseHandle(h_) && r;
+            r = os::file_flush(h_) && r;
+            r = os::file_close(h_) && r;
         }
         h_ = nullptr;
         return r;
     }
 
 private:
-    HANDLE h_ = nullptr;
+    os::FileHandle h_ = nullptr;
     bool good_ = true;
     uint64_t pos_ = 0;
 };
@@ -155,7 +133,7 @@ uint64_t packed_program_size(const std::wstring& exe) {
 bool inside_git_tree(const std::wstring& path) {
     std::wstring d = parent_of(full_path(path));
     for (int guard = 0; guard < 64 && !d.empty(); ++guard) {
-        if (GetFileAttributesW((d + L"\\.git").c_str()) != INVALID_FILE_ATTRIBUTES) return true;
+        if (os::exists(d + os::kPathSep + L".git")) return true;
         const std::wstring up = parent_of(d);
         if (up == d) break;
         d = up;
@@ -173,7 +151,7 @@ std::wstring default_pack_path(const std::wstring& exe) {
     if (name.size() > tail.size() && name.compare(name.size() - tail.size(), tail.size(), tail) == 0) {
         name.resize(name.size() - tail.size());
     }
-    return (dir.empty() ? std::wstring() : dir + L"\\") + name + tail + L".exe";
+    return (dir.empty() ? std::wstring() : dir + os::kPathSep) + name + tail + L".exe";
 }
 
 const char* pack_error_name(PackError e) {
@@ -267,13 +245,12 @@ bool pack_disc(const DiscSource& src, const DiscTitle& title, const PackPlan& pl
     if (plan.error != PackError::None) return fail(plan.error, plan.detail);
     const std::wstring out_full = full_path(out);
     if (inside_git_tree(out_full)) return fail(PackError::InsideGitTree, narrow_utf8(out_full));
-    if (_wcsicmp(out_full.c_str(), full_path(exe).c_str()) == 0) return fail(PackError::SameFile, narrow_utf8(out_full));
+    if (os::same_path(out_full, full_path(exe))) return fail(PackError::SameFile, narrow_utf8(out_full));
     // O espaço: o total mais uma margem de 64 MB.
     {
-        ULARGE_INTEGER free_bytes{};
+        uint64_t free_bytes = 0;
         const std::wstring dir = parent_of(out_full);
-        if (GetDiskFreeSpaceExW(dir.empty() ? nullptr : (dir + L"\\").c_str(), &free_bytes, nullptr, nullptr) &&
-            free_bytes.QuadPart < plan.bytes + (64ull << 20)) {
+        if (os::free_space(dir, &free_bytes) && free_bytes < plan.bytes + (64ull << 20)) {
             return fail(PackError::NoSpace, std::to_string((plan.bytes + (64ull << 20)) >> 20) + " MB");
         }
     }
@@ -288,7 +265,7 @@ bool pack_disc(const DiscSource& src, const DiscTitle& title, const PackPlan& pl
         std::wstring path;
         bool keep = false;
         ~Removal() {
-            if (!keep) DeleteFileW(path.c_str());
+            if (!keep) os::remove_file(path);
         }
     } removal{part};
     Out o(part);
@@ -359,7 +336,7 @@ bool pack_disc(const DiscSource& src, const DiscTitle& title, const PackPlan& pl
     o.write(idx.data(), idx.size());
     o.write(&ft, sizeof(ft));
     if (!o.ok() || !o.close()) return fail(PackError::Write, narrow_utf8(part));
-    if (!MoveFileExW(part.c_str(), out_full.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    if (!os::replace_file(part, out_full)) {
         return fail(PackError::Write, narrow_utf8(out_full));
     }
     removal.keep = true;
@@ -372,18 +349,18 @@ std::wstring extract_packed_extras(const DiscSource& packed, const std::string& 
     if (files.empty()) return {};
     std::wstring root = root_dir;
     if (root.empty()) {
-        wchar_t* base = nullptr;
-        if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &base)) || base == nullptr) return {};
-        root = std::wstring(base) + L"\\Nightfire PC";
-        CoTaskMemFree(base);
+        const std::wstring base = os::local_data_dir();
+        if (base.empty()) return {};
+        root = base + os::kPathSep + L"Nightfire PC";
     }
     // Uma marca da cópia (o tamanho e a data do executável): outra cópia, outra pasta.
     std::wstring stamp;
     {
-        WIN32_FILE_ATTRIBUTE_DATA a{};
-        if (GetFileAttributesExW(packed.location().c_str(), GetFileExInfoStandard, &a)) {
+        os::FileInfo a;
+        if (os::file_info(packed.location(), &a)) {
             wchar_t s[64];
-            std::swprintf(s, 64, L"%08x%08x-%08x", a.nFileSizeHigh, a.nFileSizeLow, a.ftLastWriteTime.dwLowDateTime);
+            std::swprintf(s, 64, L"%08x%08x-%08x", unsigned(a.size >> 32), unsigned(a.size & 0xffffffffu),
+                          unsigned(a.write_time & 0xffffffffu));
             stamp = s;
         }
     }
@@ -392,33 +369,30 @@ std::wstring extract_packed_extras(const DiscSource& packed, const std::string& 
     const size_t slash = sub.find_last_of('/');
     std::wstring leaf;
     for (char c : sub.substr(slash == std::string::npos ? 0 : slash + 1)) leaf.push_back(wchar_t(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c));
-    const std::wstring dir = root + L"\\" + leaf + L"-" + stamp;
-    if (GetFileAttributesW((dir + L"\\.ok").c_str()) != INVALID_FILE_ATTRIBUTES) return dir;
+    const std::wstring dir = root + os::kPathSep + leaf + L"-" + stamp;
+    if (os::exists(dir + os::kPathSep + L".ok")) return dir;
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     const std::string norm_prefix = disc_normalize(prefix) + "/";
     for (const DiscEntry& e : files) {
         // O caminho original (com as maiúsculas de quem empacotou) depois do prefixo.
         const std::string rel = e.path.substr(std::min(e.path.size(), norm_prefix.size()));
-        std::wstring wrel;
-        const int n = MultiByteToWideChar(CP_UTF8, 0, rel.data(), int(rel.size()), nullptr, 0);
-        wrel.resize(size_t(std::max(0, n)));
-        if (n > 0) MultiByteToWideChar(CP_UTF8, 0, rel.data(), int(rel.size()), wrel.data(), n);
+        std::wstring wrel = os::from_utf8(rel);
         for (wchar_t& c : wrel) {
-            if (c == L'/') c = L'\\';
+            if (c == L'/') c = os::kPathSep;
         }
         const std::filesystem::path target = std::filesystem::path(dir) / wrel;
         std::filesystem::create_directories(target.parent_path(), ec);
         std::vector<uint8_t> data;
         if (!packed.read(e.path, data)) return {};
-        FILE* f = nullptr;
-        if (_wfopen_s(&f, target.wstring().c_str(), L"wb") != 0 || f == nullptr) return {};
+        FILE* f = os::open_file(target.wstring(), "wb");
+        if (f == nullptr) return {};
         const bool ok = data.empty() || std::fwrite(data.data(), 1, data.size(), f) == data.size();
         std::fclose(f);
         if (!ok) return {};
     }
-    FILE* mark = nullptr;
-    if (_wfopen_s(&mark, (dir + L"\\.ok").c_str(), L"wb") == 0 && mark != nullptr) std::fclose(mark);
+    FILE* mark = os::open_file(dir + os::kPathSep + L".ok", "wb");
+    if (mark != nullptr) std::fclose(mark);
     return dir;
 }
 

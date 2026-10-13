@@ -454,6 +454,38 @@ enum class PcText : uint16_t {
     SuKindFolder,
     SuKindDrive,
     SuKindPacked,
+    LnHeader,  // a tela de entrada (o launcher, src/ui/modern_setup.h): o cabeçalho e o rodapé
+    LnFooter,
+    LnSecDisc,  // as seções
+    LnSecDisplay,
+    LnSecInterface,
+    LnSecStartup,
+    LnDisc,  // as linhas
+    LnDrive,  // formato: a letra da unidade ("D:")
+    LnPack,
+    LnHdUi,
+    LnShowAtStartup,
+    LnDiscNone,  // os valores
+    LnDiscPacked,
+    LnDiscDrive,  // formato: a letra da unidade
+    LnDriveUse,
+    LnDriveInUse,
+    LnDriveLocked,
+    LnPackValue,  // formato: o tamanho ("1.9 GB")
+    LnPackLocked,
+    LnDescPlay,  // as descrições
+    LnDescQuit,
+    LnDescDisc,
+    LnDescDiscPacked,
+    LnDescResolution,
+    LnDescWindowMode,
+    LnDescMenuStyle,
+    LnDescHdUi,
+    LnDescShow,
+    LnChanged,  // o aviso: há mudanças (gravadas pelo PLAY)
+    LnPromptBrowse,  // os comandos de baixo
+    LnPromptPlay,
+    LnPromptQuit,
     Count,
 };
 

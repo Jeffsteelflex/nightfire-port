@@ -6,7 +6,8 @@
 // (48 kHz / 60) de cada VBlank passado desde o último lote e os entrega ao destino:
 //   - Off: a mistura acontece igual (as vozes andam, as falas acabam, ENVX muda como no PS2) e o som é descartado.
 //     É o padrão dos testes, do nf_loader_check e das capturas (--screenshot), que ficam mudos e determinísticos.
-//   - Device: XAudio2 2.9 (do SDK do Windows), uma voz de 48 kHz estéreo de 16 bits; a fila guarda ~4 VBlanks
+//   - Device: o aparelho do sistema (platform/audio_device.h; no Windows o XAudio2 2.9 do SDK, audio_device_xaudio2.cpp),
+//     uma voz de 48 kHz estéreo de 16 bits; a fila guarda ~4 VBlanks
 //     (67 ms) e o excesso é descartado (depois de uma carga longa só o fim do que a SPU tocou é ouvido).
 //   - Dump: grava tudo num WAV (--audio-dump), na mesma linha do tempo do jogo, para medir sem caixas de som.
 // Como a quantidade misturada depende só dos VBlanks, o resultado não depende do aparelho: um dump e o jogo com som

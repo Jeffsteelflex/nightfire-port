@@ -17,8 +17,8 @@
 // existe (MultitapPresent = 0, sem sceMtapGetConnection a cada 60 chamadas).
 
 #include "platform/psi_input.h"
+#include "platform/keys.h"
 
-#include <windows.h>
 
 #include <algorithm>
 #include <cmath>
@@ -66,7 +66,7 @@ bool menu_prev_lmb = false;
 bool menu_prev_back = false;
 bool menu_was_open = false;
 uint8_t mouse_swallow = 0;       // botões do mouse ignorados até serem soltos (bits de kMouseButtons)
-constexpr int kMouseButtons[5] = {VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2};
+constexpr int kMouseButtons[5] = {nf::key::LButton, nf::key::RButton, nf::key::MButton, nf::key::XButton1, nf::key::XButton2};
 // As entradas do "pause" que também são do menu (Esc), apertadas com um menu aberto: ficam fora do "pause" até
 // serem soltas (pause_menu_shared).
 nf::InputCode pause_blocked[nf::kMaxBinds];
@@ -123,8 +123,8 @@ void update_menu_mouse(bool menu_open, float wheel) {
         mm.y = (km.cursor_y - vp.top) / vp.scale_y;
     }
     mm.moved = mm.inside && (!was_inside || std::fabs(mm.x - old_x) > 0.01f || std::fabs(mm.y - old_y) > 0.01f);
-    const bool lmb = km.active && km.down[VK_LBUTTON];
-    const bool back = km.active && (km.down[VK_RBUTTON] || km.down[VK_XBUTTON1]);
+    const bool lmb = km.active && km.down[nf::key::LButton];
+    const bool back = km.active && (km.down[nf::key::RButton] || km.down[nf::key::XButton1]);
     mm.held = lmb;
     mm.pressed = lmb && !menu_prev_lmb;
     mm.back = back && !menu_prev_back;
@@ -155,17 +155,17 @@ void update_menu_mouse(bool menu_open, float wheel) {
 // Page Up/Down) e as do Windows.
 bool reserved_key(int vk) {
     switch (vk) {
-        case VK_ESCAPE:
-        case VK_DELETE:
-        case VK_F2:
-        case VK_F3:
-        case VK_F4:
-        case VK_F12:
-        case VK_PRIOR:
-        case VK_NEXT:
-        case VK_LWIN:
-        case VK_RWIN:
-        case VK_APPS:
+        case nf::key::Escape:
+        case nf::key::Delete:
+        case nf::key::F2:
+        case nf::key::F3:
+        case nf::key::F4:
+        case nf::key::F12:
+        case nf::key::Prior:
+        case nf::key::Next:
+        case nf::key::LWin:
+        case nf::key::RWin:
+        case nf::key::Apps:
             return true;
         default:
             return false;
@@ -207,12 +207,12 @@ void run_capture(const nf::PadState* pad) {
         return;
     }
     const bool* down = g_psi_keyboard_mouse.down;
-    if (down[VK_ESCAPE] || capture_ticks > 600) {
+    if (down[nf::key::Escape] || capture_ticks > 600) {
         capture_state = PsiCapture::Cancelled;
         swallow = true;
         return;
     }
-    if (down[VK_DELETE]) {
+    if (down[nf::key::Delete]) {
         capture_state = PsiCapture::Clear;
         swallow = true;
         return;

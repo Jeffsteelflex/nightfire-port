@@ -1,11 +1,11 @@
 // A entrada dos menus Modern dos menus do jogo. Ver modern_input.h.
 
 #include "ui/modern_input.h"
+#include "platform/keys.h"
 
 #include <algorithm>
 #include <cmath>
 
-#include <windows.h>
 
 #include "engine/input.h"
 #include "platform/gamepad.h"
@@ -68,7 +68,7 @@ void NavState::read(const UiInput& in, const Canvas& cv, float dt, const Tokens&
     now[int(Nav::Down)] = cmd("menu_down") || btn(nf::kPadDpadDown) || ly < -0.55f;
     now[int(Nav::Left)] = cmd("menu_left") || btn(nf::kPadDpadLeft) || lx < -0.55f;
     now[int(Nav::Right)] = cmd("menu_right") || btn(nf::kPadDpadRight) || lx > 0.55f;
-    const bool enter = key(VK_RETURN);
+    const bool enter = key(nf::key::Return);
     // O "pause" (Enter por padrão), sem as entradas dele que também são do menu (Esc: aqui só volta).
     bool pause_cmd = false;
     {
@@ -83,7 +83,7 @@ void NavState::read(const UiInput& in, const Canvas& cv, float dt, const Tokens&
         pause_cmd = nf::command_value(only, nf::pause_command(), f) > 0.5f;
     }
     now[int(Nav::Select)] = cmd("menu_select") || btn(nf::kPadA) || (enter_selects && enter);
-    now[int(Nav::Back)] = cmd("menu_back") || key(VK_ESCAPE) || btn(nf::kPadB);
+    now[int(Nav::Back)] = cmd("menu_back") || key(nf::key::Escape) || btn(nf::kPadB);
     now[int(Nav::TabPrev)] = cmd("menu_tab_prev");
     now[int(Nav::TabNext)] = cmd("menu_tab_next");
     // O Start: o do controle e a tecla da pausa (menos o Enter, quando ele escolhe).

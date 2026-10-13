@@ -1,21 +1,24 @@
-#include "render/renderer.h"
+// O renderizador Direct3D 11: o backend do Windows de render/renderer.h (o Renderer::Impl de render/renderer_d3d11.h) e,
+// no fim, os repasses da fachada Renderer para ele. Os shaders HLSL estão aqui.
+
+#include "render/renderer_d3d11.h"
 
 #include <d3d11_3.h>
 #include <d3dcompiler.h>
 #include <dxgi1_5.h>
-#include <wincodec.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
 
+#include "platform/image_io.h"
 #include "platform/vu1.h"
-#include "render/gpu_adapters.h"
-#include "render/movie_layer.h"
+#include "render/gpu_adapters_dxgi.h"
+#include "render/movie_layer_d3d11.h"
 #include "render/ui_hd.h"
-#include "render/ui_hd_draw.h"
-#include "render/ui_modern_draw.h"
+#include "render/ui_hd_draw_d2d.h"
+#include "render/ui_modern_draw_d2d.h"
 #include "ui/modern_ui.h"
 
 namespace nf {
@@ -463,7 +466,7 @@ Microsoft::WRL::ComPtr<ID3DBlob> compile(const char* entry, const char* target, 
 
 }  // namespace
 
-Renderer::Renderer(HWND hwnd, int width, int height, bool vsync, bool offscreen, IDXGIAdapter1* chosen)
+Renderer::Impl::Impl(HWND hwnd, int width, int height, bool vsync, bool offscreen, IDXGIAdapter1* chosen)
     : hwnd_(hwnd), width_(width), height_(height), vsync_(vsync), offscreen_(offscreen) {
     const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0};
     // BGRA: o Direct2D da camada 2D em alta definição usa o mesmo dispositivo. Sem adaptador escolhido, o padrão do
@@ -534,12 +537,12 @@ Renderer::Renderer(HWND hwnd, int width, int height, bool vsync, bool offscreen,
     create_pipeline();
 }
 
-Renderer::~Renderer() {
+Renderer::Impl::~Impl() {
     // O DXGI pede que a cadeia saia da tela cheia exclusiva antes de ser liberada.
     if (swap_ != nullptr) swap_->SetFullscreenState(FALSE, nullptr);
 }
 
-void Renderer::set_movie_frame(const uint8_t* bgra, int width, int height, uint64_t serial) {
+void Renderer::Impl::set_movie_frame(const uint8_t* bgra, int width, int height, uint64_t serial) {
     if (movie_ == nullptr) {
         movie_ = std::make_unique<MovieLayer>();
         if (!movie_->init(device_.Get())) {
@@ -550,14 +553,14 @@ void Renderer::set_movie_frame(const uint8_t* bgra, int width, int height, uint6
     movie_->upload(ctx_.Get(), bgra, width, height, serial);
 }
 
-void Renderer::set_movie_background(bool on, const float rect[4]) {
+void Renderer::Impl::set_movie_background(bool on, const float rect[4]) {
     movie_on_ = on && movie_ != nullptr && movie_->srv() != nullptr;
     std::memcpy(movie_rect_, rect, sizeof(movie_rect_));
 }
 
-ID3D11ShaderResourceView* Renderer::movie_srv() const { return movie_ != nullptr ? movie_->srv() : nullptr; }
+ID3D11ShaderResourceView* Renderer::Impl::movie_srv() const { return movie_ != nullptr ? movie_->srv() : nullptr; }
 
-void Renderer::create_targets() {
+void Renderer::Impl::create_targets() {
     if (offscreen_) {
         D3D11_TEXTURE2D_DESC td{};
         td.Width = UINT(width_);
@@ -579,13 +582,13 @@ void Renderer::create_targets() {
 
 // A profundidade da cena e, com escala ou MSAA (só do PC), a cor própria dela. Sem memória ou sem suporte
 // para o pedido, tenta sem MSAA e depois em 100% (o caminho de antes).
-void Renderer::create_scene_targets() {
+void Renderer::Impl::create_scene_targets() {
     if (try_scene_targets(scene_scale_, scene_msaa_)) return;
     if (scene_msaa_ > 1 && try_scene_targets(scene_scale_, 1)) return;
     if (!try_scene_targets(100, 1)) throw std::runtime_error("alvos da cena: sem memória para a profundidade");
 }
 
-bool Renderer::try_scene_targets(int scale_percent, int msaa) {
+bool Renderer::Impl::try_scene_targets(int scale_percent, int msaa) {
     scene_color_.Reset();
     scene_rtv_.Reset();
     scene_resolved_.Reset();
@@ -650,7 +653,7 @@ bool Renderer::try_scene_targets(int scale_percent, int msaa) {
     return true;
 }
 
-bool Renderer::set_scene_quality(int scale_percent, int msaa) {
+bool Renderer::Impl::set_scene_quality(int scale_percent, int msaa) {
     scale_percent = std::clamp(scale_percent, 25, 400);
     msaa = msaa >= 8 ? 8 : msaa >= 4 ? 4 : msaa >= 2 ? 2 : 1;
     if (scale_percent == scene_scale_ && msaa == scene_msaa_ && depth_ != nullptr) return true;
@@ -663,7 +666,7 @@ bool Renderer::set_scene_quality(int scale_percent, int msaa) {
     return scene_scale_ == scale_percent && scene_msaa_ == msaa;
 }
 
-std::vector<int> Renderer::supported_msaa() const {
+std::vector<int> Renderer::Impl::supported_msaa() const {
     std::vector<int> out;
     for (int n : {2, 4, 8}) {
         UINT q_color = 0, q_depth = 0;
@@ -674,7 +677,7 @@ std::vector<int> Renderer::supported_msaa() const {
     return out;
 }
 
-void Renderer::set_texture_filter(TextureFilter f) {
+void Renderer::Impl::set_texture_filter(TextureFilter f) {
     D3D11_SAMPLER_DESC sd{};
     const int aniso = texture_filter_anisotropy(f);
     if (aniso > 0) {
@@ -724,7 +727,7 @@ Microsoft::WRL::ComPtr<IDXGIOutput> output_of(IDXGISwapChain1* swap, ID3D11Devic
 }
 }  // namespace
 
-std::vector<DisplayMode> Renderer::display_modes() const {
+std::vector<DisplayMode> Renderer::Impl::display_modes() const {
     std::vector<DisplayMode> out;
     const auto output = output_of(swap_.Get(), device_.Get(), hwnd_);
     if (output == nullptr) return out;
@@ -736,7 +739,7 @@ std::vector<DisplayMode> Renderer::display_modes() const {
     return out;
 }
 
-DisplayMode Renderer::desktop_mode() const {
+DisplayMode Renderer::Impl::desktop_mode() const {
     const auto output = output_of(swap_.Get(), device_.Get(), hwnd_);
     DXGI_OUTPUT_DESC d{};
     if (output == nullptr || FAILED(output->GetDesc(&d))) return DisplayMode{};
@@ -744,7 +747,7 @@ DisplayMode Renderer::desktop_mode() const {
                        int(d.DesktopCoordinates.bottom - d.DesktopCoordinates.top)};
 }
 
-bool Renderer::set_exclusive_fullscreen(bool on, int width, int height) {
+bool Renderer::Impl::set_exclusive_fullscreen(bool on, int width, int height) {
     if (offscreen_ || swap_ == nullptr) return false;
     if (!on) {
         if (exclusive_fullscreen()) swap_->SetFullscreenState(FALSE, nullptr);
@@ -769,13 +772,13 @@ bool Renderer::set_exclusive_fullscreen(bool on, int width, int height) {
     return true;
 }
 
-bool Renderer::exclusive_fullscreen() const {
+bool Renderer::Impl::exclusive_fullscreen() const {
     BOOL fs = FALSE;
     if (swap_ == nullptr || offscreen_ || FAILED(swap_->GetFullscreenState(&fs, nullptr))) return false;
     return fs != FALSE;
 }
 
-void Renderer::resize(int width, int height) {
+void Renderer::Impl::resize(int width, int height) {
     if (width <= 0 || height <= 0 || offscreen_) return;
     width_ = width;
     height_ = height;
@@ -793,7 +796,7 @@ void Renderer::resize(int width, int height) {
     create_targets();
 }
 
-void Renderer::create_pipeline() {
+void Renderer::Impl::create_pipeline() {
     auto vs = compile("vs_main", "vs_5_0");
     auto ps = compile("ps_main", "ps_5_0");
     check(device_->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, &vs_), "vertex shader");
@@ -980,7 +983,7 @@ bool uses_fix(const GsBlendEq& g) {
 }
 }  // namespace
 
-ID3D11BlendState* Renderer::blend_state(const GsBlendEq& g, bool coverage) {
+ID3D11BlendState* Renderer::Impl::blend_state(const GsBlendEq& g, bool coverage) {
     const uint32_t key = uint32_t(g.src) | uint32_t(g.dst) << 8 | uint32_t(g.op) << 16 | uint32_t(g.enable) << 24 |
                          uint32_t(coverage) << 25;
     for (const auto& [k, s] : gs_blends_) {
@@ -1004,7 +1007,7 @@ ID3D11BlendState* Renderer::blend_state(const GsBlendEq& g, bool coverage) {
     return state.Get();
 }
 
-ID3D11DepthStencilState* Renderer::depth_state(D3D11_COMPARISON_FUNC func, bool write) {
+ID3D11DepthStencilState* Renderer::Impl::depth_state(D3D11_COMPARISON_FUNC func, bool write) {
     const uint32_t key = uint32_t(func) | uint32_t(write) << 8;
     for (const auto& [k, s] : depths_) {
         if (k == key) return s.Get();
@@ -1019,13 +1022,13 @@ ID3D11DepthStencilState* Renderer::depth_state(D3D11_COMPARISON_FUNC func, bool 
     return state.Get();
 }
 
-void Renderer::reset_resources() {
+void Renderer::Impl::reset_resources() {
     meshes_.clear();
     textures_.clear();
     hd_textures_.clear();
 }
 
-bool Renderer::set_texture_dds(int slot, const std::wstring& path) {
+bool Renderer::Impl::set_texture_dds(int slot, const std::wstring& path) {
     FILE* f = nullptr;
     if (_wfopen_s(&f, path.c_str(), L"rb") != 0 || f == nullptr) return false;
     std::vector<uint8_t> file;
@@ -1137,7 +1140,7 @@ bool Renderer::set_texture_dds(int slot, const std::wstring& path) {
     return true;
 }
 
-int Renderer::add_mesh(const EntityMesh& mesh) {
+int Renderer::Impl::add_mesh(const EntityMesh& mesh) {
     GpuMesh gm;
     gm.skinned = mesh.skinned;
     gm.bones = mesh.bone_count;
@@ -1182,7 +1185,7 @@ int Renderer::add_mesh(const EntityMesh& mesh) {
     return int(meshes_.size()) - 1;
 }
 
-void Renderer::set_texture(int slot, const Texture& t) {
+void Renderer::Impl::set_texture(int slot, const Texture& t) {
     D3D11_TEXTURE2D_DESC td{};
     td.Width = UINT(t.width);
     td.Height = UINT(t.height);
@@ -1202,7 +1205,7 @@ void Renderer::set_texture(int slot, const Texture& t) {
     textures_[size_t(slot)] = std::move(srv);
 }
 
-void Renderer::set_ui_image(uint32_t key, const uint8_t* rgba, int width, int height) {
+void Renderer::Impl::set_ui_image(uint32_t key, const uint8_t* rgba, int width, int height) {
     if (rgba == nullptr || width <= 0 || height <= 0) return;
     D3D11_TEXTURE2D_DESC td{};
     td.Width = UINT(width);
@@ -1230,7 +1233,7 @@ void Renderer::set_ui_image(uint32_t key, const uint8_t* rgba, int width, int he
     ui_images_.emplace_back(key, srv);
 }
 
-ID3D11ShaderResourceView* Renderer::ui_image(uint32_t key) const {
+ID3D11ShaderResourceView* Renderer::Impl::ui_image(uint32_t key) const {
     for (const auto& [k, v] : ui_images_) {
         if (k == key) return v.Get();
     }
@@ -1238,7 +1241,7 @@ ID3D11ShaderResourceView* Renderer::ui_image(uint32_t key) const {
 }
 
 // O estado do Direct3D no começo do quadro (e depois de cada trecho de Direct2D da camada HD).
-void Renderer::bind_frame_state(const FrameParams& frame) {
+void Renderer::Impl::bind_frame_state(const FrameParams& frame) {
     // Com o alvo próprio da cena (só do PC): a primeira passada desenha nele, com a profundidade dele; a
     // segunda (in_2d_), o 2D no back buffer, sem profundidade.
     ID3D11RenderTargetView* rtv = in_2d_ ? rtv_.Get() : scene_rtv();
@@ -1260,7 +1263,7 @@ void Renderer::bind_frame_state(const FrameParams& frame) {
     shader_state_ = -1;
 }
 
-void Renderer::render(const std::vector<DrawItem>& items, const FrameParams& frame) {
+void Renderer::Impl::render(const std::vector<DrawItem>& items, const FrameParams& frame) {
     const float* clear = frame.clear_color.data();
     env_parts_ = 0;
     a2c_parts_ = 0;
@@ -1268,7 +1271,7 @@ void Renderer::render(const std::vector<DrawItem>& items, const FrameParams& fra
     gpu_phase(GpuPhase::Scene);
     ctx_->ClearRenderTargetView(scene_rtv(), clear);
     ctx_->ClearDepthStencilView(dsv_.Get(), D3D11_CLEAR_DEPTH, 0.0f, 0);
-    // Só do port: o quadro de um filme é o fundo (render/movie_layer.h), no alvo da cena e no tamanho dele.
+    // Só do port: o quadro de um filme é o fundo (render/movie_layer_d3d11.h), no alvo da cena e no tamanho dele.
     if (movie_on_ && movie_ != nullptr) {
         const bool scene = separate_scene();
         const float sx = scene ? float(scene_w_) / float(width_) : 1.0f, sy = scene ? float(scene_h_) / float(height_) : 1.0f;
@@ -1312,7 +1315,7 @@ void Renderer::render(const std::vector<DrawItem>& items, const FrameParams& fra
     }
 }
 
-void Renderer::render_2d(const std::vector<DrawItem>& items, const FrameParams& frame) {
+void Renderer::Impl::render_2d(const std::vector<DrawItem>& items, const FrameParams& frame) {
     in_2d_ = true;
     gpu_phase(GpuPhase::TwoD);
     bind_frame_state(frame);
@@ -1321,7 +1324,7 @@ void Renderer::render_2d(const std::vector<DrawItem>& items, const FrameParams& 
     }
 }
 
-void Renderer::draw_item(const DrawItem& inst, const FrameParams& frame) {
+void Renderer::Impl::draw_item(const DrawItem& inst, const FrameParams& frame) {
     D3D11_MAPPED_SUBRESOURCE map;
     const UINT offset = 0;
     if (inst.kind == ObjectKind::Volume && !frame.show_volumes) return;
@@ -1403,7 +1406,7 @@ void Renderer::draw_item(const DrawItem& inst, const FrameParams& frame) {
 
 // Só do PC: a cena do alvo próprio para o back buffer. Com MSAA, ResolveSubresource (direto no back buffer
 // quando o tamanho é o mesmo); com escala, ps_down reduz (ou amplia) para o tamanho da janela.
-void Renderer::resolve_scene() {
+void Renderer::Impl::resolve_scene() {
     ctx_->OMSetRenderTargets(0, nullptr, nullptr);
     const bool scaled = scene_w_ != width_ || scene_h_ != height_;
     if (scene_msaa_ > 1) {
@@ -1441,7 +1444,7 @@ void Renderer::resolve_scene() {
     shader_state_ = -1;
 }
 
-void Renderer::use_shader(int skinned) {
+void Renderer::Impl::use_shader(int skinned) {
     if (skinned == shader_state_) return;
     ID3D11InputLayout* layouts[3] = {layout_.Get(), layout_skin_.Get(), layout_skin_morph_.Get()};
     ID3D11VertexShader* shaders[3] = {vs_.Get(), vs_skin_.Get(), vs_skin_morph_.Get()};
@@ -1451,7 +1454,7 @@ void Renderer::use_shader(int skinned) {
     shader_state_ = skinned;
 }
 
-ID3D11ShaderResourceView* Renderer::texture_srv(int slot) const {
+ID3D11ShaderResourceView* Renderer::Impl::texture_srv(int slot) const {
     if (slot == kQuadNoTexture) return no_texture_.Get();
     if (use_hd_ && slot >= 0 && slot < int(hd_textures_.size()) && hd_textures_[size_t(slot)]) {
         return hd_textures_[size_t(slot)].Get();
@@ -1461,7 +1464,7 @@ ID3D11ShaderResourceView* Renderer::texture_srv(int slot) const {
 }
 
 // Estado do GS (mistura, teste de alfa, teste e escrita de Z) e constantes de uma parte do desenho.
-void Renderer::apply_state(const DrawItem& inst, const GsState& own, bool sprite, bool env, bool screen) {
+void Renderer::Impl::apply_state(const DrawItem& inst, const GsState& own, bool sprite, bool env, bool screen) {
     const DrawState st = resolve_state(own, inst);
     GsBlendEq gb = gs_blend_equation(st.alpha, st.abe, sprite);
     // Só do PC: com MSAA, um desenho opaco recortado pelo teste de alfa vai com o alfa para a cobertura (ps_a2c); sem
@@ -1505,7 +1508,7 @@ void Renderer::apply_state(const DrawItem& inst, const GsState& own, bool sprite
 
 // Sprites de psiDrawParticleList: os vértices do item vão para um vertex buffer dinâmico e cada
 // quatro viram dois triângulos (índices fixos 0 1 2, 0 2 3).
-void Renderer::draw_sprites(const DrawItem& inst) {
+void Renderer::Impl::draw_sprites(const DrawItem& inst) {
     const size_t vertices = inst.sprites.size() - inst.sprites.size() % 4;
     if (vertices == 0) return;
     const size_t quads = vertices / 4;
@@ -1553,7 +1556,7 @@ void Renderer::draw_sprites(const DrawItem& inst) {
 // Triângulos soltos (os estilhaços de psiDrawShard): os vértices do item vão para um vertex buffer
 // dinâmico e são desenhados sem índices, com o shader e o estado dos sprites (cor na escala do GS, sem
 // rotina da VU1, como a rotina 0 que o PS2 usa nos estilhaços).
-void Renderer::draw_triangles(const DrawItem& inst) {
+void Renderer::Impl::draw_triangles(const DrawItem& inst) {
     const size_t vertices = inst.triangles.size() - inst.triangles.size() % 3;
     if (vertices == 0) return;
     if (vertices > tri_vb_vertices_) {
@@ -1584,7 +1587,7 @@ void Renderer::draw_triangles(const DrawItem& inst) {
 // tela (-1..1), com os índices fixos dos sprites; quadrados seguidos com a mesma textura, o mesmo ALPHA_1
 // e o mesmo filtro saem num desenho só. O estado é o de psiStartSprites: TEST_1 = alfa > 0 sem teste de Z
 // (0xd) e ZBUF_1 sem escrita; a mistura é a do quadrado. Recorte na área da tela do PS2 (clip2d).
-void Renderer::draw_2d(const DrawItem& inst) {
+void Renderer::Impl::draw_2d(const DrawItem& inst) {
     const size_t quads = inst.quads2d.size();
     const size_t vertices = quads * 4;
     if (vertices > quad2d_vb_vertices_) {
@@ -1645,7 +1648,7 @@ void Renderer::draw_2d(const DrawItem& inst) {
         const Quad2D& a = inst.quads2d[first];
         size_t end = first + 1;
         while (end < quads && inst.quads2d[end].texture == a.texture && inst.quads2d[end].alpha == a.alpha &&
-               inst.quads2d[end].linear == a.linear && inst.quads2d[end].srv == a.srv &&
+               inst.quads2d[end].linear == a.linear && inst.quads2d[end].image == a.image &&
                inst.quads2d[end].smooth == a.smooth) {
             ++end;
         }
@@ -1661,7 +1664,7 @@ void Renderer::draw_2d(const DrawItem& inst) {
                         hd_textures_[size_t(a.texture)] != nullptr;
         ctx_->PSSetSamplers(0, 1, a.smooth ? sampler_smooth_.GetAddressOf()
                                            : (a.linear || hd ? sampler_linear_.GetAddressOf() : sampler_point_.GetAddressOf()));
-        ID3D11ShaderResourceView* srv = a.srv != nullptr ? a.srv : texture_srv(a.texture);
+        ID3D11ShaderResourceView* srv = a.image != nullptr ? srv_of(a.image) : texture_srv(a.texture);
         ctx_->PSSetShaderResources(0, 1, &srv);
         ctx_->DrawIndexed(UINT((end - first) * 6), UINT(first * 6), 0);
         ++counters_.draws;
@@ -1672,7 +1675,7 @@ void Renderer::draw_2d(const DrawItem& inst) {
 // Camada 2D em alta definição (render/ui_hd.h): as imagens seguidas com o mesmo recorte viram um item 2D
 // comum (com a substituta no lugar da textura e o filtro com mipmaps); os textos seguidos, um trecho de
 // Direct2D, depois do qual o estado do Direct3D do quadro volta.
-void Renderer::draw_ui(const UiHdBatch& batch, const FrameParams& frame) {
+void Renderer::Impl::draw_ui(const UiHdBatch& batch, const FrameParams& frame) {
     if (ui_ == nullptr || !ui_->ok()) return;
     DrawItem images;
     images.blend = Blend::Alpha;
@@ -1723,8 +1726,8 @@ void Renderer::draw_ui(const UiHdBatch& batch, const FrameParams& frame) {
         q.linear = im.linear;
         q.smooth = im.linear;
         if (im.asset >= 0) {
-            q.srv = ui_->asset(im.asset, im.asset_w, im.asset_h);
-            if (q.srv == nullptr) {  // sem a substituta: a textura original, com o ST original
+            q.image = image_of(ui_->asset(im.asset, im.asset_w, im.asset_h));
+            if (q.image == nullptr) {  // sem a substituta: a textura original, com o ST original
                 q.u0 = im.orig_uv[0];
                 q.v0 = im.orig_uv[1];
                 q.u1 = im.orig_uv[2];
@@ -1737,7 +1740,7 @@ void Renderer::draw_ui(const UiHdBatch& batch, const FrameParams& frame) {
     end_text();
 }
 
-void Renderer::set_ui_hd(const UiHdConfig* config, const std::wstring& dir) {
+void Renderer::Impl::set_ui_hd(const UiHdConfig* config, const std::wstring& dir) {
     if (config == nullptr) {
         ui_.reset();
         return;
@@ -1749,7 +1752,7 @@ void Renderer::set_ui_hd(const UiHdConfig* config, const std::wstring& dir) {
     ui_->configure(config, dir);
 }
 
-bool Renderer::set_modern_ui(const std::wstring& dir) {
+bool Renderer::Impl::set_modern_ui(const std::wstring& dir) {
     if (modern_ == nullptr) {
         modern_ = std::make_unique<UiModernDevice>(device_.Get(), ctx_.Get());
         modern_->set_target(target_.Get());
@@ -1758,15 +1761,15 @@ bool Renderer::set_modern_ui(const std::wstring& dir) {
     return modern_->ok();
 }
 
-bool Renderer::modern_ok() const { return modern_ != nullptr && modern_->ok(); }
+bool Renderer::Impl::modern_ok() const { return modern_ != nullptr && modern_->ok(); }
 
-float Renderer::modern_measure(const std::wstring& text, const ui::TextStyle& style) const {
+float Renderer::Impl::modern_measure(const std::wstring& text, const ui::TextStyle& style) const {
     return modern_ != nullptr ? modern_->measure(text, style) : ui::estimate_width(text, style);
 }
 
-std::string Renderer::modern_describe() const { return modern_ != nullptr ? modern_->describe() : "desligado"; }
+std::string Renderer::Impl::modern_describe() const { return modern_ != nullptr ? modern_->describe() : "desligado"; }
 
-void Renderer::draw_modern(const ui::DrawList& list, const ui::Canvas& canvas) {
+void Renderer::Impl::draw_modern(const ui::DrawList& list, const ui::Canvas& canvas) {
     if (modern_ == nullptr || !modern_->ok()) return;
     gpu_phase(GpuPhase::Modern);
     ctx_->OMSetRenderTargets(0, nullptr, nullptr);
@@ -1774,7 +1777,7 @@ void Renderer::draw_modern(const ui::DrawList& list, const ui::Canvas& canvas) {
     shader_state_ = -1;
 }
 
-void Renderer::ensure_blur_targets() {
+void Renderer::Impl::ensure_blur_targets() {
     const int qw = std::max(1, width_ / 4), qh = std::max(1, height_ / 4);
     if (blur_full_ == nullptr) {
         D3D11_TEXTURE2D_DESC td{};
@@ -1806,7 +1809,7 @@ void Renderer::ensure_blur_targets() {
     }
 }
 
-void Renderer::blur_background(float amount) {
+void Renderer::Impl::blur_background(float amount) {
     if (amount <= 0.001f || target_ == nullptr) return;
     gpu_phase(GpuPhase::Blur);
     ensure_blur_targets();
@@ -1882,15 +1885,15 @@ void Renderer::blur_background(float amount) {
     shader_state_ = -1;
 }
 
-std::string Renderer::ui_hd_describe() const { return ui_ != nullptr ? ui_->describe() : "desligada"; }
+std::string Renderer::Impl::ui_hd_describe() const { return ui_ != nullptr ? ui_->describe() : "desligada"; }
 
-float Renderer::ui_hd_measure(const std::wstring& label, float cap_px) const {
+float Renderer::Impl::ui_hd_measure(const std::wstring& label, float cap_px) const {
     return ui_ != nullptr ? ui_->measure(label, cap_px) : 0.0f;
 }
 
-bool Renderer::ui_hd_ok() const { return ui_ != nullptr && ui_->ok(); }
+bool Renderer::Impl::ui_hd_ok() const { return ui_ != nullptr && ui_->ok(); }
 
-bool Renderer::read_texture(int slot, int& width, int& height, std::vector<uint8_t>& rgba) {
+bool Renderer::Impl::read_texture(int slot, int& width, int& height, std::vector<uint8_t>& rgba) {
     if (slot < 0 || slot >= int(textures_.size()) || textures_[size_t(slot)] == nullptr) return false;
     Com<ID3D11Resource> res;
     textures_[size_t(slot)]->GetResource(&res);
@@ -1920,33 +1923,9 @@ bool Renderer::read_texture(int slot, int& width, int& height, std::vector<uint8
     return true;
 }
 
-bool Renderer::write_png(const std::wstring& path, int width, int height, const uint8_t* rgba) {
-    if (width <= 0 || height <= 0) return false;
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    Com<IWICImagingFactory> wic;
-    Com<IWICStream> stream;
-    Com<IWICBitmapEncoder> enc;
-    Com<IWICBitmapFrameEncode> fr;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))) ||
-        FAILED(wic->CreateStream(&stream)) || FAILED(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE)) ||
-        FAILED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc)) ||
-        FAILED(enc->Initialize(stream.Get(), WICBitmapEncoderNoCache)) || FAILED(enc->CreateNewFrame(&fr, nullptr)) ||
-        FAILED(fr->Initialize(nullptr)) || FAILED(fr->SetSize(UINT(width), UINT(height)))) {
-        return false;
-    }
-    WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppRGBA;
-    if (FAILED(fr->SetPixelFormat(&fmt))) return false;
-    std::vector<uint8_t> pixels(rgba, rgba + size_t(width) * size_t(height) * 4);
-    if (fmt != GUID_WICPixelFormat32bppRGBA) {  // o codificador pediu BGRA
-        for (size_t i = 0; i < pixels.size(); i += 4) std::swap(pixels[i], pixels[i + 2]);
-    }
-    return SUCCEEDED(fr->WritePixels(UINT(height), UINT(width) * 4, UINT(pixels.size()), pixels.data())) &&
-           SUCCEEDED(fr->Commit()) && SUCCEEDED(enc->Commit());
-}
-
 // Passada de névoa (psiDrawFogPass): um triângulo que cobre a tela lê a profundidade de cada pixel e
 // mistura a cor da névoa como o sprite do PS2 (ps_fog). A profundidade sai do alvo enquanto é lida.
-void Renderer::draw_fog(const DrawItem& inst, const FrameParams& frame) {
+void Renderer::Impl::draw_fog(const DrawItem& inst, const FrameParams& frame) {
     D3D11_MAPPED_SUBRESOURCE map;
     check(ctx_->Map(cb_fog_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map), "Map");
     FogCB f{};
@@ -1980,7 +1959,7 @@ void Renderer::draw_fog(const DrawItem& inst, const FrameParams& frame) {
     shader_state_ = -1;  // o próximo desenho volta o input layout e o vertex shader
 }
 
-void Renderer::present() {
+void Renderer::Impl::present() {
     if (!offscreen_) {
         // Sem VSync e fora da tela cheia exclusiva (onde o DXGI recusa a flag), sem esperar o monitor.
         const UINT flags = !vsync_ && tearing_ && !exclusive_fullscreen() ? DXGI_PRESENT_ALLOW_TEARING : 0;
@@ -2018,12 +1997,12 @@ const char* gpu_phase_name(GpuPhase p) {
     }
 }
 
-void Renderer::set_profiling(bool on) {
+void Renderer::Impl::set_profiling(bool on) {
     profiling_ = on;
     if (!on) gpu_cur_ = -1;
 }
 
-void Renderer::gpu_stamp(GpuPhase p) {
+void Renderer::Impl::gpu_stamp(GpuPhase p) {
     if (gpu_cur_ < 0) return;
     GpuFrame& f = gpu_ring_[gpu_cur_];
     if (f.used >= 64) return;
@@ -2039,13 +2018,13 @@ void Renderer::gpu_stamp(GpuPhase p) {
     ++f.used;
 }
 
-void Renderer::gpu_phase(GpuPhase p) {
+void Renderer::Impl::gpu_phase(GpuPhase p) {
     if (!profiling_ || gpu_cur_ < 0 || p == phase_) return;
     gpu_stamp(phase_);  // o fim do trecho anterior
     phase_ = p;
 }
 
-void Renderer::gpu_frame_begin() {
+void Renderer::Impl::gpu_frame_begin() {
     if (!profiling_) return;
     // O quadro do anel que vai ser reusado: lido antes (esperando só por ele, se ainda não acabou).
     GpuFrame& f = gpu_ring_[gpu_next_];
@@ -2063,7 +2042,7 @@ void Renderer::gpu_frame_begin() {
     gpu_stamp(GpuPhase::Scene);  // o começo
 }
 
-void Renderer::gpu_frame_end() {
+void Renderer::Impl::gpu_frame_end() {
     if (!profiling_ || gpu_cur_ < 0) return;
     GpuFrame& f = gpu_ring_[gpu_cur_];
     gpu_stamp(phase_);
@@ -2074,7 +2053,7 @@ void Renderer::gpu_frame_end() {
 }
 
 // Lê um quadro do anel: falso se ainda não acabou (sem wait). Os tempos vão para gpu_times_.
-bool Renderer::gpu_read(GpuFrame& f, bool wait) {
+bool Renderer::Impl::gpu_read(GpuFrame& f, bool wait) {
     D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj{};
     HRESULT hr;
     while ((hr = ctx_->GetData(f.disjoint.Get(), &dj, sizeof(dj), wait ? 0 : D3D11_ASYNC_GETDATA_DONOTFLUSH)) == S_FALSE &&
@@ -2118,7 +2097,7 @@ bool Renderer::gpu_read(GpuFrame& f, bool wait) {
     return true;
 }
 
-void Renderer::gpu_collect(bool wait) {
+void Renderer::Impl::gpu_collect(bool wait) {
     // Os quadros prontos, do mais velho para o mais novo (gpu_next_ é o mais velho do anel); sem wait, para no
     // primeiro que ainda não acabou (os mais novos também não acabaram).
     for (int k = 0; k < kGpuRing; ++k) {
@@ -2129,9 +2108,9 @@ void Renderer::gpu_collect(bool wait) {
     }
 }
 
-void Renderer::clear_target(const float rgba[4]) { ctx_->ClearRenderTargetView(rtv_.Get(), rgba); }
+void Renderer::Impl::clear_target(const float rgba[4]) { ctx_->ClearRenderTargetView(rtv_.Get(), rgba); }
 
-void Renderer::screen_blur(float keep) {
+void Renderer::Impl::screen_blur(float keep) {
     if (!(keep > 0.0f) || target_ == nullptr) {
         blur_history_valid_ = false;
         return;
@@ -2194,7 +2173,7 @@ void Renderer::screen_blur(float keep) {
     blur_history_valid_ = true;
 }
 
-void Renderer::save_loading_snapshot() {
+void Renderer::Impl::save_loading_snapshot() {
     D3D11_TEXTURE2D_DESC td;
     target_->GetDesc(&td);
     D3D11_TEXTURE2D_DESC have{};
@@ -2214,7 +2193,7 @@ void Renderer::save_loading_snapshot() {
     ctx_->CopyResource(loading_snapshot_.Get(), target_.Get());
 }
 
-bool Renderer::restore_loading_snapshot() {
+bool Renderer::Impl::restore_loading_snapshot() {
     if (loading_snapshot_ == nullptr) return false;
     D3D11_TEXTURE2D_DESC a, b;
     loading_snapshot_->GetDesc(&a);
@@ -2224,16 +2203,16 @@ bool Renderer::restore_loading_snapshot() {
     return true;
 }
 
-void Renderer::release_loading_snapshot() { loading_snapshot_.Reset(); }
+void Renderer::Impl::release_loading_snapshot() { loading_snapshot_.Reset(); }
 
-Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> Renderer::keep_texture(int slot) const {
+Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> Renderer::Impl::keep_texture(int slot) const {
     if (slot < 0) return nullptr;
     if (use_hd_ && slot < int(hd_textures_.size()) && hd_textures_[size_t(slot)] != nullptr) return hd_textures_[size_t(slot)];
     if (slot < int(textures_.size())) return textures_[size_t(slot)];
     return nullptr;
 }
 
-void Renderer::save_png(const std::wstring& path) {
+void Renderer::Impl::save_png(const std::wstring& path) {
     Com<ID3D11Texture2D> back = target_;
     D3D11_TEXTURE2D_DESC td;
     back->GetDesc(&td);
@@ -2246,33 +2225,115 @@ void Renderer::save_png(const std::wstring& path) {
     ctx_->CopyResource(staging.Get(), back.Get());
     D3D11_MAPPED_SUBRESOURCE map;
     check(ctx_->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &map), "Map");
-
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    Com<IWICImagingFactory> wic;
-    check(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)), "WIC");
-    Com<IWICStream> stream;
-    check(wic->CreateStream(&stream), "WIC stream");
-    check(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE), "arquivo PNG");
-    Com<IWICBitmapEncoder> enc;
-    check(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc), "encoder PNG");
-    check(enc->Initialize(stream.Get(), WICBitmapEncoderNoCache), "encoder");
-    Com<IWICBitmapFrameEncode> fr;
-    check(enc->CreateNewFrame(&fr, nullptr), "frame");
-    check(fr->Initialize(nullptr), "frame");
-    check(fr->SetSize(td.Width, td.Height), "tamanho");
-    WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppBGRA;
-    check(fr->SetPixelFormat(&fmt), "formato");
     // Força alfa opaco no arquivo.
     std::vector<uint8_t> pixels(size_t(td.Width) * td.Height * 4);
     for (UINT y = 0; y < td.Height; ++y) {
         std::memcpy(&pixels[size_t(y) * td.Width * 4], static_cast<uint8_t*>(map.pData) + size_t(y) * map.RowPitch,
                     size_t(td.Width) * 4);
     }
-    for (size_t i = 3; i < pixels.size(); i += 4) pixels[i] = 255;
-    check(fr->WritePixels(td.Height, td.Width * 4, UINT(pixels.size()), pixels.data()), "WritePixels");
-    check(fr->Commit(), "Commit");
-    check(enc->Commit(), "Commit");
     ctx_->Unmap(staging.Get(), 0);
+    for (size_t i = 3; i < pixels.size(); i += 4) pixels[i] = 255;
+    write_png_bgra(path, int(td.Width), int(td.Height), pixels.data());  // platform/image_io.h (o WIC); lança se falhar
 }
+
+// ---------------------------------------------------------------- a fachada (render/renderer.h)
+
+Renderer::Renderer(void* window, int width, int height, bool vsync, bool offscreen, const AdapterInfo* adapter) {
+    // O adaptador pedido ([video] adapter, --adapter): o IDXGIAdapter1 dele pelo LUID; sem ele, o padrão do sistema.
+    Microsoft::WRL::ComPtr<IDXGIAdapter1> chosen;
+    if (adapter != nullptr) chosen = open_adapter(*adapter);
+    impl_ = std::make_unique<Impl>(static_cast<HWND>(window), width, height, vsync, offscreen, chosen.Get());
+    impl_->adapter_chosen_ = chosen != nullptr;
+}
+Renderer::~Renderer() = default;
+
+void Renderer::resize(int width, int height) { impl_->resize(width, height); }
+void Renderer::reset_resources() { impl_->reset_resources(); }
+void Renderer::set_texture(int slot, const Texture& texture) { impl_->set_texture(slot, texture); }
+bool Renderer::set_texture_dds(int slot, const std::wstring& path) { return impl_->set_texture_dds(slot, path); }
+void Renderer::set_ui_image(uint32_t key, const uint8_t* rgba, int width, int height) {
+    impl_->set_ui_image(key, rgba, width, height);
+}
+GpuImage* Renderer::ui_image(uint32_t key) const { return image_of(impl_->ui_image(key)); }
+size_t Renderer::ui_images() const { return impl_->ui_images(); }
+void Renderer::use_hd(bool on) { impl_->use_hd(on); }
+bool Renderer::using_hd() const { return impl_->using_hd(); }
+int Renderer::add_mesh(const EntityMesh& mesh) { return impl_->add_mesh(mesh); }
+void Renderer::render(const std::vector<DrawItem>& items, const FrameParams& frame) { impl_->render(items, frame); }
+void Renderer::render_2d(const std::vector<DrawItem>& items, const FrameParams& frame) { impl_->render_2d(items, frame); }
+void Renderer::present() { impl_->present(); }
+void Renderer::save_png(const std::wstring& path) { impl_->save_png(path); }
+void Renderer::screen_blur(float keep) { impl_->screen_blur(keep); }
+bool Renderer::screen_blur_active() const { return impl_->screen_blur_active(); }
+void Renderer::clear_target(const float rgba[4]) { impl_->clear_target(rgba); }
+void Renderer::save_loading_snapshot() { impl_->save_loading_snapshot(); }
+bool Renderer::restore_loading_snapshot() { return impl_->restore_loading_snapshot(); }
+void Renderer::release_loading_snapshot() { impl_->release_loading_snapshot(); }
+GpuImageRef Renderer::keep_texture(int slot) const {
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv = impl_->keep_texture(slot);
+    if (srv == nullptr) return nullptr;
+    // A referência própria: o ComPtr solto no GpuImageRef, que a devolve (Release) quando a última cópia sai.
+    return GpuImageRef(image_of(srv.Detach()), [](GpuImage* p) { srv_of(p)->Release(); });
+}
+bool Renderer::offscreen() const { return impl_->offscreen(); }
+void Renderer::set_ui_hd(const UiHdConfig* config, const std::wstring& dir) { impl_->set_ui_hd(config, dir); }
+std::string Renderer::ui_hd_describe() const { return impl_->ui_hd_describe(); }
+float Renderer::ui_hd_measure(const std::wstring& label, float cap_px) const { return impl_->ui_hd_measure(label, cap_px); }
+bool Renderer::ui_hd_ok() const { return impl_->ui_hd_ok(); }
+bool Renderer::set_modern_ui(const std::wstring& hd_ui_dir) { return impl_->set_modern_ui(hd_ui_dir); }
+bool Renderer::modern_ok() const { return impl_->modern_ok(); }
+float Renderer::modern_measure(const std::wstring& text, const ui::TextStyle& style) const {
+    return impl_->modern_measure(text, style);
+}
+void Renderer::blur_background(float amount) { impl_->blur_background(amount); }
+void Renderer::draw_modern(const ui::DrawList& list, const ui::Canvas& canvas) { impl_->draw_modern(list, canvas); }
+std::string Renderer::modern_describe() const { return impl_->modern_describe(); }
+bool Renderer::read_texture(int slot, int& width, int& height, std::vector<uint8_t>& rgba) {
+    return impl_->read_texture(slot, width, height, rgba);
+}
+bool Renderer::write_png(const std::wstring& path, int width, int height, const uint8_t* rgba) {
+    return write_png_rgba(path, width, height, rgba);
+}
+int Renderer::width() const { return impl_->width(); }
+int Renderer::height() const { return impl_->height(); }
+void Renderer::set_movie_frame(const uint8_t* bgra, int width, int height, uint64_t serial) {
+    impl_->set_movie_frame(bgra, width, height, serial);
+}
+void Renderer::set_movie_background(bool on, const float rect[4]) { impl_->set_movie_background(on, rect); }
+GpuImage* Renderer::movie_image() const { return image_of(impl_->movie_srv()); }
+const AdapterInfo& Renderer::adapter() const { return impl_->adapter(); }
+bool Renderer::adapter_chosen() const { return impl_->adapter_chosen_; }
+void Renderer::set_profiling(bool on) { impl_->set_profiling(on); }
+bool Renderer::profiling() const { return impl_->profiling(); }
+void Renderer::gpu_frame_begin() { impl_->gpu_frame_begin(); }
+void Renderer::gpu_frame_end() { impl_->gpu_frame_end(); }
+void Renderer::gpu_collect(bool wait) { impl_->gpu_collect(wait); }
+const GpuTimes& Renderer::gpu_times() const { return impl_->gpu_times(); }
+void Renderer::reset_gpu_times() { impl_->reset_gpu_times(); }
+const std::vector<Renderer::GpuFrameTimes>& Renderer::gpu_per_frame() const { return impl_->gpu_per_frame(); }
+const RenderCounters& Renderer::counters() const { return impl_->counters(); }
+void Renderer::set_alpha_to_coverage(bool on) { impl_->set_alpha_to_coverage(on); }
+bool Renderer::alpha_to_coverage() const { return impl_->alpha_to_coverage(); }
+uint32_t Renderer::alpha_coverage_parts() const { return impl_->alpha_coverage_parts(); }
+uint32_t Renderer::env_parts() const { return impl_->env_parts(); }
+void Renderer::reset_counters() { impl_->reset_counters(); }
+void Renderer::set_offscreen_throttle(bool on) { impl_->set_offscreen_throttle(on); }
+void Renderer::set_vsync(bool on) { impl_->set_vsync(on); }
+bool Renderer::vsync() const { return impl_->vsync(); }
+bool Renderer::set_scene_quality(int scale_percent, int msaa) { return impl_->set_scene_quality(scale_percent, msaa); }
+int Renderer::scene_scale() const { return impl_->scene_scale(); }
+int Renderer::scene_msaa() const { return impl_->scene_msaa(); }
+int Renderer::scene_width() const { return impl_->scene_width(); }
+int Renderer::scene_height() const { return impl_->scene_height(); }
+std::vector<int> Renderer::supported_msaa() const { return impl_->supported_msaa(); }
+void Renderer::set_texture_filter(TextureFilter f) { impl_->set_texture_filter(f); }
+TextureFilter Renderer::texture_filter() const { return impl_->texture_filter(); }
+bool Renderer::tearing() const { return impl_->tearing(); }
+bool Renderer::set_exclusive_fullscreen(bool on, int width, int height) {
+    return impl_->set_exclusive_fullscreen(on, width, height);
+}
+bool Renderer::exclusive_fullscreen() const { return impl_->exclusive_fullscreen(); }
+std::vector<DisplayMode> Renderer::display_modes() const { return impl_->display_modes(); }
+DisplayMode Renderer::desktop_mode() const { return impl_->desktop_mode(); }
 
 }  // namespace nf

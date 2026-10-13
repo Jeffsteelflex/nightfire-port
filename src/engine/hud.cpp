@@ -2096,7 +2096,10 @@ int HUD_Describe(const BLData* b, char* out, size_t size) {
     const HUDPANE_tag& ammo = hud->panes[kHudAmmo];
     const sprite* count = ammo.valid != 0 && ammo.count != 0 ? ammo.sprites[0] : nullptr;
     // O texto que a pane escreveu (Sprite_SetText).
-    put(" municao %s", count != nullptr && count->text != nullptr && count->text[0] != 0 ? count->text : "-");
+    // nf::raw: com o P32 de um lado e o texto literal do outro, o GCC e o clang convertiam o literal num P32 (passado ao
+    // %s como os 4 bytes do campo); assim os dois lados são const char*.
+    put(" municao %s",
+        count != nullptr && count->text != nullptr && count->text[0] != 0 ? nf::raw(count->text) : "-");
     int arrows = 0;
     if (health.valid != 0 && 0x18 <= health.count) {
         for (uint32_t i = 0x14; i < 0x18; ++i) arrows += health.sprites[i]->priority != -1 ? 1 : 0;

@@ -8,9 +8,9 @@
 #include <string>
 #include <vector>
 
-#include <windows.h>
 
 #include "engine/font.h"
+#include "platform/keys.h"
 #include "engine/game.h"
 #include "engine/gameflow.h"
 #include "engine/map_types.h"
@@ -258,8 +258,8 @@ struct PcMenuWorld {
     // A pausa e, pela linha nova (OPTIONS), a página de opções.
     void open_options() {
         open_pause();
-        press(VK_DOWN, 3);
-        press(VK_SPACE);
+        press(nf::key::Down, 3);
+        press(nf::key::Space);
     }
     // O foco num controle pelo id (como a mensagem 0x22 do jogo: o primeiro habilitado com esse id).
     void focus(uint32_t id) { Manager_SendMessage(&m(), 0x22, int32_t(id), 0); }
@@ -267,9 +267,9 @@ struct PcMenuWorld {
     // das abas, depois para baixo até ela.
     void go(uint32_t id) {
         for (int i = 0; i < 16 && !(focused() >= kPcTabFirst && focused() < kPcTabFirst + uint32_t(kPcTabCount)); ++i) {
-            press(VK_UP);
+            press(nf::key::Up);
         }
-        for (int i = 0; i < 16 && focused() != id; ++i) press(VK_DOWN);
+        for (int i = 0; i < 16 && focused() != id; ++i) press(nf::key::Down);
     }
     uint32_t focused() {
         uint32_t id = 0;
@@ -298,7 +298,7 @@ struct PcMenuWorld {
     void mouse_on(const M_CONTROL* c, float fx = 0.5f) {
         mouse(float(c->x) + float(c->w) * fx, float(c->y) + float(c->h) * 0.5f);
     }
-    void click(int button = VK_LBUTTON) {
+    void click(int button = nf::key::LButton) {
         tick({button});
         tick();
     }
@@ -315,7 +315,7 @@ float cy(const M_CONTROL* c) { return float(c->y) + float(c->h) * 0.5f; }
 const char* radio_text(M_CONTROL* c) {
     return c != nullptr ? nf::p32_ptr<char>(uint32_t(Radio_SendMessage(reinterpret_cast<M_RADIO*>(c), 0x3b, 0, 0))) : "";
 }
-const char* label_text(M_CONTROL* c) { return c != nullptr ? reinterpret_cast<M_LABEL*>(c)->string : ""; }
+const char* label_text(M_CONTROL* c) { return c != nullptr ? nf::raw(reinterpret_cast<M_LABEL*>(c)->string) : ""; }
 
 int32_t selected(M_LISTBOX* l) { return l != nullptr ? List_SendMessage(l, 0x34, 0, 0) : -1; }
 
@@ -530,9 +530,9 @@ TEST(pc_menu_pause_row_opens_the_options_tabs) {
     CHECK(std::strcmp(cell(pause, 3, 0), "O P C O E S") == 0);  // sem as fontes: a letra sem acento
     CHECK(g_menu_pc_stats.pause_rows == 1);
     // Para baixo até a linha nova; escolher abre a página de opções (montada agora).
-    w.press(VK_DOWN, 3);
+    w.press(nf::key::Down, 3);
     CHECK(selected(pause) == 3);
-    w.press(VK_SPACE);
+    w.press(nf::key::Space);
     CHECK(Menu_CurrentPage(0) == kPcOptionsPage && g_menu_pc_stats.built == 1);
     // A janela primeiro; o painel da pausa no tamanho do arquivo (550 x 266 -> 440 x 248 na tela do PS2).
     CHECK(static_cast<M_CONTROL*>(ll_first(w.m().page->controls))->id == kPcWindow);
@@ -561,35 +561,35 @@ TEST(pc_menu_pause_row_opens_the_options_tabs) {
     CHECK(name != nullptr && name->state == 2 && name->x < MenuPc_Control(0, kPcRowResolution)->x);
     CHECK(std::abs(cy(name) - cy(MenuPc_Control(0, kPcRowResolution))) <= 1.0f);
     // Direita: GRÁFICOS na hora, com o foco na aba.
-    w.press(VK_RIGHT);
+    w.press(nf::key::Right);
     CHECK(MenuPc_CurrentTab() == PcTab::Graphics && w.focused() == kPcTabFirst + 1);
     CHECK(((MenuPc_Control(0, kPcRowResolution)->state & 1) != 0) && MenuPc_Control(0, kPcRowRenderScale)->state == 0);
     CHECK(MenuPc_Control(0, kPcRowDlss)->state == 2 && std::strcmp(radio_text(MenuPc_Control(0, kPcRowDlss)), "Em breve") == 0);
     // Baixo: a primeira linha; até as texturas HD; DLSS (apagada) e Aplicar (nada a aplicar) são pulados.
-    w.press(VK_DOWN);
+    w.press(nf::key::Down);
     CHECK(w.focused() == kPcRowRenderScale);
-    w.press(VK_DOWN, 3);
+    w.press(nf::key::Down, 3);
     CHECK(w.focused() == kPcRowHdTextures);
-    w.press(VK_DOWN);
+    w.press(nf::key::Down);
     CHECK(w.focused() == kPcRowHdTextures);
     // De cima da primeira linha, volta para a aba.
-    w.press(VK_UP, 4);
+    w.press(nf::key::Up, 4);
     CHECK(w.focused() == kPcTabFirst + 1);
     // Esquerda duas vezes: VÍDEO e, dando a volta, ÁUDIO (as barras do jogo, apagadas).
-    w.press(VK_LEFT, 2);
+    w.press(nf::key::Left, 2);
     CHECK(MenuPc_CurrentTab() == PcTab::Audio && MenuPc_Control(0, kPcRowMusic)->state == 2);
     CHECK(MenuPc_Slider(0, kPcRowMusic) == 14 && MenuPc_Slider(0, kPcRowEffects) == 20);
     CHECK(g_menu_pc_stats.tab_changes == 3);
     // Voltar volta para a pausa como ela estava (o 0x4c do jogo não roda de novo: as linhas não repetem).
-    w.press(VK_BACK);
+    w.press(nf::key::Back);
     CHECK(Menu_CurrentPage(0) == 0x4000004b);
     pause = w.list(0x10000028, 6);
     CHECK(pause->rows.count == 4 && g_menu_pc_stats.pause_rows == 1);
     // De novo: a página já existe (não monta outra) e abre na última aba.
-    w.press(VK_SPACE);
+    w.press(nf::key::Space);
     CHECK(Menu_CurrentPage(0) == kPcOptionsPage && g_menu_pc_stats.built == 1 && MenuPc_CurrentTab() == PcTab::Audio);
     // Start fecha o menu inteiro.
-    w.tick({VK_RETURN});
+    w.tick({nf::key::Return});
     CHECK(MenuManager_Exists(0) == 0 && GameState.paused == 0);
 }
 
@@ -600,41 +600,41 @@ TEST(pc_menu_video_tab_edits_and_applies) {
     CHECK(std::strcmp(radio_text(MenuPc_Control(0, kPcRowResolution)), "1280 x 720") == 0);
     CHECK(std::strcmp(radio_text(MenuPc_Control(0, kPcRowVSync)), "Ligado") == 0);
     // Até o campo de visão (a barra: 60 graus = posição 4 de 0 a 12); direita muda a cópia, não aplica.
-    w.press(VK_DOWN, 4);
+    w.press(nf::key::Down, 4);
     CHECK(w.focused() == kPcRowFov && MenuPc_Slider(0, kPcRowFov) == 4);
     CHECK(std::strcmp(label_text(w.of_type(kPcRowFov, MCT_LABEL)), "Campo de visao  60") == 0);
-    w.press(VK_RIGHT);
+    w.press(nf::key::Right);
     CHECK(MenuPc_Slider(0, kPcRowFov) == 5 && w.log.next.empty());
     CHECK(std::strcmp(label_text(w.of_type(kPcRowFov, MCT_LABEL)), "Campo de visao  65") == 0);
     // Aplicar (agora acesa, depois do limite de quadros, da interpolação, do mouse sem atraso e do adaptador: a lista
     // rola duas linhas): o gancho recebe a configuração; sem mudança de tela, grava na hora.
-    w.press(VK_DOWN, 4);
+    w.press(nf::key::Down, 4);
     CHECK(w.focused() == kPcRowAdapter);
     CHECK(std::strcmp(radio_text(MenuPc_Control(0, kPcRowAdapter)),
                       PcText_ToGame(PcText_Utf8(PcText::AdapterAuto)).c_str()) == 0);
-    w.press(VK_DOWN);
+    w.press(nf::key::Down);
     CHECK(w.focused() == kPcRowApplyVideo);
-    w.press(VK_SPACE);
+    w.press(nf::key::Space);
     CHECK(w.log.next.size() == 1 && w.log.next[0].fov == 65.0f && w.log.stored.size() == 1);
     CHECK(nf::video_controller().live().fov == 65.0f && !nf::video_controller().confirming());
     // Escolher num rádio avança a opção: a sincronia vertical desliga (na cópia).
-    w.press(VK_UP, 6);
+    w.press(nf::key::Up, 6);
     CHECK(w.focused() == kPcRowVSync);
-    w.press(VK_SPACE);
+    w.press(nf::key::Space);
     CHECK(MenuPc_Choice(0, kPcRowVSync) == 0 && nf::video_controller().live().vsync);
     // GRÁFICOS edita a mesma cópia: a escala vai a 125%.
-    w.press(VK_UP, 3);
+    w.press(nf::key::Up, 3);
     CHECK(w.focused() == kPcTabFirst);
-    w.press(VK_RIGHT);
-    w.press(VK_DOWN);
+    w.press(nf::key::Right);
+    w.press(nf::key::Down);
     CHECK(w.focused() == kPcRowRenderScale);
-    w.press(VK_RIGHT);
+    w.press(nf::key::Right);
     CHECK(std::strcmp(radio_text(MenuPc_Control(0, kPcRowRenderScale)), "125%") == 0);
     // Voltar descarta o que não foi aplicado.
-    w.press(VK_BACK);
+    w.press(nf::key::Back);
     CHECK(Menu_CurrentPage(0) == 0x4000004b);
     CHECK(nf::video_controller().live().render_scale == 100 && nf::video_controller().live().vsync);
-    w.press(VK_SPACE);
+    w.press(nf::key::Space);
     CHECK(MenuPc_CurrentTab() == PcTab::Graphics);
     CHECK(std::strcmp(radio_text(MenuPc_Control(0, kPcRowRenderScale)), "100%") == 0);
     CHECK(w.log.next.size() == 1);
@@ -645,21 +645,21 @@ TEST(pc_menu_interface_subtitles_row_is_the_game_option) {
     DrawInfo[2] = 0;
     w.open_options();
     // INTERFACE: a faixa das abas, duas à direita; as linhas HD, a posição do HUD e as legendas.
-    w.press(VK_RIGHT, 2);
+    w.press(nf::key::Right, 2);
     CHECK(MenuPc_CurrentTab() == PcTab::Interface);
-    w.press(VK_DOWN, 3);
+    w.press(nf::key::Down, 3);
     CHECK(w.focused() == kPcRowSubtitles && MenuPc_Choice(0, kPcRowSubtitles) == 0);
     CHECK(std::strcmp(label_text(w.of_type(kPcRowSubtitles, MCT_LABEL)), "Legendas") == 0);
     // Escolher liga as legendas do jogo na hora (sem o Apply: nada vai ao controlador de vídeo).
-    w.press(VK_SPACE);
+    w.press(nf::key::Space);
     CHECK(DrawInfo[2] == 1 && nf::game_option(nf::GameOption::Subtitles) == 1 && w.log.next.empty());
-    w.press(VK_LEFT);
+    w.press(nf::key::Left);
     CHECK(DrawInfo[2] == 0 && MenuPc_Choice(0, kPcRowSubtitles) == 0);
     // O valor vem do jogo ao entrar na aba.
     DrawInfo[2] = 1;
-    w.press(VK_UP, 3);
-    w.press(VK_LEFT);
-    w.press(VK_RIGHT);
+    w.press(nf::key::Up, 3);
+    w.press(nf::key::Left);
+    w.press(nf::key::Right);
     CHECK(MenuPc_CurrentTab() == PcTab::Interface && MenuPc_Choice(0, kPcRowSubtitles) == 1);
     DrawInfo[2] = 0;
 }
@@ -669,11 +669,11 @@ TEST(pc_menu_video_resolution_confirmation) {
     w.open_options();
     // A resolução seguinte (os modos do "monitor" de 2560 x 1440) e Aplicar: a caixa de confirmação do jogo
     // aparece por cima e as linhas somem por baixo.
-    w.press(VK_DOWN);
-    w.press(VK_RIGHT);
+    w.press(nf::key::Down);
+    w.press(nf::key::Right);
     CHECK(std::strcmp(radio_text(MenuPc_Control(0, kPcRowResolution)), "1920 x 1080") == 0);
     w.go(kPcRowApplyVideo);
-    w.press(VK_SPACE);
+    w.press(nf::key::Space);
     CHECK(Menu_CurrentPage(0) == 0x4000002f && nf::video_controller().confirming());
     CHECK(w.log.next.size() == 1 && w.log.next[0].width == 1920 && w.log.stored.empty());
     CHECK(g_menu_pc_stats.confirms == 1);
@@ -690,32 +690,32 @@ TEST(pc_menu_video_resolution_confirmation) {
     CHECK(std::strcmp(radio_text(MenuPc_Control(0, kPcRowResolution)), "1280 x 720") == 0);
     // De novo, e SIM: fica e grava.
     w.go(kPcRowResolution);
-    w.press(VK_RIGHT);
+    w.press(nf::key::Right);
     w.go(kPcRowApplyVideo);
-    w.press(VK_SPACE);
+    w.press(nf::key::Space);
     CHECK(Menu_CurrentPage(0) == 0x4000002f);
-    w.press(VK_SPACE);  // a primeira resposta (SIM)
+    w.press(nf::key::Space);  // a primeira resposta (SIM)
     w.tick({}, 2);
     CHECK(!nf::video_controller().confirming() && nf::video_controller().live().width == 1920);
     CHECK(w.log.stored.size() == 1 && w.log.stored[0].width == 1920 && Menu_CurrentPage(0) == kPcOptionsPage);
     // Mudar o modo de tela também pede confirmação; voltar na caixa é "não".
     w.go(kPcRowWindowMode);
-    w.press(VK_RIGHT);
+    w.press(nf::key::Right);
     CHECK(std::strcmp(radio_text(MenuPc_Control(0, kPcRowResolution)), "2560x1440 (desktop)") == 0);
     w.go(kPcRowApplyVideo);
-    w.press(VK_SPACE);
+    w.press(nf::key::Space);
     CHECK(Menu_CurrentPage(0) == 0x4000002f && nf::video_controller().live().window_mode == nf::WindowMode::Borderless);
-    w.press(VK_BACK);
+    w.press(nf::key::Back);
     w.tick({}, 2);
     CHECK(!nf::video_controller().confirming() && nf::video_controller().live().window_mode == nf::WindowMode::Windowed);
     CHECK(Menu_CurrentPage(0) == kPcOptionsPage && w.log.stored.size() == 1);
     // Com a confirmação aberta, fechar o menu (Start) também volta à anterior (MenuPc_Frame).
     w.go(kPcRowResolution);
-    w.press(VK_RIGHT);
+    w.press(nf::key::Right);
     w.go(kPcRowApplyVideo);
-    w.press(VK_SPACE);
+    w.press(nf::key::Space);
     CHECK(nf::video_controller().confirming());
-    w.tick({VK_RETURN});
+    w.tick({nf::key::Return});
     MenuPc_Frame(false);
     CHECK(MenuManager_Exists(0) == 0 && !nf::video_controller().confirming());
     CHECK(nf::video_controller().live().width == 1920);
@@ -757,7 +757,7 @@ TEST(menu_mouse_hit_test_and_slider_value) {
     CHECK(Menu_MouseScrollPart(s, float(s->base.x + s->base.w) - 1.0f, y) == 1);
     CHECK(Menu_MouseScrollPart(s, (x0 + x1) * 0.5f, y) == 0);
     // A linha da lista sob a altura: a da pausa.
-    w.press(VK_BACK);
+    w.press(nf::key::Back);
     M_LISTBOX* l = w.list(0x10000028, 6);
     const float top = float(l->base.y);
     CHECK(Menu_MouseListRow(l, top + l->row_height * 0.5f) == 0);
@@ -796,14 +796,14 @@ TEST(menu_mouse_drives_the_options_page) {
     const float x0 = float(s->base.x + s->margin_a);
     const float x1 = float(s->base.x + s->base.w - s->margin_b);
     w.mouse(x1 - 0.5f, y);
-    w.tick({VK_LBUTTON});
+    w.tick({nf::key::LButton});
     CHECK(MenuPc_Slider(0, kPcRowFov) == 12 && w.focused() == kPcRowFov);
     CHECK(std::strcmp(label_text(w.of_type(kPcRowFov, MCT_LABEL)), "Campo de visao  100") == 0);
     w.mouse((x0 + x1) * 0.5f, y);
-    w.tick({VK_LBUTTON});
+    w.tick({nf::key::LButton});
     CHECK(MenuPc_Slider(0, kPcRowFov) == 6);
     w.mouse(x0 + 0.5f, y);
-    w.tick({VK_LBUTTON});
+    w.tick({nf::key::LButton});
     CHECK(MenuPc_Slider(0, kPcRowFov) == 0);
     w.tick();
     w.mouse(x1 - 0.5f, y);
@@ -826,7 +826,7 @@ TEST(menu_mouse_drives_the_options_page) {
     w.tick();
     CHECK(MenuPc_CurrentTab() == PcTab::Graphics && w.focused() == kPcTabFirst + 2);
     // Uma tecla tira o mouse do comando: parado, ele não pega o foco de volta.
-    w.press(VK_LEFT);
+    w.press(nf::key::Left);
     CHECK(!psiInput_MenuMouse().active && w.focused() == kPcTabFirst + 1);
     w.tick({}, 3);
     CHECK(w.focused() == kPcTabFirst + 1);
@@ -839,7 +839,7 @@ TEST(menu_mouse_drives_the_options_page) {
     w.click();
     CHECK(w.log.next.size() == 1 && w.log.next[0].fov == 55.0f && w.log.stored.size() == 1);
     // O botão direito volta (como o triângulo).
-    w.click(VK_RBUTTON);
+    w.click(nf::key::RButton);
     CHECK(Menu_CurrentPage(0) == 0x4000004b && g_menu_mouse_stats.backs == 1);
 }
 
@@ -865,7 +865,7 @@ TEST(menu_mouse_on_the_pause_list) {
     CHECK(Menu_CurrentPage(0) == kPcOptionsPage);
     CHECK(g_menu_mouse_stats.selects == 1 && g_menu_mouse_stats.rows == 2 && g_menu_mouse_stats.steps == 3);
     // Mouse4 volta como o botão direito.
-    w.click(VK_XBUTTON1);
+    w.click(nf::key::XButton1);
     CHECK(Menu_CurrentPage(0) == 0x4000004b);
     // Clicar em CONTINUE fecha o menu.
     l = w.list(0x10000028, 6);

@@ -92,8 +92,8 @@ inline PICKUPINFO* pickup_of(obj_tag* obj) { return static_cast<PICKUPINFO*>(obj
 // por Pickup_MakeRandomWeaponSet), e as 27 armas que o sorteio usa (0x002b9170). Copiados do ELF na
 // partida (game/static_init.cpp).
 constexpr int kPickupSets = 11;
-extern int16_t PickupMatrix[kPickupSets * 5];
-extern int16_t UseableGuns[27];
+alignas(4) extern int16_t PickupMatrix[kPickupSets * 5];
+alignas(4) extern int16_t UseableGuns[27];
 extern uint32_t g_pickup_guards;  // acessos inválidos do original evitados (ver pickup.cpp)
 
 obj_tag* Pickup_Create(_VECTOR* pos, _VECTOR* rot, MATRIX* m, celglist_tag* glist, uint16_t kind, uint16_t item,

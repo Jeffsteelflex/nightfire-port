@@ -1,6 +1,6 @@
-// Os adaptadores de vídeo pelo DXGI (só do port). Ver gpu_adapters.h.
+// Os adaptadores de vídeo pelo DXGI (só do port; o backend do Windows). Ver gpu_adapters.h e gpu_adapters_dxgi.h.
 
-#include "render/gpu_adapters.h"
+#include "render/gpu_adapters_dxgi.h"
 
 #include <d3d11_3.h>
 #include <dxgi1_6.h>

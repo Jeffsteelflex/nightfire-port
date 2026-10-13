@@ -7,6 +7,8 @@
 #include <cstring>
 #include <map>
 
+#include "platform/crt_compat.h"
+
 namespace drv::eagl {
 
 namespace {
@@ -149,7 +151,7 @@ void DynamicLoader::Initialize(Resolver resolver) {
                         if (sep) {
                             char type[128];
                             *sep = 0;
-                            strncpy_s(type, sizeof type, p + 2, _TRUNCATE);
+                            nf::str_copy_trunc(type, sizeof type, p + 2);
                             const char* rest = sep + 3;
                             const int rlen = int(std::strlen(rest));
                             std::memmove(p, rest, size_t(rlen) + 1);

@@ -8,12 +8,13 @@
 #include <string>
 #include <vector>
 
-#include <windows.h>
 
 #include "engine/input.h"
+#include "platform/keys.h"
 #include "engine/menu.h"
 #include "engine/pc_text.h"
 #include "engine/resetmap.h"
+#include "platform/crt_compat.h"
 #include "platform/game_options.h"
 #include "platform/input_bindings.h"
 #include "platform/psi_input.h"
@@ -31,8 +32,8 @@ namespace {
 
 std::string read_repo_file(const char* rel) {
     std::string path = std::string(NF_SOURCE_DIR) + "/" + rel;
-    FILE* f = nullptr;
-    if (fopen_s(&f, path.c_str(), "rb") != 0 || f == nullptr) return {};
+    FILE* f = nf::fopen_narrow(path.c_str(), "rb");
+    if (f == nullptr) return {};
     std::string s;
     char buf[4096];
     size_t n;
@@ -345,6 +346,56 @@ TEST(modern_options_open_navigation_and_layout) {
     CHECK(!s.active());
 }
 
+TEST(modern_options_long_list_opens_around_the_value_and_the_wheel_scrolls_it) {
+    // As resoluções de um monitor grande (7680 x 2160): a lista abria com a atual rente à borda de baixo (parecia acabar
+    // nela) e a roda não rolava com o mouse em cima das opções.
+    VideoFixture vf;
+    std::vector<nf::DisplayMode> modes;
+    const int sizes[][2] = {{640, 480},   {800, 600},   {1024, 768},  {1152, 864},  {1280, 720},  {1280, 768},
+                            {1280, 800},  {1280, 960},  {1280, 1024}, {1360, 768},  {1366, 768},  {1440, 900},
+                            {1440, 1080}, {1600, 900},  {1600, 1024}, {1600, 1200}, {1680, 1050}, {1920, 1080},
+                            {1920, 1200}, {1920, 1440}, {2048, 1536}, {2560, 1440}, {2560, 1600}, {3440, 1440},
+                            {3840, 1080}, {3840, 1600}, {3840, 2160}, {5120, 1440}, {5120, 2160}, {7680, 2160}};
+    for (const auto& sz : sizes) modes.push_back({sz[0], sz[1]});
+    nf::video_controller().set_hardware(modes, nf::DisplayMode{7680, 2160}, {2, 4, 8});
+    Screen sc(Cat::Video);
+    OptionsScreen& s = sc.s;
+    const auto& sp = default_tokens().space;
+    sc.focus(Opt::Resolution);
+    s.command(OptionsScreen::Cmd::Select);
+    sc.tick(0.6f);
+    const int cur = s.dropdown_focus();
+    const int n = int(modes.size());
+    CHECK(s.open_dropdown() == sc.find(Opt::Resolution) && cur == 13);  // 1600 x 900, a da janela
+    const auto visible = [&](int o) {
+        const Rect r = s.option_rect(o);
+        return r.y0 >= sp.list_top - 0.5f && r.y1 <= sp.list_bottom + 0.5f;
+    };
+    // A atual no meio da coluna, com opções acima e abaixo à vista.
+    CHECK(visible(cur - 3) && visible(cur) && visible(cur + 3));
+    CHECK_NEAR(s.option_rect(cur).cy(), (sp.list_top + sp.list_bottom) * 0.5f, sp.option_h);
+    CHECK(!visible(n - 1));
+    // A roda com o mouse em cima das opções rola a lista aberta até o maior tamanho.
+    UiInput in;
+    in.mouse_inside = true;
+    in.mouse_x = window_x(sc.cv, s.option_rect(cur).cx());
+    in.mouse_y = window_y(sc.cv, s.option_rect(cur).cy());
+    sc.tick(0.016f, in);
+    const float before = s.scroll();
+    bool saw_last = false;
+    in.wheel = -1.0f;
+    for (int i = 0; i < 40; ++i) {
+        sc.tick(0.016f, in);
+        saw_last = saw_last || visible(n - 1);
+    }
+    in.wheel = 0.0f;
+    for (int i = 0; i < 60; ++i) {
+        sc.tick(0.016f, in);
+        saw_last = saw_last || visible(n - 1);
+    }
+    CHECK(s.scroll() > before && saw_last && s.open_dropdown() == sc.find(Opt::Resolution));
+}
+
 TEST(modern_options_dropdown_toggle_slider_and_apply) {
     VideoFixture vf;
     Screen sc(Cat::Video);
@@ -583,12 +634,12 @@ TEST(modern_options_keys_table_and_wheel) {
     nf::Bindings b = nf::default_bindings();
     const int fire = nf::find_bind_command("fire");
     CHECK(!nf::bind_slot(b, fire, 1, nf::key_input('F')).refused);
-    CHECK(b.in[fire][0] == nf::key_input(VK_LBUTTON) && b.in[fire][1] == nf::key_input('F'));
+    CHECK(b.in[fire][0] == nf::key_input(nf::key::LButton) && b.in[fire][1] == nf::key_input('F'));
     CHECK(!nf::bind_slot(b, fire, 0, nf::key_input('G')).refused);
-    CHECK(b.in[fire][0] == nf::key_input('G') && b.in[fire][1] == nf::key_input(VK_LBUTTON));
-    CHECK(nf::clear_bind_slot(b, fire, 1) && b.in[fire][0] == nf::key_input('G') && !b.has(fire, nf::key_input(VK_LBUTTON)));
+    CHECK(b.in[fire][0] == nf::key_input('G') && b.in[fire][1] == nf::key_input(nf::key::LButton));
+    CHECK(nf::clear_bind_slot(b, fire, 1) && b.in[fire][0] == nf::key_input('G') && !b.has(fire, nf::key_input(nf::key::LButton)));
     const int pause = nf::find_bind_command("pause");
-    CHECK(nf::clear_bind_slot(b, pause, 0) && b.in[pause][0] == nf::key_input(VK_ESCAPE));  // Enter sai, o Esc fica
+    CHECK(nf::clear_bind_slot(b, pause, 0) && b.in[pause][0] == nf::key_input(nf::key::Escape));  // Enter sai, o Esc fica
     CHECK(!nf::clear_bind_slot(b, pause, 0));  // obrigatória, a única tecla
 }
 
@@ -639,24 +690,24 @@ TEST(modern_options_input_swallow_and_tab_keys) {
     UiInput in;
     in.keys = keys;
     // A tecla que abriu a tela (Espaço na pausa) ainda está apertada: não conta até ser solta.
-    keys[VK_SPACE] = true;
+    keys[nf::key::Space] = true;
     s.open(Cat::Video);
     s.frame(0.3f, in, cv, kMeasure);
     CHECK(s.open_dropdown() == -1);
-    keys[VK_SPACE] = false;
+    keys[nf::key::Space] = false;
     s.frame(0.016f, in, cv, kMeasure);
-    keys[VK_SPACE] = true;
+    keys[nf::key::Space] = true;
     s.frame(0.016f, in, cv, kMeasure);
     CHECK(s.open_dropdown() == s.focus());  // agora sim: abriu a lista da resolução
-    keys[VK_SPACE] = false;
-    keys[VK_ESCAPE] = true;
+    keys[nf::key::Space] = false;
+    keys[nf::key::Escape] = true;
     s.frame(0.016f, in, cv, kMeasure);
     CHECK(s.open_dropdown() == -1);
-    keys[VK_ESCAPE] = false;
+    keys[nf::key::Escape] = false;
     s.frame(0.016f, in, cv, kMeasure);
     // Segurar baixo repete depois da espera.
     const int start = s.focus();
-    keys[VK_DOWN] = true;
+    keys[nf::key::Down] = true;
     s.frame(0.016f, in, cv, kMeasure);
     CHECK(s.focus() != start);
     const int after_one = s.focus();
@@ -664,7 +715,7 @@ TEST(modern_options_input_swallow_and_tab_keys) {
     CHECK(s.focus() == after_one);  // ainda na espera
     s.frame(default_tokens().motion.repeat_delay, in, cv, kMeasure);
     CHECK(s.focus() != after_one);
-    keys[VK_DOWN] = false;
+    keys[nf::key::Down] = false;
     s.frame(0.016f, in, cv, kMeasure);
     // Q leva à aba PAUSE MENU: o sublinhado desliza e a tela fecha.
     keys['Q'] = true;

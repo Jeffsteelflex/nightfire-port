@@ -1,8 +1,10 @@
 @echo off
 rem Compila o port com o Visual Studio Build Tools 2026 (MSVC + CMake + Ninja).
-rem Uso: build.bat [Release|Debug] [x64]
+rem Uso: build.bat [Release|Debug] [x64|headless]
 rem   sem o segundo argumento: 32 bits (x86) em build\<config>, a versao de referencia;
-rem   com x64: 64 bits em build\x64\<config> (docs/port.md, "64 bits").
+rem   com x64: 64 bits em build\x64\<config> (docs/port.md, "64 bits");
+rem   com headless: 32 bits so com o codigo neutro, os testes e os backends nulos, sem API do Windows, em
+rem   build\headless\<config> (docs/port.md, "Plataforma: interfaces e backends").
 setlocal
 set CONFIG=%1
 if "%CONFIG%"=="" set CONFIG=Release
@@ -12,6 +14,10 @@ if /i "%ARCH%"=="x64" (
     set VCVARS=C:\Program Files ^(x86^)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat
     set BUILD_DIR=%~dp0build\x64\%CONFIG%
     set CMAKE_ARCH=-DNF_ARCH64=ON
+) else if /i "%ARCH%"=="headless" (
+    set VCVARS=C:\Program Files ^(x86^)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvarsamd64_x86.bat
+    set BUILD_DIR=%~dp0build\headless\%CONFIG%
+    set CMAKE_ARCH=-DNF_HEADLESS=ON
 ) else (
     set VCVARS=C:\Program Files ^(x86^)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvarsamd64_x86.bat
     set BUILD_DIR=%~dp0build\%CONFIG%

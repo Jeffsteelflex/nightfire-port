@@ -1,8 +1,13 @@
-// Nightfire PC: primeiro executável nativo do port.
+// Nightfire PC: o laço do nightfire.exe, sem nada do sistema (docs/port.md, "Plataforma: interfaces e backends"). O
+// ponto de entrada é o do backend (platform/entry_win32.cpp: wWinMain no Windows), que chama nf_app_main com a linha de
+// comando; a janela, o renderizador, o som, os filmes e o resto do sistema vêm das interfaces de src/platform e
+// src/render (os backends do Windows: Win32, Direct3D 11, Direct2D, XAudio2, Media Foundation).
+//
 // Lê ACTION.ELF + FILES.BIN da cópia do usuário (platform/disc_source.h: a pasta com os arquivos extraídos, a imagem
 // .iso, o disco num leitor de DVD ou a cópia pessoal dentro do próprio executável) e roda as fases com Direct3D 11, em
-// qualquer resolução e proporção, com mouse e teclado. Sem um disco que sirva, a tela de configuração
-// (render/setup_app.h) pede a imagem do disco antes do jogo.
+// qualquer resolução e proporção, com mouse e teclado. Antes do jogo, a tela de entrada (o launcher, render/setup_app.h e
+// ui/modern_setup.h): a cada partida sem argumentos (além de --config e --save-dir), com o Shift seguro quando ela está
+// desligada ([ui] launcher), ou sem um disco que sirva (então ela pede a imagem do disco).
 //
 // Controles: clique captura o mouse, Esc solta (num menu ele fica solto e volta à captura quando o menu
 // fecha). Jogando (o Bond): mouse olha, WASD anda, Espaço pula, C ou Ctrl agacha, E usa (portas...), botão direito mira; o resto do mapeamento está em
@@ -26,9 +31,12 @@
 //                         de cima do executável (o repositório), o [game] disc do nightfire.ini e os leitores de DVD;
 //                         sem nenhum que sirva, a tela de configuração. Só a versão americana (SLUS-20579) serve
 //   --data <pasta>        o mesmo que --disc (o nome antigo)
-//   --setup               mostra a tela de configuração mesmo com um disco que sirva (trocar o disco, fazer a cópia)
-//   --setup-pick <caminho> capturas: a resposta da janela de escolha de arquivo da tela de configuração
-//   --setup-input "<seq>" capturas: o roteiro da tela de configuração (como --input; o relógio conta da tela)
+//   --setup, --launcher   mostra a tela de entrada (o disco, a cópia, a resolução, o modo de tela, o VSync, o estilo dos
+//                         menus, a camada 2D em HD, "Show at startup"). Sem argumentos (além de --config e --save-dir)
+//                         ela aparece sozinha, a não ser que [ui] launcher = off (então o Shift seguro na partida a traz);
+//                         qualquer outro argumento a pula (as capturas, --level, --disc...), menos sem um disco que sirva
+//   --setup-pick <caminho> capturas: a resposta da janela de escolha de arquivo da tela de entrada
+//   --setup-input "<seq>" capturas: o roteiro da tela de entrada (como --input; o relógio conta da tela)
 //   --pack-disc <caminho> faz a cópia pessoal em um arquivo só (platform/disc_pack.h): este executável com os arquivos do
 //                         disco dentro (ACTION.ELF, SYSTEM.CNF, FILES.BIN, PS2\ e MOVIES\) e sai. O arquivo contém o jogo
 //                         do usuário: é só para ele, não pode ser compartilhado. Nunca dentro de um repositório git
@@ -149,6 +157,9 @@
 //   --movies / --no-movies os filmes (MOVIES\30_FPS\*.PSS; platform/psi_movie.h): ligados por padrão ([video] movies),
 //                         desligados nas capturas e no --bench a não ser com --movies (sem eles, as páginas de filme
 //                         seguem na hora, como antes)
+//   --movie-decoder <d>   o decodificador de MPEG-2 dos filmes (platform/movie_decoder.h): auto (padrão: o do sistema,
+//                         o Media Foundation, e o do port se ele não servir), mf (só o do sistema) ou own (só o do
+//                         port, platform/mpeg2_decoder.h); também [video] movie_decoder
 //   --movie-frame <n>     capturas: liga os filmes e captura no quadro n do filme que tocar (com --movie <hash>, só
 //                         desse); o --wait não conta
 //   --intro-movie         com --level: a fase pedida com o filme de abertura (07100001 para 07000001...), como o mapa
@@ -157,9 +168,8 @@
 // gravadas em nightfire.ini ([video], [ui], [controls], [bindings]). Nos menus o mouse fica solto e funciona
 // (engine/menu_mouse.h): passar por cima, clicar, a roda, o botão direito volta.
 
-#include <windows.h>
-#include <shellapi.h>
-
+// A matemática da câmera livre e das matrizes de visão (só cabeçalhos, MIT: github.com/microsoft/DirectXMath; no macOS,
+// a cópia do GitHub com o caminho NEON ou _XM_NO_INTRINSICS_).
 #include <DirectXMath.h>
 
 #include <algorithm>
@@ -225,12 +235,15 @@
 #include "platform/audio_out.h"
 #include "platform/bench_stats.h"
 #include "platform/gpu_adapter.h"
-#include "platform/crash_report.h"
 #include "platform/disc_pack.h"
 #include "platform/disc_source.h"
+#include "platform/entry.h"
 #include "platform/game_options.h"
 #include "platform/gamepad.h"
 #include "platform/input_bindings.h"
+#include "platform/keys.h"
+#include "platform/os.h"
+#include "platform/crt_compat.h"
 #include "platform/pc_gameplay.h"
 #include "platform/psi.h"
 #include "platform/psi_2d.h"
@@ -268,7 +281,9 @@ WeaponWheel g_wheel;
 struct Options {
     std::wstring disc;      // --disc / --data (vazio: a procura de platform/disc_source.h)
     std::wstring disc_ini;  // [game] disc do nightfire.ini
-    bool setup = false;           // --setup
+    bool setup = false;           // --setup, --launcher
+    bool show_launcher = true;    // [ui] launcher: a tela de entrada a cada partida ("Show at startup")
+    bool command_line = false;    // a linha de comando diz o que rodar (ui/modern_setup.h, launcher_command_line)
     std::wstring setup_pick;      // --setup-pick
     std::string setup_input;      // --setup-input
     std::wstring pack_disc;       // --pack-disc
@@ -350,6 +365,8 @@ struct Options {
     // filme conta para o --movie-frame), --intro-movie (com --level, a fase pedida com o filme de abertura).
     bool movies = true;
     int movies_flag = -1;     // --movies 1, --no-movies 0, sem nada -1
+    // O decodificador de MPEG-2 dos filmes ([video] movie_decoder, --movie-decoder; platform/movie_decoder.h).
+    nf::MovieDecoderChoice movie_decoder = nf::MovieDecoderChoice::Auto;
     int64_t movie_frame = -1;
     uint32_t movie_code = 0;
     bool intro_movie = false;
@@ -383,7 +400,7 @@ struct LoadingPresenter {
     bool snapshot = false;
     uint32_t presents = 0;
     uint32_t image = 0;  // a imagem da última tela (o sprite de fundo)
-    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> blob_srv;
+    GpuImageRef blob_image;  // a textura das bolinhas, com uma referência própria
 
     FrameParams params() const {
         FrameParams fp;
@@ -396,13 +413,13 @@ struct LoadingPresenter {
         std::vector<DrawItem> items;
         gfx->collect_2d(q, kLoadingBlobCells, items);
         for (DrawItem& d : items) {
-            for (Quad2D& quad : d.quads2d) quad.srv = blob_srv.Get();
+            for (Quad2D& quad : d.quads2d) quad.image = blob_image.get();
         }
         renderer->render_2d(items, params());
     }
     void write_shot_report() {
-        FILE* f = nullptr;
-        if (_wfopen_s(&f, (shot + L".txt").c_str(), L"w") != 0 || f == nullptr) return;
+        FILE* f = os::open_file(shot + L".txt", "w");
+        if (f == nullptr) return;
         std::fprintf(f, "tela_carga fase %08x imagem %08x bolinhas textura %d %dx%d cadeia %d\n", GameState.load_file,
                      image, BlobTexture, BlobTextWidth, BlobTextHeight, shot_blob);
         for (const Psi2DQuad& q : g_psi_frame.quads2d) {
@@ -451,7 +468,7 @@ struct LoadingPresenter {
                 std::vector<DrawItem> items;
                 gfx->collect_frame(nullptr, items);
                 renderer->render(items, params());
-                blob_srv = renderer->keep_texture(BlobTexture);
+                blob_image = renderer->keep_texture(BlobTexture);
                 renderer->save_loading_snapshot();
                 snapshot = true;
                 if (!shot.empty() && !shot_done) {
@@ -475,7 +492,7 @@ struct LoadingPresenter {
                 return;
             case PsiLoadingEvent::End:
                 renderer->release_loading_snapshot();
-                blob_srv.Reset();
+                blob_image.reset();
                 snapshot = false;
                 return;
         }
@@ -503,12 +520,12 @@ struct InputStep {
 // Um item mouse=x,y ou wheel=n de --input.
 bool mouse_item(const std::string& item, InputStep* step) {
     if (item.compare(0, 6, "mouse=") == 0) {
-        step->has_mouse = sscanf_s(item.c_str() + 6, "%f,%f", &step->mouse_x, &step->mouse_y) == 2;
+        step->has_mouse = NF_SSCANF(item.c_str() + 6, "%f,%f", &step->mouse_x, &step->mouse_y) == 2;
         step->mouse_canvas = false;
         return step->has_mouse;
     }
     if (item.compare(0, 7, "cmouse=") == 0) {
-        step->has_mouse = sscanf_s(item.c_str() + 7, "%f,%f", &step->mouse_x, &step->mouse_y) == 2;
+        step->has_mouse = NF_SSCANF(item.c_str() + 7, "%f,%f", &step->mouse_x, &step->mouse_y) == 2;
         step->mouse_canvas = true;
         return step->has_mouse;
     }
@@ -517,7 +534,7 @@ bool mouse_item(const std::string& item, InputStep* step) {
         return true;
     }
     if (item.compare(0, 6, "mlook=") == 0) {
-        return sscanf_s(item.c_str() + 6, "%f,%f", &step->look_dx, &step->look_dy) == 2;
+        return NF_SSCANF(item.c_str() + 6, "%f,%f", &step->look_dx, &step->look_dy) == 2;
     }
     return false;
 }
@@ -548,9 +565,9 @@ int key_code(const std::string& name) {
     static const struct {
         const char* name;
         int vk;
-    } named[] = {{"space", VK_SPACE}, {"left", VK_LEFT}, {"right", VK_RIGHT}, {"up", VK_UP},   {"down", VK_DOWN},
-                 {"ctrl", VK_CONTROL}, {"lmb", VK_LBUTTON}, {"rmb", VK_RBUTTON}, {"enter", VK_RETURN},
-                 {"back", VK_BACK}, {"tab", VK_TAB}};
+    } named[] = {{"space", key::Space},     {"left", key::Left},     {"right", key::Right},   {"up", key::Up},
+                 {"down", key::Down},       {"ctrl", key::Control},  {"lmb", key::LButton},   {"rmb", key::RButton},
+                 {"enter", key::Return},    {"back", key::Back},     {"tab", key::Tab}};
     for (const auto& n : named) {
         if (name == n.name) return n.vk;
     }
@@ -601,34 +618,18 @@ std::string narrow(const std::wstring& w) {
 
 std::wstring widen(const std::string& s) { return std::wstring(s.begin(), s.end()); }
 
-bool file_exists(const std::wstring& p) { return GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES; }
+bool file_exists(const std::wstring& p) { return os::exists(p); }
 
-std::wstring from_utf8(const std::string& s) {
-    if (s.empty()) return {};
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), nullptr, 0);
-    std::wstring w(size_t(std::max(0, n)), L'\0');
-    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), w.data(), n);
-    return w;
-}
+std::wstring from_utf8(const std::string& s) { return os::from_utf8(s); }
 
-std::string to_utf8(const std::wstring& w) {
-    if (w.empty()) return {};
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), int(w.size()), nullptr, 0, nullptr, nullptr);
-    std::string s(size_t(std::max(0, n)), '\0');
-    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.data(), int(w.size()), s.data(), n, nullptr, nullptr);
-    return s;
-}
+std::string to_utf8(const std::wstring& w) { return os::to_utf8(w); }
 
-std::wstring exe_path() {
-    wchar_t buf[MAX_PATH * 4];
-    const DWORD n = GetModuleFileNameW(nullptr, buf, DWORD(std::size(buf)));
-    return std::wstring(buf, n);
-}
+std::wstring exe_path() { return os::exe_path(); }
 
 // O pacote de texturas HD do jogador (formato do PCSX2): ao lado do disco (a pasta dele, a da imagem .iso), senão na
 // pasta do executável e nas de cima, senão na pasta atual. Com o disco numa pasta é a <pasta>\textures de antes.
 std::wstring default_textures_dir(const nf::DiscSource& disc) {
-    const std::wstring tail = L"\\textures\\SLUS-20579\\replacements";
+    const std::wstring tail = os::join(L"", L"textures/SLUS-20579/replacements");
     std::vector<std::wstring> candidates{disc.folder()};
     std::wstring dir = exe_path();
     for (int up = 0; up < 4; ++up) {
@@ -637,8 +638,7 @@ std::wstring default_textures_dir(const nf::DiscSource& disc) {
         dir = dir.substr(0, cut);
         candidates.push_back(dir);
     }
-    wchar_t buf[MAX_PATH * 4];
-    candidates.push_back(std::wstring(buf, GetCurrentDirectoryW(DWORD(std::size(buf)), buf)));
+    candidates.push_back(os::current_dir());
     for (const std::wstring& c : candidates) {
         std::wstring base = c;
         while (!base.empty() && (base.back() == L'\\' || base.back() == L'/')) base.pop_back();
@@ -692,8 +692,15 @@ void apply_settings(Options& o, const nf::Settings& s) {
     o.prompts = s.get("ui", "prompts", o.prompts);
     o.subtitles = s.get_bool("ui", "subtitles", o.subtitles);
     o.movies = s.get_bool("video", "movies", o.movies);
-    // O disco escolhido na tela de configuração (platform/disc_source.h; UTF-8 no arquivo).
+    {
+        const std::string dec = s.get("video", "movie_decoder", nf::movie_decoder_choice_name(o.movie_decoder));
+        if (!nf::parse_movie_decoder_choice(dec, &o.movie_decoder)) {
+            std::fprintf(stderr, "[video] movie_decoder = %s: use auto, mf ou own\n", dec.c_str());
+        }
+    }
+    // O disco escolhido na tela de entrada (platform/disc_source.h; UTF-8 no arquivo) e se ela aparece a cada partida.
     o.disc_ini = from_utf8(s.get("game", "disc", ""));
+    o.show_launcher = nf::ui::launcher_enabled(s);
     o.sensitivity = s.get_float("controls", "mouse_sensitivity", o.sensitivity);
     nf::load_controls(s, &nf::controls());  // [bindings] e o resto de [controls]
     // As opções do jogo que o .ini lembra (platform/game_options.h): psiInput_Init as aplica na partida.
@@ -702,10 +709,31 @@ void apply_settings(Options& o, const nf::Settings& s) {
     nf::load_pc_gameplay(s, &nf::pc_gameplay());
 }
 
-Options parse_args() {
+// As opções de vídeo em Options (o nightfire.ini e a linha de comando), como a tela de entrada as mostra.
+nf::VideoSettings video_settings_of(const Options& o) {
+    nf::VideoSettings v;
+    v.width = o.width;
+    v.height = o.height;
+    v.window_mode = o.window_mode;
+    v.vsync = o.vsync;
+    v.render_scale = o.render_scale;
+    v.msaa = o.msaa;
+    v.filter = o.filter;
+    v.fov = o.fov;
+    v.hd_textures = !o.no_hd;
+    v.fps_cap = o.fps_cap;
+    v.interpolation = o.interpolation;
+    v.instant_mouse_look = o.instant_mouse;
+    v.adapter = o.adapter;
+    v.hd_ui = o.hd_ui.enabled;
+    v.hud_edges = o.hd_ui.anchor == "edges";
+    v.language = o.language_pc;
+    v.menu_style = o.menu_style;
+    return v;
+}
+
+Options parse_args(int argc, wchar_t** argv) {
     Options o;
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     std::wstring config;
     bool capture = false;
     for (int i = 1; i < argc; ++i) {
@@ -722,7 +750,7 @@ Options parse_args() {
         const std::wstring a = argv[i];
         const auto next = [&]() -> std::wstring { return i + 1 < argc ? argv[++i] : L""; };
         if (a == L"--data" || a == L"--disc") o.disc = next();
-        else if (a == L"--setup") o.setup = true;
+        else if (a == L"--setup" || a == L"--launcher") o.setup = true;
         else if (a == L"--setup-pick") o.setup_pick = next();
         else if (a == L"--setup-input") o.setup_input = narrow(next());
         else if (a == L"--pack-disc") o.pack_disc = next();
@@ -825,6 +853,12 @@ Options parse_args() {
         else if (a == L"--offscreen") o.offscreen = true;
         else if (a == L"--movies") o.movies_flag = 1;
         else if (a == L"--no-movies") o.movies_flag = 0;
+        else if (a == L"--movie-decoder") {
+            const std::string v = narrow(next());
+            if (!nf::parse_movie_decoder_choice(v, &o.movie_decoder)) {
+                std::fprintf(stderr, "--movie-decoder %s: use auto, mf ou own\n", v.c_str());
+            }
+        }
         else if (a == L"--movie-frame") o.movie_frame = std::max<int64_t>(0, std::stoll(next()));
         else if (a == L"--movie") o.movie_code = uint32_t(std::stoul(narrow(next()), nullptr, 16));
         else if (a == L"--intro-movie") o.intro_movie = true;
@@ -835,16 +869,16 @@ Options parse_args() {
         else if (a == L"--force-lightning") o.force_lightning = true;
         else if (a == L"--at") {
             const std::string v = narrow(next());
-            o.has_at = sscanf_s(v.c_str(), "%f,%f,%f,%f", &o.at[0], &o.at[1], &o.at[2], &o.at[3]) == 4;
+            o.has_at = NF_SSCANF(v.c_str(), "%f,%f,%f,%f", &o.at[0], &o.at[1], &o.at[2], &o.at[3]) == 4;
         }
         else if (a == L"--cam") {
             const std::string v = narrow(next());
-            o.has_cam = sscanf_s(v.c_str(), "%f,%f,%f,%f,%f,%f", &o.cam[0], &o.cam[1], &o.cam[2], &o.cam[3],
+            o.has_cam = NF_SSCANF(v.c_str(), "%f,%f,%f,%f,%f,%f", &o.cam[0], &o.cam[1], &o.cam[2], &o.cam[3],
                                     &o.cam[4], &o.cam[5]) == 6;
         }
     }
-    LocalFree(argv);
     o.config_path = config;
+    o.command_line = nf::ui::launcher_command_line(argc, argv);
     // O benchmark: sem limite de quadros nem VSync, e um segundo de aquecimento depois da carga se --wait não veio.
     if (o.bench > 0.0f) {
         if (!o.bench_vsync) {
@@ -947,8 +981,8 @@ void use_door_in_front(const Camera& cam) {
 // não é guardada) e quantos desenhos o jogo pediu. Serve para conferir a visibilidade.
 void write_frame_report(const std::wstring& png, const std::string& level, size_t draws, const std::string& ui_hd,
                         const std::string& video) {
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, (png + L".txt").c_str(), L"w") != 0 || f == nullptr) return;
+    FILE* f = os::open_file(png + L".txt", "w");
+    if (f == nullptr) return;
     // Só do PC: as opções de vídeo em vigor (o renderizador) e a página de opções do menu.
     std::fprintf(f, "%s\n", video.c_str());
     {
@@ -1531,35 +1565,10 @@ void write_frame_report(const std::wstring& png, const std::string& level, size_
 // Só do port (--list-adapters, --bench): um texto na saída padrão. O nightfire.exe é um programa de janela: com a
 // saída redirecionada (um pipe do bash, um arquivo) o identificador já existe; aberto de um console (cmd), ele se
 // liga ao console do pai.
-void console_write(const std::string& text) {
-    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (h == nullptr || h == INVALID_HANDLE_VALUE) {
-        if (AttachConsole(ATTACH_PARENT_PROCESS)) {
-            h = CreateFileW(L"CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
-        }
-    }
-    if (h == nullptr || h == INVALID_HANDLE_VALUE) return;
-    DWORD written = 0;
-    WriteFile(h, text.data(), DWORD(text.size()), &written, nullptr);
-}
+void console_write(const std::string& text) { os::console_write(text); }
 
 // O mesmo com texto largo: no console, WriteConsoleW (os acentos e o "…" saem certos); redirecionado, UTF-8.
-void console_write_w(const std::wstring& text) {
-    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (h == nullptr || h == INVALID_HANDLE_VALUE) {
-        if (AttachConsole(ATTACH_PARENT_PROCESS)) {
-            h = CreateFileW(L"CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
-        }
-    }
-    if (h == nullptr || h == INVALID_HANDLE_VALUE) return;
-    DWORD mode = 0, written = 0;
-    if (GetConsoleMode(h, &mode)) {
-        WriteConsoleW(h, text.data(), DWORD(text.size()), &written, nullptr);
-        return;
-    }
-    const std::string u = to_utf8(text);
-    WriteFile(h, u.data(), DWORD(u.size()), &written, nullptr);
-}
+void console_write_w(const std::wstring& text) { os::console_write_w(text); }
 
 std::wstring pc_text(PcText id) { return from_utf8(PcText_Utf8(id)); }
 
@@ -1597,7 +1606,7 @@ int run_pack_cli(const Options& opt) {
     });
     int shown = -1;
     while (!finished) {
-        Sleep(250);
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
         const uint64_t total = progress.total;
         const int pct = total == 0 ? 0 : int(double(progress.done) * 100.0 / double(total));
         if (pct / 10 != shown / 10) {
@@ -1638,31 +1647,9 @@ double now_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-// Espera até o prazo (now_seconds): um temporizador de alta resolução do Windows até ~1 ms antes, depois o
-// processador cedido em volta (o Sleep comum arredonda para 15,6 ms).
-void wait_until(double deadline) {
-#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
-#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
-#endif
-    static HANDLE timer = [] {
-        HANDLE t = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
-        return t != nullptr ? t : CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
-    }();
-    for (;;) {
-        const double left = deadline - now_seconds();
-        if (left <= 0.0) return;
-        if (left > 0.0015 && timer != nullptr) {
-            LARGE_INTEGER due;
-            due.QuadPart = -LONGLONG((left - 0.001) * 1e7);  // em unidades de 100 ns, relativo
-            if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
-                WaitForSingleObject(timer, 100);
-                continue;
-            }
-        }
-        YieldProcessor();
-        if (left > 0.0005) Sleep(0);
-    }
-}
+// Espera até o prazo (now_seconds): platform/os.h (no Windows, um temporizador de alta resolução até ~1 ms antes, depois o
+// processador cedido em volta; o Sleep comum arredonda para 15,6 ms).
+void wait_until(double deadline) { os::wait_until(deadline); }
 
 // Matriz de visão e projeção da câmera 0 do jogo (viewer_tag::camera: linha 1 para cima, linha 2
 // para a frente, linha 3 a posição).
@@ -1697,9 +1684,9 @@ D3D9FrameParams d3d9_frame(const float cam[16], float fov_deg, float aspect, flo
 
 }  // namespace
 
-int app_main() {
+int nf_app_main(int argc, wchar_t** argv) {
     try {
-        const Options opt = parse_args();
+        Options opt = parse_args(argc, argv);
         // --list-adapters: os adaptadores de vídeo pelo DXGI (com o teste de memória unificada) e sai.
         if (opt.list_adapters) {
             std::string out = "adaptadores de video (DXGI; o indice e o de --adapter <n>):\n";
@@ -1734,11 +1721,18 @@ int app_main() {
             places.settings = opt.disc_ini;
             found = nf::find_disc(places, disc_title);
         }
-        // Sem um disco que sirva (ou com --setup): a tela de configuração, na janela do jogo.
-        const bool need_setup = opt.setup || !found.ok();
+        // A tela de entrada (ui/modern_setup.h, launcher_reason): forçada (--setup, --launcher), sem um disco que sirva, a
+        // cada partida sem argumentos com [ui] launcher ligado, ou com o Shift seguro (lido só quando decide).
+        nf::ui::LauncherStart launcher_start;
+        launcher_start.forced = opt.setup;
+        launcher_start.disc_ok = found.ok();
+        launcher_start.command_line = opt.command_line;
+        launcher_start.show_at_startup = opt.show_launcher;
+        launcher_start.shift = !opt.setup && found.ok() && !opt.command_line && !opt.show_launcher && os::key_held(nf::key::Shift);
+        const nf::ui::LauncherReason launcher_reason = nf::ui::launcher_reason(launcher_start);
+        const bool need_setup = launcher_reason != nf::ui::LauncherReason::None;
         if (need_setup && opt.d3d9ff) {
-            MessageBoxW(nullptr, (pc_text(PcText::SuErrTitle) + L"\n" + nf::ui::setup_problem_text(found.check)).c_str(),
-                        L"Nightfire PC", MB_ICONERROR);
+            os::show_error(L"Nightfire PC", pc_text(PcText::SuErrTitle) + L"\n" + nf::ui::setup_problem_text(found.check));
             return 1;
         }
         // As capturas e o --bench: só o roteiro de --input, sem som, sem VSync, o cartão em memória.
@@ -1752,12 +1746,13 @@ int app_main() {
         // --renderer d3d9ff (só do port; docs/remix.md): a janela do jogo fica com o Direct3D 9 de função fixa; o
         // Direct3D 11 continua existindo (as camadas 2D e o Direct2D usam o dispositivo dele) numa janela invisível,
         // desenhando fora da tela e sem apresentar.
-        const HWND d3d11_window = opt.d3d9ff ? RemixD3D9Renderer::create_hidden_window(view_w, view_h) : window.hwnd();
+        void* const d3d11_window = opt.d3d9ff ? create_remix_hidden_window(view_w, view_h) : window.native_handle();
         // O adaptador de vídeo (só do port; platform/gpu_adapter.h): auto fica com o padrão do sistema, como antes (o
         // dispositivo sem adaptador); os outros procuram na lista do DXGI (integrated e discrete precisam do teste de
         // memória unificada). Sem nenhum que sirva, o padrão, e o relatório diz.
         std::string adapter_note = "auto";
-        Microsoft::WRL::ComPtr<IDXGIAdapter1> chosen_adapter;
+        bool adapter_requested = false;
+        nf::AdapterInfo adapter_pick;
         {
             nf::AdapterPreference pref;
             nf::parse_adapter_preference(opt.adapter, &pref);
@@ -1765,19 +1760,35 @@ int app_main() {
                 const bool classify = pref.kind == nf::AdapterPrefKind::Integrated || pref.kind == nf::AdapterPrefKind::Discrete;
                 const std::vector<nf::AdapterInfo> list = nf::enumerate_adapters(classify);
                 const int pick = nf::choose_adapter(list, pref);
-                if (pick >= 0) chosen_adapter = nf::open_adapter(list[size_t(pick)]);
-                adapter_note = opt.adapter + (chosen_adapter != nullptr ? std::string() : std::string(" (nao achado: o padrao)"));
+                if (pick >= 0) {
+                    adapter_pick = list[size_t(pick)];
+                    adapter_requested = true;
+                }
             }
         }
+        // O renderizador abre o adaptador escolhido (sem ele, ou se não abrir, o padrão do sistema).
         Renderer renderer(d3d11_window, view_w, view_h, opt.vsync && opt.screenshot.empty(), offscreen || opt.d3d9ff,
-                          chosen_adapter.Get());
+                          adapter_requested ? &adapter_pick : nullptr);
+        if (nf::AdapterPreference pref; nf::parse_adapter_preference(opt.adapter, &pref) && pref.kind != nf::AdapterPrefKind::Auto) {
+            adapter_note = opt.adapter + (renderer.adapter_chosen() ? std::string() : std::string(" (nao achado: o padrao)"));
+        }
 
-        // A tela de configuração (render/setup_app.h): escolher a imagem do disco, um leitor, fazer a cópia pessoal.
+        // A tela de entrada (render/setup_app.h): o disco (a imagem, um leitor, a cópia pessoal), a resolução, o modo de
+        // tela, o VSync, o estilo dos menus, a camada 2D em HD e "Show at startup".
         if (need_setup) {
+            // Uma cópia pessoal sozinha numa pasta qualquer: o hd_ui do port que veio dentro dela (as fontes do estilo
+            // Modern) sai antes da tela, como sairia antes do jogo.
+            if (found.ok() && found.source->kind() == nf::DiscKind::Packed &&
+                UiHdApp::find_dir(opt.hd_ui.dir, found.source->folder()).empty()) {
+                opt.hd_ui.dir = nf::extract_packed_extras(*found.source, "PORT/HD_UI");
+            }
             nf::SetupOptions so;
             so.window = &window;
             so.renderer = &renderer;
             so.hd_ui_dir = UiHdApp::find_dir(opt.hd_ui.dir, found.source != nullptr ? found.source->folder() : std::wstring());
+            so.settings.video = video_settings_of(opt);
+            so.settings.show_at_startup = opt.show_launcher;
+            so.reason = launcher_reason;
             so.build = NF_PORT_BUILD;
             so.title = &disc_title;
             so.found = found;
@@ -1818,6 +1829,28 @@ int app_main() {
             const nf::SetupResult sr = nf::run_setup(so);
             if (sr.captured || sr.quit || !sr.found.ok()) return 0;
             found = sr.found;
+            // PLAY com opções mudadas: gravadas no nightfire.ini com as chaves das opções do jogo (só quando o arquivo pode
+            // ser escrito) e o jogo abre com elas, como se viessem do arquivo: a janela muda de tamanho ou de modo antes do
+            // primeiro quadro (a tela cheia exclusiva liga logo abaixo, com a volta para a janela se não der).
+            if (sr.settings_changed) {
+                const nf::VideoSettings& v = sr.settings.video;
+                opt.width = v.width;
+                opt.height = v.height;
+                opt.window_mode = v.window_mode;
+                opt.vsync = v.vsync;
+                opt.menu_style = v.menu_style;
+                opt.hd_ui.enabled = v.hd_ui;
+                opt.show_launcher = sr.settings.show_at_startup;
+                if (opt.can_save_settings && nf::ui::store_launcher_settings(sr.settings, so.settings, nf::settings())) {
+                    nf::settings().save();
+                }
+                if (!offscreen) {
+                    window.set_fullscreen(opt.window_mode != nf::WindowMode::Windowed);
+                    if (opt.window_mode == nf::WindowMode::Windowed) window.set_client_size(opt.width, opt.height);
+                    renderer.set_vsync(opt.vsync && opt.screenshot.empty());
+                    if (window.resized()) renderer.resize(window.width(), window.height());
+                }
+            }
         }
         const std::shared_ptr<nf::DiscSource> disc = found.source;
         // Uma cópia pessoal sozinha numa pasta qualquer: o hd_ui do port que veio dentro dela (as fontes e os glifos do
@@ -1839,6 +1872,7 @@ int app_main() {
         // Os filmes (MOVIES\30_FPS do disco; platform/psi_movie.h): pelo [video] movies; nas capturas e no --bench só com
         // --movies ou --movie-frame (sem eles as páginas de filme seguem na hora, como antes).
         nf::movie_set_disc(disc);
+        nf::movie_set_decoder_choice(opt.movie_decoder);
         nf::movie_set_enabled(opt.movie_frame >= 0 || opt.movies_flag == 1 ||
                               (opt.movies_flag != 0 && opt.movies && !scripted));
         if (!opt.audio_dump.empty()) {
@@ -1883,8 +1917,8 @@ int app_main() {
         }
         std::unique_ptr<RemixD3D9Renderer> d3d9;
         if (opt.d3d9ff) {
-            d3d9 = std::make_unique<RemixD3D9Renderer>(window.hwnd(), view_w, view_h, opt.vsync && opt.screenshot.empty(),
-                                                       chosen_adapter != nullptr ? &renderer.adapter() : nullptr);
+            d3d9 = create_remix_d3d9(window.native_handle(), view_w, view_h, opt.vsync && opt.screenshot.empty(),
+                                     renderer.adapter_chosen() ? &renderer.adapter() : nullptr);
             gfx.set_mirror(d3d9.get());
             d3d9->set_record_hashes(!opt.d3d9_remix_conf.empty());
         }
@@ -1912,8 +1946,21 @@ int app_main() {
         renderer.set_texture_filter(opt.filter);
         renderer.set_scene_quality(opt.render_scale, opt.msaa);
         renderer.set_alpha_to_coverage(opt.alpha_coverage);
-        if (!offscreen && opt.window_mode == nf::WindowMode::Exclusive) {
-            renderer.set_exclusive_fullscreen(true, opt.width, opt.height);
+        if (!offscreen && opt.window_mode == nf::WindowMode::Exclusive &&
+            !renderer.set_exclusive_fullscreen(true, opt.width, opt.height) && !opt.d3d9ff) {
+            // Só do PC: o modo exclusivo não abriu (o monitor recusou o modo, outra placa tem o monitor): o jogo começa
+            // numa janela que cabe no monitor, em vez de ficar numa tela que não mostra nada. O nightfire.ini fica como
+            // estava (a próxima partida tenta de novo; a tela de entrada troca o modo). O --renderer d3d9ff fica como era
+            // (o Direct3D 11 dele não apresenta, então o modo exclusivo nunca abre ali).
+            nf::VideoSettings v = video_settings_of(opt);
+            v.window_mode = nf::WindowMode::Windowed;
+            nf::fit_resolution_to_mode(v, renderer.display_modes(), renderer.desktop_mode());
+            opt.window_mode = nf::WindowMode::Windowed;
+            opt.width = v.width;
+            opt.height = v.height;
+            window.set_fullscreen(false);
+            window.set_client_size(opt.width, opt.height);
+            if (window.resized()) renderer.resize(window.width(), window.height());
         }
         nf::VideoController& video = nf::video_controller();
         {
@@ -2008,7 +2055,7 @@ int app_main() {
             renderer.set_offscreen_throttle(offscreen);
             // Na janela, por cima das outras: coberta, o Present não mostra nada (DXGI_STATUS_OCCLUDED) e a medida
             // não teria o custo de mostrar o quadro.
-            if (!offscreen) SetWindowPos(window.hwnd(), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            if (!offscreen) window.set_topmost();
         }
         std::vector<DrawItem> draws;
         // A interpolação entre ticks (render/frame_interp.h): os registros dos dois últimos Game_Draw.
@@ -2381,35 +2428,35 @@ int app_main() {
                     g_psi_keyboard_mouse.cursor_inside =
                         window.cursor_position(&g_psi_keyboard_mouse.cursor_x, &g_psi_keyboard_mouse.cursor_y);
                 }
-                if (window.key_pressed(VK_NEXT)) request_level((level_index + 1) % levels.size(), 1);
-                if (window.key_pressed(VK_PRIOR)) request_level((level_index + levels.size() - 1) % levels.size(), -1);
+                if (window.key_pressed(key::Next)) request_level((level_index + 1) % levels.size(), 1);
+                if (window.key_pressed(key::Prior)) request_level((level_index + levels.size() - 1) % levels.size(), -1);
                 if (window.key_pressed('V')) frame.debug_shading = !frame.debug_shading;
-                if (window.key_pressed(VK_F3)) frame.wireframe = !frame.wireframe;
+                if (window.key_pressed(key::F3)) frame.wireframe = !frame.wireframe;
                 if (window.key_pressed('H')) frame.show_volumes = !frame.show_volumes;
                 if (window.key_pressed('P')) switch_ForceDrawAll = switch_ForceDrawAll == 0 ? 1 : 0;
                 // --debug-menu: a página de depuração do jogo (as trapaças) por cima da pausa.
-                if (opt.debug_menu && window.key_pressed(VK_F9)) Menu_PortShowCheats(0);
+                if (opt.debug_menu && window.key_pressed(key::F9)) Menu_PortShowCheats(0);
                 if (window.key_pressed('T')) {
                     renderer.use_hd(!renderer.using_hd());
                     sync_toggles();
                 }
-                if (window.key_pressed(VK_F4)) {
+                if (window.key_pressed(key::F4)) {
                     ui_hd.toggle();
                     sync_toggles();
                 }
-                if (window.key_pressed(VK_F2)) {
+                if (window.key_pressed(key::F2)) {
                     prefer_free_cam = !prefer_free_cam;
                     // A câmera livre começa onde o jogador está olhando.
                     if (prefer_free_cam && !free_cam && view0 != nullptr) cam.from_matrix(view0->camera);
                     free_cam = prefer_free_cam || glb_players[0] == nullptr;
                 }
-                const bool space = window.key_pressed(VK_SPACE);
-                want_shot = window.key_pressed(VK_F12);
+                const bool space = window.key_pressed(key::Space);
+                want_shot = window.key_pressed(key::F12);
                 // Só do PC: Esc é a pausa do jogo (o comando "pause"), e o menu solta o mouse (set_menu_mode). Na câmera
                 // livre o jogo não recebe o teclado: Esc solta o mouse, como antes. Jogando, se nenhum menu abrir meio
                 // segundo depois (uma cena, a morte, um carregamento: o jogo não abre a pausa), Esc também solta o mouse:
                 // o cursor nunca fica preso sem saída (e Alt+Tab sempre solta).
-                const bool esc = window.key_pressed(VK_ESCAPE);
+                const bool esc = window.key_pressed(key::Escape);
                 if (esc && window.mouse_captured() && !menu_open) {
                     if (free_cam && BGFMVPlaying == 0) {
                         window.release_mouse();
@@ -2587,8 +2634,8 @@ int app_main() {
                 if (window.key_down('E')) move += XMVectorSet(0, 1, 0, 0);
                 if (window.key_down('Q')) move -= XMVectorSet(0, 1, 0, 0);
                 float speed = cam.speed;
-                if (window.key_down(VK_SHIFT)) speed *= 4;
-                if (window.key_down(VK_CONTROL)) speed *= 0.25f;
+                if (window.key_down(key::Shift)) speed *= 4;
+                if (window.key_down(key::Control)) speed *= 0.25f;
                 if (!XMVector3Equal(move, XMVectorZero())) {
                     XMStoreFloat3(&cam.pos, XMLoadFloat3(&cam.pos) + XMVector3Normalize(move) * speed * dt);
                 }
@@ -2897,7 +2944,7 @@ int app_main() {
                 if (dumped < 0) {
                     dumped = 0;
                     std::filesystem::create_directories(opt.frames_dump);
-                    _wfopen_s(&dump_tsv, (opt.frames_dump + L"\\frames.tsv").c_str(), L"w");
+                    dump_tsv = os::open_file(os::join(opt.frames_dump, L"frames.tsv"), "w");
                     if (dump_tsv != nullptr) {
                         std::fprintf(dump_tsv, "quadro\tt\ttick\talpha\tcorte\tcam_x\tcam_y\tcam_z\tgiro\televacao\tfov\t"
                                                "ia_x\tia_y\tia_z\titens\tpares\tmovendo\tmantidos\tossos\tcusto_ms\t"
@@ -2920,12 +2967,12 @@ int app_main() {
                     }
                 }
                 wchar_t name[64];
-                swprintf(name, 64, L"\\frame_%03d.png", dumped);
+                std::swprintf(name, 64, L"frame_%03d.png", dumped);
                 if (opt.frames_png) {
                     if (d3d9 != nullptr) {
-                        d3d9->save_png(opt.frames_dump + name);
+                        d3d9->save_png(os::join(opt.frames_dump, name));
                     } else {
-                        renderer.save_png(opt.frames_dump + name);
+                        renderer.save_png(os::join(opt.frames_dump, name));
                     }
                 }
                 if (dump_tsv != nullptr) {
@@ -2972,15 +3019,15 @@ int app_main() {
                     d3d9->save_png(opt.screenshot);
                     if (!opt.d3d9_remix_conf.empty()) d3d9->write_remix_conf(opt.d3d9_remix_conf);
                     // Depuração (NF_D3D9_DUMP): as texturas do Direct3D 11 nos mesmos slots, para comparar.
-                    wchar_t dump_dir[MAX_PATH] = {};
-                    if (GetEnvironmentVariableW(L"NF_D3D9_DUMP", dump_dir, MAX_PATH) > 0) {
+                    std::wstring dump_dir;
+                    if (os::get_env(L"NF_D3D9_DUMP", &dump_dir)) {
                         for (int slot = 0; slot < 4096; ++slot) {
                             int tw = 0, th = 0;
                             std::vector<uint8_t> px;
                             if (!renderer.read_texture(slot, tw, th, px)) continue;
                             wchar_t name[64];
-                            swprintf(name, 64, L"\\d11_slot_%04d.png", slot);
-                            Renderer::write_png(std::wstring(dump_dir) + name, tw, th, px.data());
+                            std::swprintf(name, 64, L"d11_slot_%04d.png", slot);
+                            Renderer::write_png(os::join(dump_dir, name), tw, th, px.data());
                         }
                     }
                 } else {
@@ -3153,8 +3200,8 @@ int app_main() {
                     }
                     console_write(out);
                     if (!opt.bench_frames.empty()) {
-                        FILE* f = nullptr;
-                        if (_wfopen_s(&f, opt.bench_frames.c_str(), L"w") == 0 && f != nullptr) {
+                        FILE* f = os::open_file(opt.bench_frames, "w");
+                        if (f != nullptr) {
                             std::fprintf(f, "quadro\tms\tenvio_ms\tpresent_ms\tlogica_ms\tdesenho_do_jogo_ms\tgpu_ms");
                             for (int k = 0; k < nf::kGpuPhaseCount; ++k) {
                                 std::fprintf(f, "\tgpu_%s", nf::gpu_phase_name(nf::GpuPhase(k)));
@@ -3174,8 +3221,8 @@ int app_main() {
                         }
                     }
                     if (!opt.bench_out.empty()) {
-                        FILE* f = nullptr;
-                        if (_wfopen_s(&f, opt.bench_out.c_str(), L"ab") == 0 && f != nullptr) {
+                        FILE* f = os::open_file(opt.bench_out, "ab");
+                        if (f != nullptr) {
                             std::fwrite(out.data(), 1, out.size(), f);
                             std::fclose(f);
                         }
@@ -3190,11 +3237,17 @@ int app_main() {
                 fps = float(fps_frames / fps_time);
                 fps_time = 0;
                 fps_frames = 0;
+                // O nome da fase em largo num vetor da pilha (o %hs de antes é só do MSVC; um std::wstring aqui seria
+                // uma alocação a cada meio segundo a mais na arena da versão de 64 bits).
+                wchar_t level_w[32] = {};
+                for (size_t i = 0; i < levels[level_index].size() && i + 1 < std::size(level_w); ++i) {
+                    level_w[i] = wchar_t(uint8_t(levels[level_index][i]));
+                }
                 wchar_t title[256];
-                swprintf(title, 256,
-                         L"Nightfire PC · %hs · %zu objetos · %zu triângulos · %dx%d · %.0f fps · lógica %u Hz%ls"
+                std::swprintf(title, 256,
+                         L"Nightfire PC · %ls · %zu objetos · %zu triângulos · %dx%d · %.0f fps · lógica %u Hz%ls"
                          L" · HD %ls (%d/%d) · UI HD %ls (F4) · %ls%ls",
-                         levels[level_index].c_str(), draws.size(), gfx.triangles(draws), renderer.width(),
+                         level_w, draws.size(), gfx.triangles(draws), renderer.width(),
                          renderer.height(), fps, FRAME_RATE_INT,
                          !interp_mode ? L" · sem interpolação" : between_ticks ? L" · interpolado" : L"",
                          renderer.using_hd() ? L"ligado" : L"desligado",
@@ -3216,13 +3269,8 @@ int app_main() {
         return 0;
     } catch (const std::exception& e) {
         nf::audio_out_close();
-        MessageBoxA(nullptr, e.what(), "Nightfire PC: erro", MB_ICONERROR);
+        os::show_error_narrow("Nightfire PC: erro", e.what());
         return 1;
     }
 }
 
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-    nf::install_crash_report();
-    // 64 bits: o jogo roda na pilha da arena (platform/arena.h); 32 bits: direto.
-    return nf::run_main([] { return app_main(); });
-}

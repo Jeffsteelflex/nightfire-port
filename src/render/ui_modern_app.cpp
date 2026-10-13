@@ -6,12 +6,12 @@
 #include <cmath>
 #include <cstdio>
 
-#include <windows.h>
-
 #include "data/files_bin.h"
 #include "data/pack_images.h"
 #include "engine/menu_modern.h"
 #include "engine/weapon_wheel.h"
+#include "platform/keys.h"
+#include "platform/os.h"
 #include "platform/psi_2d.h"
 #include "platform/psi_input.h"
 #include "render/renderer.h"
@@ -22,9 +22,9 @@ namespace {
 
 std::string read_text(const std::wstring& path, bool* ok) {
     std::string s;
-    FILE* f = nullptr;
     *ok = false;
-    if (_wfopen_s(&f, path.c_str(), L"rb") != 0 || f == nullptr) return s;
+    FILE* f = os::open_file(path, "rb");
+    if (f == nullptr) return s;
     char buf[4096];
     size_t n;
     while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) s.append(buf, n);
@@ -44,7 +44,7 @@ void ModernUiApp::init(Renderer& renderer, const std::wstring& dir, const std::s
     tokens_status_ = "padrao";
     if (!dir.empty()) {
         bool ok = false;
-        const std::string json = read_text(dir + L"\\design\\tokens.json", &ok);
+        const std::string json = read_text(os::join(dir, L"design/tokens.json"), &ok);
         std::string err;
         if (ok) {
             ui::Tokens t = tokens_;
@@ -127,7 +127,7 @@ void ModernUiApp::frame(float dt, const ModernUiInput& in, bool enabled) {
     // O menu principal: a arte do título existe no pacote (sem ela, a marca Modern); o fundo em laço de uma página, se
     // toca, no lugar dela.
     front_.set_art(psi_2d_texture_slot(0x3000074) >= 0);
-    front_.set_movie(movie_ && movie_loop_ && renderer_->movie_srv() != nullptr);
+    front_.set_movie(movie_ && movie_loop_ && renderer_->movie_image() != nullptr);
     follow(front_, MmScreen::Front, [&] { front_.open(s); });
     // O aviso de controle desconectado: só desenho, o jogo cuida da volta (a fila não muda).
     if (s.screen == MmScreen::Warning) {
@@ -148,8 +148,8 @@ void ModernUiApp::frame(float dt, const ModernUiInput& in, bool enabled) {
     ui_in.mouse_x = in.mouse_x;
     ui_in.mouse_y = in.mouse_y;
     const bool* k = in.keys;
-    ui_in.lmb = k != nullptr && k[VK_LBUTTON];
-    ui_in.back_button = k != nullptr && (k[VK_RBUTTON] || k[VK_XBUTTON1]);
+    ui_in.lmb = k != nullptr && k[nf::key::LButton];
+    ui_in.back_button = k != nullptr && (k[nf::key::RButton] || k[nf::key::XButton1]);
     ui_in.wheel = in.wheel;
     ui_in.pad = psiInput_PlayerPad();
     ui_in.device = psiInput_ActiveDevice();
@@ -183,12 +183,12 @@ void ModernUiApp::draw_images(const ui::ImageList& list, const ui::Canvas& cv, c
     for (const ui::ImageCmd& c : list) {
         int tw = 0, th = 0;
         // O quadro do filme que toca (a textura do renderizador, não uma do jogo), ou uma imagem do port.
-        ID3D11ShaderResourceView* movie = c.hash == ui::kMovieImage ? renderer_->movie_srv() : nullptr;
+        GpuImage* movie = c.hash == ui::kMovieImage ? renderer_->movie_image() : nullptr;
         if (c.port) movie = renderer_->ui_image(c.hash);
         const int32_t slot = movie != nullptr || c.port ? -1 : psi_2d_texture_slot(c.hash, &tw, &th);
         if ((slot < 0 && movie == nullptr) || c.alpha <= 0.001f) continue;
         Quad2D q;
-        q.srv = movie;
+        q.image = movie;
         q.smooth = c.port;
         q.x0 = ui::window_x(cv, c.r.x0);
         q.y0 = ui::window_y(cv, c.r.y0);

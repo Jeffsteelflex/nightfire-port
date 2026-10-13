@@ -9,9 +9,9 @@
 #include <string>
 #include <vector>
 
-#include <windows.h>
 
 #include "engine/game.h"
+#include "platform/keys.h"
 #include "engine/gameflow.h"
 #include "engine/gamestate.h"
 #include "engine/hashtable.h"
@@ -312,7 +312,7 @@ TEST(menu_find_control_moves_between_buttons) {
     CHECK(Menu_FindControl(&w.m(), 1) == w.control(0x10000004, 2));
     // A seta do teclado faz o mesmo pelo MenuManager_Update (a ação 0x1b, apertada).
     w.tick();
-    w.tick({VK_DOWN});
+    w.tick({nf::key::Down});
     w.tick();
     CHECK(Menu_Focus(0, &id, &tag) && id == 0x10000002);  // de baixo, para baixo, dá a volta
 }
@@ -333,15 +333,15 @@ TEST(menu_end_mission_list_choice_restarts_the_level) {
     M_LISTBOX* list = reinterpret_cast<M_LISTBOX*>(w.control(0x100001a4));
     CHECK(list != nullptr);
     // Para baixo pela barra da lista (o foco é a lista): sair; para cima: tentar de novo.
-    w.tick({VK_DOWN});
+    w.tick({nf::key::Down});
     w.tick();
     CHECK(List_SendMessage(list, 0x35, 0, 0) == 2);
-    w.tick({VK_UP});
+    w.tick({nf::key::Up});
     w.tick();
     CHECK(List_SendMessage(list, 0x35, 0, 0) == 0);
     // Escolher (Espaço, ação 0x1f): P_ENDMISSION_Handler recomeça a fase (quente, sem filme), empilha o
     // fade e fecha o menu.
-    w.tick({VK_SPACE});
+    w.tick({nf::key::Space});
     CHECK(MenuManager_Exists(0) == 0);
     CHECK(GameState.load_file == 0x7000012 && IsWarmReset == 1);
     CHECK(g_mission_port.restarts == restarts + 1);
@@ -365,7 +365,7 @@ TEST(menu_end_mission_quit_goes_to_the_front_end) {
     // Com o status 4, o Start (Enter) também escolhe (Menu_InputAction).
     M_LISTBOX* list = reinterpret_cast<M_LISTBOX*>(w.control(0x100001a4));
     List_SendMessage(list, 0x1e, 2, 1);  // escolhe a linha de valor 2 sem avisar
-    w.tick({VK_RETURN});
+    w.tick({nf::key::Return});
     CHECK(MenuManager_Exists(0) == 0);
     CHECK(GameState.load_file == 0x7000048 && GameState.menu_page == 0x4000001c);
 }
@@ -383,12 +383,12 @@ TEST(menu_pause_opens_and_start_closes_and_unpauses) {
     w.tick({}, 5);
     CHECK(MenuManager_GetStatus() == 3 && Menu_CurrentPage(0) == 0x4000004b);
     // Escolher (Espaço) num botão sem tratador para a tag dele não fecha.
-    w.tick({VK_SPACE});
+    w.tick({nf::key::Space});
     w.tick();
     CHECK(MenuManager_Exists(0) == 1);
     // Start (Enter): MenuManager_Monitor fecha e despausa; o Start fica ligado sem o bit de apertado,
     // para o Player_Update do mesmo tick não abrir de novo.
-    w.tick({VK_RETURN});
+    w.tick({nf::key::Return});
     CHECK(MenuManager_Exists(0) == 0 && GameState.paused == 0 && !GS_IsPaused(0));
     CHECK(Input_Action(0, kActPause, kActionPressed) == 0);
     CHECK(Menu_PlayerHasQuitOrRestarted() == 0);
@@ -401,15 +401,15 @@ TEST(menu_pause_opens_and_start_closes_and_unpauses) {
 TEST(menu_input_action_quirks) {
     MenuWorld w;
     // Voltar (0x22) segurado anula escolher e Start; escolher anula voltar.
-    w.tick({VK_SPACE, VK_BACK});
+    w.tick({nf::key::Space, nf::key::Back});
     CHECK(Menu_InputAction(0, 0x1f, 4) == 0);
     CHECK(Menu_InputAction(0, 0x22, 4) == 0);
     w.tick({});
-    w.tick({VK_BACK});
+    w.tick({nf::key::Back});
     CHECK(Menu_InputAction(0, 0x22, 4) == 100);
     // Start só vale como escolher com um menu de status acima de 3.
     w.tick({});
-    w.tick({VK_RETURN});
+    w.tick({nf::key::Return});
     CHECK(Menu_InputAction(0, 0x1f, 4) == 0);
     menu_manager[1].status = 4;
     CHECK(Menu_InputAction(0, 0x1f, 4) == 1);

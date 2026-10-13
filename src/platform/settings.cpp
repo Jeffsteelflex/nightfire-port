@@ -2,14 +2,15 @@
 
 #include "platform/settings.h"
 
-#include <windows.h>
-
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
+
+#include "platform/os.h"
 
 namespace nf {
 
@@ -34,7 +35,7 @@ bool Settings::load(const std::wstring& path) {
     path_ = path;
     lines_.clear();
     dirty_ = false;
-    std::ifstream in(path, std::ios::binary);
+    std::ifstream in(std::filesystem::path(path), std::ios::binary);
     if (!in) return false;
     std::stringstream ss;
     ss << in.rdbuf();
@@ -86,7 +87,7 @@ std::string Settings::text() const {
 
 bool Settings::save() const {
     if (path_.empty()) return false;
-    std::ofstream out(path_, std::ios::binary | std::ios::trunc);
+    std::ofstream out(std::filesystem::path(path_), std::ios::binary | std::ios::trunc);
     if (!out) return false;
     const std::string t = text();
     out.write(t.data(), std::streamsize(t.size()));
@@ -203,9 +204,7 @@ Settings& settings() {
 }
 
 std::wstring default_settings_path() {
-    wchar_t exe[MAX_PATH];
-    const DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    std::wstring dir(exe, n);
+    std::wstring dir = os::exe_path();
     const size_t slash = dir.find_last_of(L"\\/");
     dir = slash == std::wstring::npos ? std::wstring() : dir.substr(0, slash + 1);
     return dir + L"nightfire.ini";

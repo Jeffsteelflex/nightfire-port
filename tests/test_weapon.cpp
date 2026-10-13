@@ -1,7 +1,6 @@
 // Testes de player_weapon.cpp (inventário, munição, a arma na mão e o gatilho) com definições de
 // arma sintéticas em weapon_data, um jogador num mundo vazio e scripts de animação vazios.
 
-#include <windows.h>
 
 #include <cmath>
 #include <cstdio>
@@ -9,6 +8,7 @@
 #include <vector>
 
 #include "engine/anim.h"
+#include "platform/keys.h"
 #include "engine/build.h"
 #include "engine/collide.h"
 #include "engine/game.h"
@@ -283,20 +283,20 @@ TEST(weapon_semi_auto_fires_once_per_press) {
     w.tick(3);
     CHECK(w.anim()->weapon == 2 && b->weapons[2].rounds == 7);
     // Segurar o gatilho: um tiro (rajada de 1), a animação de tiro (estado 9) e o clarão.
-    w.press(VK_LBUTTON, true);
+    w.press(nf::key::LButton, true);
     w.tick();
     CHECK(b->weapons[2].rounds == 6);
     CHECK(b->gun->state == 9 && b->muzzle_flash == 1);
     w.tick(40);
     CHECK(b->weapons[2].rounds == 6);
     // Soltar e apertar de novo depois da animação (30 quadros): outro tiro.
-    w.press(VK_LBUTTON, false);
+    w.press(nf::key::LButton, false);
     w.tick();
     CHECK(b->gun->state == 0);
-    w.press(VK_LBUTTON, true);
+    w.press(nf::key::LButton, true);
     w.tick();
     CHECK(b->weapons[2].rounds == 5);
-    w.press(VK_LBUTTON, false);
+    w.press(nf::key::LButton, false);
 }
 
 TEST(weapon_burst_and_empty_clip_reload) {
@@ -307,7 +307,7 @@ TEST(weapon_burst_and_empty_clip_reload) {
     w.tick(3);
     CHECK(w.anim()->weapon == 0x14 && b->weapons[0x14].rounds == 7);
     // Rajada de 3 com o gatilho seguro: três tiros a cada fire_delay (10 ticks) e mais nada.
-    w.press(VK_LBUTTON, true);
+    w.press(nf::key::LButton, true);
     w.tick();
     CHECK(b->weapons[0x14].rounds == 6);
     w.tick(9);
@@ -319,12 +319,12 @@ TEST(weapon_burst_and_empty_clip_reload) {
     w.tick(40);
     CHECK(b->weapons[0x14].rounds == 4);
     // Soltar no meio da rajada a interrompe (BLData::burst volta a 0).
-    w.press(VK_LBUTTON, false);
+    w.press(nf::key::LButton, false);
     w.tick();
-    w.press(VK_LBUTTON, true);
+    w.press(nf::key::LButton, true);
     w.tick();
     CHECK(b->weapons[0x14].rounds == 3);
-    w.press(VK_LBUTTON, false);
+    w.press(nf::key::LButton, false);
     w.tick(30);
     CHECK(b->weapons[0x14].rounds == 3);
     // Pente vazio e gatilho solto: recarrega sozinho com a munição guardada (estado 6; sem
@@ -432,7 +432,7 @@ TEST(weapon_wheel_switches_or_zooms_while_aiming) {
     CHECK(w.anim()->weapon == 2);
     // Mirando com uma arma de zoom (zoom máximo 4), a roda dá zoom: cada dente para cima, x 1,025^9 no alvo; nada de
     // trocar de arma; a classe guarda o alvo.
-    w.press(VK_RBUTTON, true);
+    w.press(nf::key::RButton, true);
     w.tick(2);
     CHECK((w.anim()->flags & 1) != 0 && b->zoom_max == 4.0f);
     const float before = b->zoom_target;
@@ -452,7 +452,7 @@ TEST(weapon_wheel_switches_or_zooms_while_aiming) {
     w.tick();
     CHECK(b->zoom_target == 4.0f && w.anim()->weapon == 2);
     // Sem mirar, a roda volta a trocar de arma.
-    w.press(VK_RBUTTON, false);
+    w.press(nf::key::RButton, false);
     w.tick(3);
     g_psi_keyboard_mouse.wheel = -1.0f;
     w.tick();
@@ -532,7 +532,7 @@ TEST(ads_raises_the_gun_to_the_sights_and_back) {
     const _VECTOR hip = b->gun->pos;
     CHECK(ads_weight() == 0.0f && ads_view_zoom() == 1.0f && !ads_hide_crosshair(b));
     // Segurar o botão de mirar: o modo de mira do jogo liga, e a arma vai para a pose em ~10 ticks.
-    w.press(VK_RBUTTON, true);
+    w.press(nf::key::RButton, true);
     w.tick();
     CHECK((w.anim()->flags & 1) != 0);
     w.tick(5);
@@ -555,9 +555,9 @@ TEST(ads_raises_the_gun_to_the_sights_and_back) {
     CHECK(f[2] > r[2]);
     // A mira fica no centro: as setas giram a visão (como na luneta) e a mira do jogo não sai do lugar.
     const float yaw0 = w.player->rot.y;
-    w.press(VK_RIGHT, true);
+    w.press(nf::key::Right, true);
     w.tick(4);
-    w.press(VK_RIGHT, false);
+    w.press(nf::key::Right, false);
     CHECK(b->aim_x == 0.0f && b->aim_y == 0.0f && w.player->rot.y != yaw0);
     // Só do port: mirando no estilo moderno o W anda (o modo de mira do jogo zera a frente em Player_Move).
     const _VECTOR at0 = w.player->pos;
@@ -574,14 +574,14 @@ TEST(ads_raises_the_gun_to_the_sights_and_back) {
     for (int i = 0; i < 12; ++i) ads_tick(w.player, nullptr);
     CHECK_NEAR(ads_weight(), 1.0f, 1e-6);
     // Soltar: a arma volta ao quadril e o zoom leve some.
-    w.press(VK_RBUTTON, false);
+    w.press(nf::key::RButton, false);
     w.tick(12);
     CHECK(ads_weight() == 0.0f && ads_view_zoom() == 1.0f);
     CHECK_NEAR(b->gun->pos.x, hip.x, 0.02);
     CHECK_NEAR(b->gun->pos.z, hip.z, 0.02);
     // Com o controle (auto = clássico) nada disso: a mira do jogo se move pela tela e a arma fica no quadril.
     ads_set_device_override(1);
-    w.press(VK_RBUTTON, true);
+    w.press(nf::key::RButton, true);
     w.tick(12);
     CHECK((w.anim()->flags & 1) != 0 && ads_weight() == 0.0f && !ads_fixed_crosshair(w.player));
     // ... e mirando a frente fica zerada, como no PS2: só se anda de lado.
@@ -590,21 +590,21 @@ TEST(ads_raises_the_gun_to_the_sights_and_back) {
     w.tick(10);
     w.press('W', false);
     CHECK(std::hypot(w.player->pos.x - at1.x, w.player->pos.z - at1.z) < 0.01f);
-    w.press(VK_RIGHT, true);
+    w.press(nf::key::Right, true);
     w.tick(2);
-    w.press(VK_RIGHT, false);
+    w.press(nf::key::Right, false);
     CHECK(b->aim_x != 0.0f);
-    w.press(VK_RBUTTON, false);
+    w.press(nf::key::RButton, false);
     w.tick(3);
     // Uma arma de zoom (a 0x14 com zoom 4) no estilo moderno: a mira presa no centro, mas sem a pose (a visão de zoom do
     // jogo).
     ads_set_device_override(0);
     CHECK(ads_fixed_crosshair(w.player));
     weapon_def(2)->zoom_max = 4.0f;
-    w.press(VK_RBUTTON, true);
+    w.press(nf::key::RButton, true);
     w.tick(12);
     CHECK(ads_fixed_crosshair(w.player) && ads_weight() == 0.0f);
-    w.press(VK_RBUTTON, false);
+    w.press(nf::key::RButton, false);
     ads_debug_extra_entry(nullptr);
     ads_set_device_override(-1);
     ads_set_style(style_before);
@@ -696,22 +696,22 @@ TEST(weapon_wheel_release_selects_through_the_game_path) {
     // Aberta, o jogador anda mas não gira, não mira nem atira (psiInput_SetWheelOpen).
     psiInput_SetWheelOpen(true);
     w.press('W', true);
-    w.press(VK_RIGHT, true);
-    w.press(VK_RBUTTON, true);
-    w.press(VK_LBUTTON, true);
+    w.press(nf::key::Right, true);
+    w.press(nf::key::RButton, true);
+    w.press(nf::key::LButton, true);
     w.tick();
     CHECK(Input_Actionf(0, kActForward, kActionDown) > 0.0f);
     CHECK(Input_Actionf(0, kActTurn, kActionDown) == 0.0f && Input_Action(0, kActAimMode, kActionDown) == 0 &&
           Input_Action(0, kActFire, kActionDown) == 0);
     // Fechada com o botão do mouse ainda seguro: o tiro fica de fora até soltar.
     psiInput_SetWheelOpen(false);
-    w.press(VK_RBUTTON, false);
+    w.press(nf::key::RButton, false);
     w.tick();
     CHECK(Input_Action(0, kActFire, kActionDown) == 0);
-    w.press(VK_LBUTTON, false);
+    w.press(nf::key::LButton, false);
     w.tick();
-    w.press(VK_LBUTTON, true);
+    w.press(nf::key::LButton, true);
     w.tick();
     CHECK(Input_Action(0, kActFire, kActionDown) != 0);
-    for (int vk : {int('W'), int(VK_RIGHT), int(VK_LBUTTON)}) w.press(vk, false);
+    for (int vk : {int('W'), int(nf::key::Right), int(nf::key::LButton)}) w.press(vk, false);
 }

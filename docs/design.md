@@ -11,7 +11,8 @@ em INTERFACE nos dois estilos):
 
 O Modern cobre a pausa (com as opções numa aba dela e as estatísticas da missão na aba SCORE), o fim de missão, o
 resultado, o caminho de um jogador do menu principal (o título, o menu, os codinomes, a dificuldade, o mapa das missões,
-o dossiê e os créditos) e o aviso de controle desconectado. As opções juntam as do PC e
+o dossiê e os créditos), o aviso de controle desconectado e, antes do jogo, a tela de entrada (o launcher). As opções
+juntam as do PC e
 as úteis do próprio jogo (as das páginas "Advanced Options" e "AV Options" do menu principal: GAMEPLAY, as legendas,
 os volumes); as que no PC não têm efeito (widescreen, ajuste de tela, tela dividida, modo do som) não aparecem no
 Modern e continuam nas páginas do jogo no estilo Original. Os menus continuam
@@ -24,8 +25,8 @@ O código: `src/ui/modern_ui.h` (tokens, tela virtual, movimento, lista de desen
 (componentes), `src/ui/modern_input.h` (a entrada das telas dos menus do jogo), `src/ui/modern_options.h` (a tela
 de opções), `src/ui/modern_pause.h` (a pausa), `src/ui/modern_end.h` (o fim de missão, o resultado e o aviso de
 controle desconectado), `src/ui/modern_front.h` (o menu principal), `src/ui/modern_dossier.h` (o dossiê, uma vista do
-menu principal),
-`src/render/ui_modern_draw.h` (o desenho com Direct2D) e `src/render/ui_modern_app.h` (a ligação com o
+menu principal), `src/ui/modern_setup.h` (a tela de entrada, antes do jogo),
+`src/render/ui_modern_draw_d2d.h` (o desenho com Direct2D) e `src/render/ui_modern_app.h` (a ligação com o
 `nightfire.exe`). Tudo menos o desenho é sem GPU e tem testes (`tests/test_modern_ui.cpp`,
 `tests/test_modern_menus.cpp`).
 
@@ -144,6 +145,7 @@ grade é de **8 px**; as medidas principais:
 | aba SCORE | a tabela de x 552 a 1760 (CURRENT e TARGET pela direita, 240 entre elas), linhas de 56 | as linhas recuadas do jogo em +30 |
 | fim de missão | o título centrado em y 452; o motivo 86 abaixo; as opções 214 abaixo, 96 entre elas | |
 | resultado | o título em y 236, a missão em 340; a pontuação de x 1180 a 1760; as escolhas a partir de y 660 | |
+| tela de entrada | as colunas das opções: a da esquerda de x 95 (o título em y 214, o disco a partir de 304, PLAY em y 760), as linhas de x 552 a 1248 a partir de y 113, a descrição à direita | linhas de 70, seções de 56, opções de lista de 60 |
 
 ## Componentes
 
@@ -171,7 +173,9 @@ opção escolhida), **apagado** e **travado** (cadeado; tem foco para ler a desc
   lugar, empurrando o resto (0,18 s): as opções recuadas 44 px, cada uma com a linha fina e o ponto de rádio à
   direita (vazio: um círculo escuro com contorno; a escolhida: um ponto de ouro claro com brilho). O chevron
   vira ⌃. Esquerda/direita na lista fechada trocam o valor direto; o valor novo entra subindo 6 px enquanto o
-  antigo sai (0,14 s).
+  antigo sai (0,14 s). A lista que cabe na área abre inteira, com a linha dela; a que não cabe (as resoluções de um
+  monitor grande: 30 ou mais) abre com a opção atual no meio da área, com opções acima e abaixo à vista, e a roda do
+  mouse rola a área também com o mouse em cima das opções (na tela de entrada e nas opções do jogo).
 - **Chave** (toggle): um trilho de 48 x 24 com um botão quadrado de 14; desligada, botão cinza à esquerda;
   ligada, botão de ouro à direita com brilho (0,12 s); "On"/"Off" à direita. Select alterna; esquerda desliga,
   direita liga.
@@ -341,20 +345,34 @@ opção escolhida), **apagado** e **travado** (cadeado; tem foco para ler a desc
     100% e o alfa de tudo acompanha. O apontado troca na hora (a mão precisa de resposta imediata).
   - Três camadas: o fundo (vinheta, espaços, realce, miolo, pílula) pelo Direct2D, os ícones pelo Direct3D (imagens do
     port, `ImageCmd::port`) e a frente (textos, losangos, vetor) pelo Direct2D (`ModernUiApp::draw_wheel`).
-- **A tela de configuração** (`SetupScreen`, `modern_setup.h`; docs/port.md "Instalação fácil"): a da primeira partida,
-  antes de existir um disco. Por isso nada do jogo: nem a arte, nem o logotipo, nem os textos dele; só o port. O fundo
-  opaco `ground` com a vinheta e o 007 do port (`results_007.svg`) bem fraco à direita, como o resultado. À esquerda
-  "SETUP /" em `header`, "007 NIGHTFIRE" em `hero` de 64 com o traço de ouro e a linha fina, o pedido "SELECT YOUR 007:
-  NIGHTFIRE DISC IMAGE (PS2, USA)" em `hero_sub` ouro e uma frase em `body` (o jogo vem da cópia do jogador, nada é
-  baixado); embaixo a lista grande do `BigMenu`: SELECT DISC IMAGE (/ .ISO FILE), uma linha USE THE DISC IN DRIVE X: por
-  leitor com um disco de PS2 (com o cadeado se for outro jogo ou outra versão), PLAY (com o cadeado até haver um disco)
-  e, menores, MAKE A SINGLE-FILE COPY (cadeado sem disco) e QUIT. À direita a descrição da linha com o foco, "Disc:" com
-  o caminho (encurtado no meio, o nome do arquivo inteiro) e o estado como o aviso de ouro: "Ready: 007: Nightfire (PS2,
-  USA), SLUS-20579", ou o motivo de um disco que não serve; na linha da cópia, "Save as:" e o aviso de que o arquivo
-  contém o jogo e não pode ser compartilhado. Uma linha com cadeado escolhida mostra o motivo no aviso de baixo
-  (`Toast`). As caixas são o `Dialog` do kit: o disco que não serve (OK), o andamento da cópia (a barra de contagem
-  como barra de progresso, crescendo do meio, e Cancel) e o fim da cópia (o arquivo e o aviso). Com a janela de escolha
-  de arquivo do Windows aberta, a tela não responde.
+- **A tela de entrada** (o launcher; `SetupScreen`, `modern_setup.h`; docs/port.md "Instalação fácil"): antes do jogo, a
+  cada partida normal (com JOGAR no foco: Enter, A ou Start começam o jogo na hora), com o Shift quando "Show at startup"
+  está desligado, e sozinha quando não há um disco que sirva (era a tela de configuração da primeira partida). Antes do
+  jogo não há arte nem textos dele, só os do port. O fundo opaco `ground` com a vinheta e o 007 do port
+  (`results_007.svg`) bem fraco à direita, como o resultado. Três colunas, sem barra de cima:
+  - à esquerda "NIGHTFIRE PC /" em `header`, "007 NIGHTFIRE" em `page_title` (encolhe para caber na coluna) com o traço de
+    ouro e a linha fina, e o disco em uso: o tipo em `section` (`dim`), o nome em `label` e o estado em `meta` ouro com o
+    quadradinho ("Ready: 007: Nightfire (PS2, USA), SLUS-20579"); sem disco, o pedido "SELECT YOUR 007: NIGHTFIRE DISC
+    IMAGE (PS2, USA)" em `meta` ouro, a frase em `body` (o jogo vem da cópia do jogador, nada é baixado) e o motivo. Embaixo,
+    a lista grande do `BigMenu`: PLAY (/ START THE GAME), em `launch_menu_y`, com o cadeado sem disco, e QUIT, menor;
+  - no meio as linhas, em quatro seções (`section`): DISC (o disco em uso, que abre a janela de escolha de arquivo; um
+    leitor de DVD por linha, travado com o motivo, "In use" no disco em uso; a cópia em arquivo único com o tamanho, travada
+    sem disco), DISPLAY (Resolution e Display mode, listas que abrem; VSync, chave), INTERFACE (Menu style, lista; HD 2D
+    layer, chave) e STARTUP (Show at startup, chave). As linhas são as do kit (o nome, o valor, a linha fina, o foco com o
+    sublinhado e o brilho), mais baixas que as das opções para tudo caber sem rolar: `launch_row_h` 70, `launch_section_h`
+    56, as opções da lista aberta `launch_option_h` 60; com leitores (ou a lista das resoluções aberta) a lista rola, com o
+    indicador;
+  - à direita a descrição da linha com o foco: o que ela faz, "Current value:" e, com algo mudado, o aviso em ouro de que
+    o PLAY grava; em PLAY o disco e o estado; na cópia "Save as:" e o aviso de que o arquivo contém o jogo e não pode ser
+    compartilhado. A camada HD diz que muda o HUD e os menus Original, e que os menus Modern são sempre nativos.
+
+  A entrada: na coluna da esquerda cima/baixo e Enter; a direita (ou o mouse) entra nas linhas; nas linhas esquerda/direita
+  trocam o valor (nas linhas de ação a esquerda volta a PLAY), Enter abre a lista ou alterna a chave, Esc volta a PLAY; o
+  Start do controle joga de qualquer lugar. A barra de baixo diz "Enter Play" na coluna da esquerda e "← → Change",
+  "Toggle", "Browse", "Back" nas linhas. Uma linha com cadeado escolhida mostra o motivo no aviso de baixo (`Toast`). As
+  caixas são o `Dialog` do kit: o disco que não serve (OK), o andamento da cópia (a barra de contagem como barra de
+  progresso, crescendo do meio, e Cancel) e o fim da cópia. Com a janela de escolha de arquivo do Windows aberta, a tela
+  não responde.
 
 ## Movimento
 

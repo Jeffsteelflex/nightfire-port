@@ -2,8 +2,6 @@
 
 #include "platform/input_bindings.h"
 
-#include <windows.h>
-
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -13,6 +11,8 @@
 
 #include "platform/game_options.h"
 #include "platform/gamepad.h"
+#include "platform/keys.h"
+#include "platform/os.h"
 #include "platform/psi_input.h"
 #include "platform/settings.h"
 
@@ -107,54 +107,54 @@ struct KeyName {
 
 // Teclas com nome (letras, dígitos, F1-F24 e o teclado numérico vêm de regras).
 const KeyName kKeys[] = {
-    {VK_LBUTTON, "mouse1", "Mouse 1", "Mouse 1"},
-    {VK_RBUTTON, "mouse2", "Mouse 2", "Mouse 2"},
-    {VK_MBUTTON, "mouse3", "Mouse 3", "Mouse 3"},
-    {VK_XBUTTON1, "mouse4", "Mouse 4", "Mouse 4"},
-    {VK_XBUTTON2, "mouse5", "Mouse 5", "Mouse 5"},
-    {VK_SPACE, "space", "Espaço", "Space"},
-    {VK_RETURN, "enter", "Enter", "Enter"},
-    {VK_TAB, "tab", "Tab", "Tab"},
-    {VK_BACK, "backspace", "Backspace", "Backspace"},
-    {VK_ESCAPE, "escape", "Esc", "Esc"},
-    {VK_SHIFT, "shift", "Shift", "Shift"},
-    {VK_LSHIFT, "lshift", "Shift esq.", "Left Shift"},
-    {VK_RSHIFT, "rshift", "Shift dir.", "Right Shift"},
-    {VK_CONTROL, "ctrl", "Ctrl", "Ctrl"},
-    {VK_LCONTROL, "lctrl", "Ctrl esq.", "Left Ctrl"},
-    {VK_RCONTROL, "rctrl", "Ctrl dir.", "Right Ctrl"},
-    {VK_MENU, "alt", "Alt", "Alt"},
-    {VK_LMENU, "lalt", "Alt esq.", "Left Alt"},
-    {VK_RMENU, "ralt", "Alt dir.", "Right Alt"},
-    {VK_UP, "up", "Seta cima", "Up"},
-    {VK_DOWN, "down", "Seta baixo", "Down"},
-    {VK_LEFT, "left", "Seta esq.", "Left"},
-    {VK_RIGHT, "right", "Seta dir.", "Right"},
-    {VK_INSERT, "insert", "Insert", "Insert"},
-    {VK_DELETE, "delete", "Delete", "Delete"},
-    {VK_HOME, "home", "Home", "Home"},
-    {VK_END, "end", "End", "End"},
-    {VK_PRIOR, "pageup", "Page Up", "Page Up"},
-    {VK_NEXT, "pagedown", "Page Down", "Page Down"},
-    {VK_CAPITAL, "capslock", "Caps Lock", "Caps Lock"},
-    {VK_MULTIPLY, "num*", "Num *", "Num *"},
-    {VK_ADD, "num+", "Num +", "Num +"},
-    {VK_SUBTRACT, "num-", "Num -", "Num -"},
-    {VK_DECIMAL, "num.", "Num .", "Num ."},
-    {VK_DIVIDE, "num/", "Num /", "Num /"},
-    {VK_OEM_1, "semicolon", ";", ";"},
-    {VK_OEM_PLUS, "equals", "=", "="},
-    {VK_OEM_COMMA, "comma", ",", ","},
-    {VK_OEM_MINUS, "minus", "-", "-"},
-    {VK_OEM_PERIOD, "period", ".", "."},
-    {VK_OEM_2, "slash", "/", "/"},
-    {VK_OEM_3, "grave", "`", "`"},
-    {VK_OEM_4, "lbracket", "[", "["},
-    {VK_OEM_5, "backslash", "\\", "\\"},
-    {VK_OEM_6, "rbracket", "]", "]"},
-    {VK_OEM_7, "apostrophe", "'", "'"},
-    {VK_OEM_102, "oem102", "\\", "\\"},
-    {0xc1, "abnt_c1", "/", "/"},  // VK_ABNT_C1: a tecla / do teclado ABNT2
+    {nf::key::LButton, "mouse1", "Mouse 1", "Mouse 1"},
+    {nf::key::RButton, "mouse2", "Mouse 2", "Mouse 2"},
+    {nf::key::MButton, "mouse3", "Mouse 3", "Mouse 3"},
+    {nf::key::XButton1, "mouse4", "Mouse 4", "Mouse 4"},
+    {nf::key::XButton2, "mouse5", "Mouse 5", "Mouse 5"},
+    {nf::key::Space, "space", "Espaço", "Space"},
+    {nf::key::Return, "enter", "Enter", "Enter"},
+    {nf::key::Tab, "tab", "Tab", "Tab"},
+    {nf::key::Back, "backspace", "Backspace", "Backspace"},
+    {nf::key::Escape, "escape", "Esc", "Esc"},
+    {nf::key::Shift, "shift", "Shift", "Shift"},
+    {nf::key::LShift, "lshift", "Shift esq.", "Left Shift"},
+    {nf::key::RShift, "rshift", "Shift dir.", "Right Shift"},
+    {nf::key::Control, "ctrl", "Ctrl", "Ctrl"},
+    {nf::key::LControl, "lctrl", "Ctrl esq.", "Left Ctrl"},
+    {nf::key::RControl, "rctrl", "Ctrl dir.", "Right Ctrl"},
+    {nf::key::Menu, "alt", "Alt", "Alt"},
+    {nf::key::LMenu, "lalt", "Alt esq.", "Left Alt"},
+    {nf::key::RMenu, "ralt", "Alt dir.", "Right Alt"},
+    {nf::key::Up, "up", "Seta cima", "Up"},
+    {nf::key::Down, "down", "Seta baixo", "Down"},
+    {nf::key::Left, "left", "Seta esq.", "Left"},
+    {nf::key::Right, "right", "Seta dir.", "Right"},
+    {nf::key::Insert, "insert", "Insert", "Insert"},
+    {nf::key::Delete, "delete", "Delete", "Delete"},
+    {nf::key::Home, "home", "Home", "Home"},
+    {nf::key::End, "end", "End", "End"},
+    {nf::key::Prior, "pageup", "Page Up", "Page Up"},
+    {nf::key::Next, "pagedown", "Page Down", "Page Down"},
+    {nf::key::Capital, "capslock", "Caps Lock", "Caps Lock"},
+    {nf::key::Multiply, "num*", "Num *", "Num *"},
+    {nf::key::Add, "num+", "Num +", "Num +"},
+    {nf::key::Subtract, "num-", "Num -", "Num -"},
+    {nf::key::Decimal, "num.", "Num .", "Num ."},
+    {nf::key::Divide, "num/", "Num /", "Num /"},
+    {nf::key::Oem1, "semicolon", ";", ";"},
+    {nf::key::OemPlus, "equals", "=", "="},
+    {nf::key::OemComma, "comma", ",", ","},
+    {nf::key::OemMinus, "minus", "-", "-"},
+    {nf::key::OemPeriod, "period", ".", "."},
+    {nf::key::Oem2, "slash", "/", "/"},
+    {nf::key::Oem3, "grave", "`", "`"},
+    {nf::key::Oem4, "lbracket", "[", "["},
+    {nf::key::Oem5, "backslash", "\\", "\\"},
+    {nf::key::Oem6, "rbracket", "]", "]"},
+    {nf::key::Oem7, "apostrophe", "'", "'"},
+    {nf::key::Oem102, "oem102", "\\", "\\"},
+    {0xc1, "abnt_c1", "/", "/"},  // nf::key::AbntC1: a tecla / do teclado ABNT2
 };
 
 const char* const kPadNames[kPadInCount] = {
@@ -250,12 +250,12 @@ std::string input_name(InputCode c) {
             if ((c.code >= 'A' && c.code <= 'Z') || (c.code >= '0' && c.code <= '9')) {
                 return std::string(1, char(std::tolower(c.code)));
             }
-            if (c.code >= VK_F1 && c.code <= VK_F24) {
-                std::snprintf(buf, sizeof(buf), "f%d", c.code - VK_F1 + 1);
+            if (c.code >= nf::key::F1 && c.code <= nf::key::F24) {
+                std::snprintf(buf, sizeof(buf), "f%d", c.code - nf::key::F1 + 1);
                 return buf;
             }
-            if (c.code >= VK_NUMPAD0 && c.code <= VK_NUMPAD9) {
-                std::snprintf(buf, sizeof(buf), "num%d", c.code - VK_NUMPAD0);
+            if (c.code >= nf::key::Numpad0 && c.code <= nf::key::Numpad9) {
+                std::snprintf(buf, sizeof(buf), "num%d", c.code - nf::key::Numpad0);
                 return buf;
             }
             std::snprintf(buf, sizeof(buf), "vk%02x", c.code);
@@ -296,11 +296,11 @@ bool parse_input_name(const std::string& name_in, InputCode* out) {
     int n = 0;
     if (name.size() >= 2 && name[0] == 'f' && (n = std::atoi(name.c_str() + 1)) != 0 && n >= 1 && n <= 24 &&
         name == "f" + std::to_string(n)) {
-        *out = key_input(uint8_t(VK_F1 + n - 1));
+        *out = key_input(uint8_t(nf::key::F1 + n - 1));
         return true;
     }
     if (name.size() == 4 && name.compare(0, 3, "num") == 0 && std::isdigit(uint8_t(name[3]))) {
-        *out = key_input(uint8_t(VK_NUMPAD0 + (name[3] - '0')));
+        *out = key_input(uint8_t(nf::key::Numpad0 + (name[3] - '0')));
         return true;
     }
     if (name.size() == 4 && name.compare(0, 2, "vk") == 0 && std::isxdigit(uint8_t(name[2])) &&
@@ -319,9 +319,9 @@ std::string input_label(InputCode c, bool english) {
         case InputKind::Key: {
             for (const KeyName& k : kKeys) {
                 if (k.vk != c.code) continue;
-                // Teclas de pontuação: o caractere do layout do usuário (ABNT2: VK_OEM_1 é o Ç).
-                if (c.code >= VK_OEM_1 && c.code != 0xc1) {
-                    const UINT ch = MapVirtualKeyW(c.code, MAPVK_VK_TO_CHAR) & 0xffff;
+                // Teclas de pontuação: o caractere do layout do usuário (ABNT2: nf::key::Oem1 é o Ç).
+                if (c.code >= nf::key::Oem1 && c.code != 0xc1) {
+                    const uint32_t ch = os::key_char(c.code) & 0xffff;
                     if (ch >= 0x21 && ch < 0x100) {
                         char buf[4] = {};
                         if (ch < 0x80) {
@@ -337,10 +337,10 @@ std::string input_label(InputCode c, bool english) {
             }
             if ((c.code >= 'A' && c.code <= 'Z') || (c.code >= '0' && c.code <= '9')) return std::string(1, char(c.code));
             char buf[24];
-            if (c.code >= VK_F1 && c.code <= VK_F24) {
-                std::snprintf(buf, sizeof(buf), "F%d", c.code - VK_F1 + 1);
-            } else if (c.code >= VK_NUMPAD0 && c.code <= VK_NUMPAD9) {
-                std::snprintf(buf, sizeof(buf), "Num %d", c.code - VK_NUMPAD0);
+            if (c.code >= nf::key::F1 && c.code <= nf::key::F24) {
+                std::snprintf(buf, sizeof(buf), "F%d", c.code - nf::key::F1 + 1);
+            } else if (c.code >= nf::key::Numpad0 && c.code <= nf::key::Numpad9) {
+                std::snprintf(buf, sizeof(buf), "Num %d", c.code - nf::key::Numpad0);
             } else {
                 std::snprintf(buf, sizeof(buf), english ? "Key %02X" : "Tecla %02X", c.code);
             }

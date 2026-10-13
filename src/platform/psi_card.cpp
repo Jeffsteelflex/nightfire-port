@@ -3,13 +3,12 @@
 
 #include "platform/psi_card.h"
 
-#include <windows.h>
-
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <memory>
 
+#include "platform/os.h"
 #include "platform/psi_file.h"
 #include "platform/psi_gfx.h"
 
@@ -1385,8 +1384,8 @@ FolderCard::FolderCard(std::wstring root) : root_(std::move(root)) {
 std::wstring FolderCard::full(const std::string& path) const {
     std::wstring w = root_;
     if (!path.empty()) {
-        w += L'\\';
-        for (const char c : path) w.push_back(c == '/' ? L'\\' : wchar_t(uint8_t(c)));
+        w += os::kPathSep;
+        for (const char c : path) w.push_back(c == '/' ? os::kPathSep : wchar_t(uint8_t(c)));
     }
     return w;
 }
@@ -1396,25 +1395,25 @@ bool FolderCard::exists(const std::string& path, bool* dir) const {
         if (dir != nullptr) *dir = true;
         return true;  // a pasta do cartão é criada na primeira escrita
     }
-    const DWORD a = GetFileAttributesW(full(path).c_str());
-    if (a == INVALID_FILE_ATTRIBUTES) {
+    const std::wstring p = full(path);
+    if (!os::exists(p)) {
         if (dir != nullptr) *dir = false;
         return false;
     }
-    if (dir != nullptr) *dir = (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    if (dir != nullptr) *dir = os::is_dir(p);
     return true;
 }
 
 bool FolderCard::make_dir(const std::string& path) {
-    CreateDirectoryW(root_.c_str(), nullptr);
+    os::make_dir(root_);
     bool dir = false;
     if (exists(path, &dir) || !exists(parent_of(path), &dir) || !dir) return false;
-    return CreateDirectoryW(full(path).c_str(), nullptr) != 0;
+    return os::make_dir(full(path));
 }
 
 bool FolderCard::read(const std::string& path, std::vector<uint8_t>* out) const {
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, full(path).c_str(), L"rb") != 0 || f == nullptr) return false;
+    FILE* f = os::open_file(full(path), "rb");
+    if (f == nullptr) return false;
     out->clear();
     uint8_t buf[4096];
     size_t n;
@@ -1426,9 +1425,9 @@ bool FolderCard::read(const std::string& path, std::vector<uint8_t>* out) const 
 bool FolderCard::write(const std::string& path, const std::vector<uint8_t>& data) {
     bool dir = false;
     if (!exists(parent_of(path), &dir) || !dir) return false;
-    CreateDirectoryW(root_.c_str(), nullptr);
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, full(path).c_str(), L"wb") != 0 || f == nullptr) return false;
+    os::make_dir(root_);
+    FILE* f = os::open_file(full(path), "wb");
+    if (f == nullptr) return false;
     const bool ok = data.empty() || std::fwrite(data.data(), 1, data.size(), f) == data.size();
     return std::fclose(f) == 0 && ok;
 }
@@ -1436,24 +1435,18 @@ bool FolderCard::write(const std::string& path, const std::vector<uint8_t>& data
 bool FolderCard::remove(const std::string& path) {
     bool dir = false;
     if (!exists(path, &dir)) return false;
-    return dir ? RemoveDirectoryW(full(path).c_str()) != 0 : DeleteFileW(full(path).c_str()) != 0;
+    return dir ? os::remove_dir(full(path)) : os::remove_file(full(path));
 }
 
 std::vector<PcCard::Entry> FolderCard::list(const std::string& dir) const {
     std::vector<Entry> out;
-    WIN32_FIND_DATAW fd;
-    const HANDLE h = FindFirstFileW((full(dir) + L"\\*").c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) return out;
-    do {
-        const std::wstring name = fd.cFileName;
-        if (name == L"." || name == L"..") continue;
+    for (const os::DirEntry& d : os::list_dir(full(dir))) {
         Entry e;
-        e.name = narrow(name);
-        e.dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-        e.size = e.dir ? 0 : fd.nFileSizeLow;
+        e.name = narrow(d.name);
+        e.dir = d.dir;
+        e.size = e.dir ? 0 : uint32_t(d.size);  // os 32 bits de baixo, como o nFileSizeLow de antes
         out.push_back(e);
-    } while (FindNextFileW(h, &fd));
-    FindClose(h);
+    }
     std::sort(out.begin(), out.end(), [](const Entry& a, const Entry& b) { return a.name < b.name; });
     return out;
 }
@@ -1472,9 +1465,7 @@ void set_card(PcCard* c) { g_card = c; }
 PcCard& card() { return the_card(); }
 
 std::wstring default_save_dir() {
-    wchar_t exe[MAX_PATH];
-    const DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    std::wstring dir(exe, n);
+    std::wstring dir = os::exe_path();
     const size_t slash = dir.find_last_of(L"\\/");
     dir = slash == std::wstring::npos ? std::wstring() : dir.substr(0, slash + 1);
     return dir + L"saves";

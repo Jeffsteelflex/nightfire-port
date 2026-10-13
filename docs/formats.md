@@ -1009,9 +1009,18 @@ amostra `k x 1600`.
 
 MPEG-2 Main Profile @ Main Level, **512 x 448** (a tela inteira do PS2, sem borda), **30 quadros por segundo**
 (código de taxa 5, 30.000 exatos), aspecto **4:3**, 4:2:0, progressivo, 4 Mbit/s (VBV 160 KB), codificado com o
-TMPGEnc ("encoded by TMPGEnc b12a" no *user data*), um cabeçalho de sequência no começo, GOPs de 10 ou 11 quadros
-com matriz não-intra própria. Os filmes com som usam quadros B (`IBBPBBP...`); os dois fundos do menu, as duas
-aberturas curtas e o trailer só I e P.
+TMPGEnc ("encoded by TMPGEnc b12a" no *user data*), um cabeçalho de sequência no começo (com a extensão de sequência e
+a de exibição: componente, 512 x 448) e o código de fim no final, a matriz não intra própria no cabeçalho de sequência
+(a intra é a padrão; nenhuma extensão de matrizes). Os filmes com quadros B (`IBBPBBP...`, todos menos quatro) têm GOPs
+de 18 quadros quase sempre (I, 5 P e 12 B; menores nos cortes de cena), quase todos abertos (o primeiro e os de alguns
+cortes fechados); os quatro só com I e P (os dois fundos do menu, a abertura da EA 07370048 e o trailer 07390048) têm
+GOPs fechados de 10 quadros (menores nos cortes).
+
+Todas as imagens (um levantamento das extensões de imagem dos 22 filmes): imagens de quadro (`picture_structure` 3),
+`progressive_frame` 1, `frame_pred_frame_dct` 1 (só previsão de quadro e DCT de quadro), `q_scale_type` 1 (a escala não
+linear), `intra_vlc_format` 1 (os intra pela tabela B.15), zigue-zague, `intra_dc_precision` 0 (DC de 8 bits), sem
+vetores de ocultação, `top_field_first` 1, `f_code` de 1 a 4. É o que o decodificador do port tem de fazer
+(`platform/mpeg2_decoder.h`; `docs/port.md`, "Filmes").
 
 ### O áudio
 

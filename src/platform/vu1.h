@@ -1,7 +1,7 @@
 #pragma once
 // O que o microprograma da VU1 (e as passadas de névoa do GS) faz com a cor, a UV e a profundidade de
 // cada vértice, como referência na CPU. O renderizador faz as mesmas contas nos shaders
-// (src/render/renderer.cpp); estas funções servem aos testes e ao lado da CPU (psi_draw).
+// (src/render/renderer_d3d11.cpp); estas funções servem aos testes e ao lado da CPU (psi_draw).
 // Rotinas e fórmulas em docs/formats.md, "Microprograma da VU1", lidas com tools/vudis.py.
 //
 // Escalas: cor do vértice como a VU1 a recebe (UNPACK V4-8u: inteiros 0..255, 0x80 = 1.0 no GS);

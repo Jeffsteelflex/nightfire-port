@@ -23,6 +23,7 @@
 #include "data/elf.h"
 #include "platform/sfx_iop.h"
 #include "platform/crash_report.h"
+#include "platform/crt_compat.h"
 #include "data/files_bin.h"
 #include "data/level_pak.h"
 #include "data/map_item.h"
@@ -104,7 +105,7 @@ struct Placed {
 
 bool has_file(const nf::FilesBin& files, const std::string& name) {
     for (const nf::FileEntry& e : files.entries()) {
-        if (_stricmp(e.name.c_str(), name.c_str()) == 0) return true;
+        if (nf::str_icmp(e.name.c_str(), name.c_str()) == 0) return true;
     }
     return false;
 }

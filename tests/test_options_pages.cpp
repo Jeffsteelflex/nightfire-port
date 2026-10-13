@@ -243,7 +243,7 @@ struct OptWorld {
     M_SCROLL* bar(uint32_t id, uint32_t tag = 0) { return reinterpret_cast<M_SCROLL*>(control(id, tag, MCT_SCROLL)); }
     const char* label_text(uint32_t id, uint32_t tag = 0) {
         const M_LABEL* l = reinterpret_cast<const M_LABEL*>(control(id, tag, MCT_LABEL));
-        return l != nullptr && l->string != nullptr ? l->string : "";
+        return l != nullptr && l->string != nullptr ? nf::raw(l->string) : "";
     }
 };
 

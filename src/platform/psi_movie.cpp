@@ -8,10 +8,9 @@
 #include <cwchar>
 #include <vector>
 
-#include <windows.h>
-
 #include "platform/audio_out.h"
 #include "platform/movie_decoder.h"
+#include "platform/os.h"
 #include "platform/psi.h"
 #include "platform/pss.h"
 #include "platform/sfx_iop.h"
@@ -53,6 +52,7 @@ struct Player {
 
 Player g_p;
 Mpeg2Decoder g_decoder;
+MovieDecoderChoice g_decoder_choice = MovieDecoderChoice::Auto;  // [video] movie_decoder, --movie-decoder
 bool g_decoder_failed = false;
 bool g_enabled = false;
 bool g_decode = true;
@@ -90,7 +90,8 @@ std::string movie_path(uint32_t movie) {
 // [decomp] 0x00108cc0 strFileOpen
 // No PS2: o caminho do CD em maiúsculas ("\MOVIES\30_FPS\07100001.PSS;1") e o streaming do CD (sceCdStInit), ou um
 // arquivo do host; com 07360048 que não abre, um laço infinito (não existe aqui). No PC: o arquivo da pasta dos filmes,
-// e só se o decodificador do vídeo existir (sem ele o filme não abre, como um arquivo que falta). Lê o começo até o
+// e só se o decodificador do vídeo existir (sem ele o filme não abre, como um arquivo que falta: só com
+// --movie-decoder mf num sistema sem o do Media Foundation; com auto o do port entra no lugar). Lê o começo até o
 // cabeçalho de sequência, para ligar o decodificador no tamanho do vídeo.
 bool strFileOpen(uint32_t movie) {
     if (!g_enabled) return false;
@@ -103,11 +104,16 @@ bool strFileOpen(uint32_t movie) {
     if (g_decoder_failed) return false;
     // Um decodificador por processo, religado se o tamanho mudar (todos os filmes do disco são 512 x 448).
     if (!g_decoder.ok() || g_p.width != w || g_p.height != h) {
-        if (!g_decoder.open(w, h, f.video().fps())) {
+        if (!g_decoder.open(w, h, f.video().fps(), g_decoder_choice)) {
             g_decoder_failed = true;
             std::fprintf(stderr, "filmes: sem decodificador de MPEG-2 (%s); os filmes nao tocam\n",
                          g_decoder.failure().c_str());
             return false;
+        }
+        // Com auto, o do sistema não serviu e o do port entrou no lugar (no Windows sem a "MPEG-2 Video Extension").
+        if (g_decoder.own() && g_decoder_choice == MovieDecoderChoice::Auto) {
+            std::fprintf(stderr, "filmes: o decodificador de MPEG-2 do sistema nao serve (%s); o do port decodifica\n",
+                         g_decoder.failure().c_str());
         }
     }
     g_p.width = w;
@@ -383,6 +389,16 @@ void movie_set_disc(std::shared_ptr<const DiscSource> disc, const std::string& d
 void movie_set_dir(const std::wstring& dir) { movie_set_disc(dir.empty() ? nullptr : open_disc_folder(dir), std::string()); }
 void movie_set_decode(bool on) { g_decode = on; }
 
+void movie_set_decoder_choice(MovieDecoderChoice choice) {
+    if (choice == g_decoder_choice) return;
+    g_decoder_choice = choice;
+    // O próximo filme liga o decodificador da escolha nova (um que falhou antes pode servir agora).
+    if (BGFMVPlaying == 0) g_decoder.close();
+    g_decoder_failed = false;
+}
+
+MovieDecoderChoice movie_decoder_choice() { return g_decoder_choice; }
+
 bool movie_image(MovieImage* out) {
     if (!PS2UploadBGMImage() || !g_p.file.is_open() || !g_decode) return false;
     int64_t target = clock_frame();
@@ -392,9 +408,9 @@ bool movie_image(MovieImage* out) {
     // NF_MOVIE_LOG=<arquivo> (depuração): por quadro de vídeo, o relógio do filme (o som consumido pela SPU2, a fila do
     // aparelho, o ouvido) e o quadro mostrado.
     static FILE* log = [] {
-        wchar_t path[MAX_PATH] = {};
+        std::wstring path;
         FILE* f = nullptr;
-        if (GetEnvironmentVariableW(L"NF_MOVIE_LOG", path, MAX_PATH) > 0) _wfopen_s(&f, path, L"w");
+        if (nf::os::get_env(L"NF_MOVIE_LOG", &path)) f = nf::os::open_file(path, "w");
         if (f != nullptr) std::fprintf(f, "ms\tfilme\tconsumido\tfila\touvido\tspu\tquadro_relogio\tquadro\n");
         return f;
     }();
@@ -469,6 +485,9 @@ void movie_debug_power_on() {
     g_stats = MovieStats{};
     g_enabled = false;
     g_decode = true;
+    g_decoder_choice = MovieDecoderChoice::Auto;
+    g_decoder_failed = false;
+    g_decoder.close();
     BGFMVPlaying = 0;
     LoopingMovie = 0;
     MoviePlaying = 0;

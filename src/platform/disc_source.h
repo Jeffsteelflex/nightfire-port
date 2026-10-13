@@ -35,8 +35,8 @@
 namespace nf {
 
 // Um arquivo do disco aberto para leitura: uma faixa [base, base + size) de um arquivo do PC (o próprio arquivo numa
-// pasta, um pedaço da imagem ISO ou da cópia pessoal). Cada um tem o seu identificador do Windows (abrir o mesmo
-// arquivo duas vezes dá dois cursores independentes). Só se move, não se copia.
+// pasta, um pedaço da imagem ISO ou da cópia pessoal). Cada um tem o seu identificador do sistema (os::FileHandle,
+// platform/os.h; abrir o mesmo arquivo duas vezes dá dois cursores independentes). Só se move, não se copia.
 class DiscFile {
 public:
     DiscFile() = default;
@@ -63,7 +63,7 @@ public:
     bool read_all(std::vector<uint8_t>& out);
 
 private:
-    void* handle_ = nullptr;  // HANDLE
+    void* handle_ = nullptr;  // os::FileHandle
     uint64_t base_ = 0;
     uint64_t size_ = 0;
     uint64_t pos_ = 0;

@@ -1,5 +1,6 @@
 #include "core/binary.h"
 
+#include <filesystem>
 #include <fstream>
 
 namespace nf {
@@ -20,7 +21,7 @@ static std::string narrow(const std::wstring& w) {
 }
 
 Bytes read_file(const std::wstring& path) {
-    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    std::ifstream f(std::filesystem::path(path), std::ios::binary | std::ios::ate);
     if (!f) throw FormatError("não consegui abrir " + narrow(path));
     const auto size = static_cast<size_t>(f.tellg());
     Bytes data(size);
@@ -31,7 +32,7 @@ Bytes read_file(const std::wstring& path) {
 }
 
 Bytes read_file_range(const std::wstring& path, uint64_t offset, uint64_t size) {
-    std::ifstream f(path, std::ios::binary);
+    std::ifstream f(std::filesystem::path(path), std::ios::binary);
     if (!f) throw FormatError("não consegui abrir " + narrow(path));
     f.seekg(static_cast<std::streamoff>(offset));
     Bytes data(static_cast<size_t>(size));

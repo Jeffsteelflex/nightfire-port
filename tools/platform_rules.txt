@@ -1,0 +1,249 @@
+# A separação entre o código neutro e os backends de plataforma (docs/port.md, "Plataforma: interfaces e backends").
+# Lido por tools/check_platform.py e pelo teste platform_code_stays_behind_the_interfaces do nf_tests
+# (tests/test_platform.cpp). Os dois tiram comentários e textos entre aspas antes de procurar.
+#
+# [backends]: os arquivos que podem usar tudo (caminhos a partir da raiz; * vale qualquer trecho, inclusive '/').
+# [regras]: uma por linha, "tipo nome [arquivos também permitidos...]":
+#   include  o cabeçalho de um #include <...> ou "..." (sem diferenciar maiúsculas; nome terminado em * = prefixo)
+#   token    um identificador do código (terminado em * = prefixo)
+#   pragma   a palavra depois de #pragma
+# Um arquivo novo de backend segue os nomes de [backends] (o sistema ou a API no fim do nome: _win32, _d3d11, _d2d...,
+# _posix, _macos).
+
+[backends]
+src/*_win32.cpp
+src/*_win32.h
+src/*_d3d11.cpp
+src/*_d3d11.h
+src/*_d2d.cpp
+src/*_d2d.h
+src/*_dxgi.cpp
+src/*_dxgi.h
+src/*_xaudio2.cpp
+src/*_mf.cpp
+src/*_wic.cpp
+src/*_xinput.cpp
+src/render/remix_d3d9.cpp
+# O macOS e o Linux (etapa 3; docs/port.md, "macOS: compilação e CI"): o POSIX dos dois e o que é só do macOS.
+src/*_posix.cpp
+src/*_posix.h
+src/*_macos.cpp
+src/*_macos.h
+
+[regras]
+# Os cabeçalhos do sistema e das APIs do Windows.
+include windows.h
+include windowsx.h
+include winioctl.h
+include d3d*
+include dxgi*
+include d2d1*
+include dwrite*
+include wincodec.h
+include xaudio2*
+include xinput*
+include mf*.h
+include dbghelp.h
+include shlwapi.h
+include shobjidl*
+include shlobj*
+include shellapi.h
+include psapi.h
+include objbase.h
+include combaseapi.h
+include comdef.h
+include wrl/*
+include tlhelp32.h
+include mmsystem.h
+include timeapi.h
+include dwmapi.h
+# Do MSVC: só nos ajudantes de compiler.h.
+include intrin.h src/platform/compiler.h
+include malloc.h
+# A matemática da câmera do laço (só cabeçalhos, portável: github.com/microsoft/DirectXMath).
+include directxmath.h src/app/app_main.cpp
+# Os cabeçalhos do POSIX, do macOS e do Linux (os backends *_posix, *_macos).
+include unistd.h
+include sys/*
+include pthread.h
+include dirent.h
+include fcntl.h
+include dlfcn.h
+include execinfo.h
+include signal.h
+include sched.h
+include link.h
+include mntent.h
+include mach/*
+include mach-o/*
+include os/*
+include libproc.h
+include CoreFoundation/*
+include Foundation/*
+include AppKit/*
+include Cocoa/*
+include Metal/*
+include MetalKit/*
+include QuartzCore/*
+include CoreAudio/*
+include AudioToolbox/*
+include GameController/*
+include objc/*
+# strcasecmp e strncasecmp (crt_compat.h, fora do MSVC).
+include strings.h src/platform/crt_compat.h
+# Os cabeçalhos internos dos backends.
+include render/renderer_d3d11.h
+include render/gpu_adapters_dxgi.h
+include render/movie_layer_d3d11.h
+include render/ui_hd_draw_d2d.h
+include render/ui_modern_draw_d2d.h
+
+# Os tipos e as funções do Windows, do COM e das APIs gráficas e de som.
+token HWND
+token HINSTANCE
+token HANDLE
+token HRESULT
+token DWORD
+token LPCWSTR
+token LPWSTR
+token LARGE_INTEGER
+token MAX_PATH
+token WINAPI
+token CALLBACK
+token ComPtr
+token IUnknown
+token ID3D11*
+token ID3D12*
+token IDXGI*
+token IDirect3D*
+token ID2D1*
+token IDWrite*
+token IWIC*
+token IXAudio2*
+token IMFTransform
+token IMFSample
+token IMFMediaBuffer
+token IMFActivate
+token XINPUT_*
+token VK_*
+token GetModuleFileName*
+token GetFileAttributes*
+token CreateFileW
+token CreateFileA
+token ReadFile
+token WriteFile
+token CloseHandle
+token FindFirstFile*
+token GetCurrentDirectory*
+token GetFullPathName*
+token SetErrorMode
+token GetDriveType*
+token GetLogicalDrive*
+token GetDiskFreeSpace*
+token CreateDirectory*
+token DeleteFile*
+token RemoveDirectory*
+token MoveFileEx*
+token VirtualAlloc
+token VirtualFree
+token VirtualProtect
+token VirtualQuery
+token QueryPerformanceCounter
+token QueryPerformanceFrequency
+token Sleep
+token MessageBox*
+token ExitProcess
+token CommandLineToArgvW
+token GetCommandLine*
+token CoInitializeEx
+token CoCreateInstance
+token CoTaskMemFree
+token SHGetKnownFolderPath
+token MultiByteToWideChar
+token WideCharToMultiByte
+token GetEnvironmentVariable*
+token MapVirtualKey*
+token GetAsyncKeyState
+token GetKeyState
+token SetWindowPos
+token CreateWindowEx*
+token GetProcessMemoryInfo
+token AttachConsole
+token GetStdHandle
+token SetUnhandledExceptionFilter
+token CreateWaitableTimer*
+token AcquireSRWLockExclusive
+token XInputGetState
+token XAudio2Create
+token MFStartup
+token D3D11CreateDevice
+token D2D1CreateFactory
+token DWriteCreateFactory
+# As funções do POSIX, do macOS e do Linux.
+token mmap
+token munmap
+token mprotect
+token madvise
+token sigaction
+token sigaltstack
+token backtrace*
+token dladdr
+token dlopen
+token dlsym
+token dl_iterate_phdr
+token pthread_*
+token mach_*
+token _NSGetExecutablePath
+token os_unfair_lock*
+token getcwd
+token readlink
+token sysconf
+token sysctl*
+token clock_gettime
+token nanosleep
+token strcasecmp src/platform/crt_compat.h
+token strncasecmp src/platform/crt_compat.h
+# fseeko e ftello: os arquivos grandes do backend nulo (os_null.cpp), fora do MSVC.
+token fseeko src/platform/os_null.cpp
+token ftello src/platform/os_null.cpp
+# O que é só do GCC e do clang: nos ajudantes de compiler.h (e ptr32.h, o começo da imagem no macOS e no Linux).
+token __attribute__ src/platform/compiler.h
+token __builtin_* src/platform/compiler.h
+token __asm__ src/platform/ptr32.h
+token __executable_start src/platform/ptr32.h
+# O que é só do MSVC: nos ajudantes de compiler.h e crt_compat.h (e ptr32.h, o começo da imagem).
+token __declspec src/platform/compiler.h
+token __forceinline src/platform/compiler.h
+token __debugbreak src/platform/compiler.h
+token __pragma src/platform/compiler.h
+token __try
+token __except
+token __finally
+token __int64
+token __ImageBase src/platform/ptr32.h
+token _controlfp* src/platform/compiler.h
+token _BitScan* src/platform/compiler.h
+token _alloca
+token fopen_s src/platform/crt_compat.h
+token _wfopen_s
+token freopen_s
+token sscanf_s src/platform/crt_compat.h
+token swscanf_s
+token sprintf_s
+token strncpy_s src/platform/crt_compat.h
+token strcpy_s
+token _stricmp src/platform/crt_compat.h
+token _strnicmp src/platform/crt_compat.h
+token _wcsicmp
+token _dupenv_s src/platform/crt_compat.h
+token _access
+pragma fenv_access
+pragma comment
+pragma pack
+pragma optimize
+pragma intrinsic
+pragma float_control
+pragma init_seg
+pragma section
+# #pragma warning só dentro de #if defined(_MSC_VER) (driving/physics/simulation.h).
+pragma warning src/driving/physics/simulation.h

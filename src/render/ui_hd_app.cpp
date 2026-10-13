@@ -2,8 +2,6 @@
 
 #include "render/ui_hd_app.h"
 
-#include <windows.h>
-
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -11,6 +9,7 @@
 #include <set>
 #include <vector>
 
+#include "platform/os.h"
 #include "platform/psi_draw.h"
 #include "render/renderer.h"
 #include "render/runtime_gfx.h"
@@ -20,13 +19,13 @@ namespace nf {
 
 namespace {
 
-bool exists(const std::wstring& p) { return GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES; }
+bool exists(const std::wstring& p) { return os::exists(p); }
 
 std::string read_text(const std::wstring& path, bool* ok) {
     std::string s;
     *ok = false;
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, path.c_str(), L"rb") != 0 || f == nullptr) return s;
+    FILE* f = os::open_file(path, "rb");
+    if (f == nullptr) return s;
     char buf[4096];
     size_t n;
     while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) s.append(buf, n);
@@ -50,20 +49,17 @@ std::wstring widen(const std::string& s) { return std::wstring(s.begin(), s.end(
 std::wstring UiHdApp::find_dir(const std::wstring& option, const std::wstring& data_dir) {
     if (!option.empty()) return option;
     std::vector<std::wstring> candidates;
-    wchar_t buf[MAX_PATH];
-    GetModuleFileNameW(nullptr, buf, MAX_PATH);
-    std::wstring dir = buf;
+    std::wstring dir = os::exe_path();
     for (int up = 0; up < 4; ++up) {
         const size_t cut = dir.find_last_of(L"\\/");
         if (cut == std::wstring::npos) break;
         dir = dir.substr(0, cut);
-        candidates.push_back(dir + L"\\hd_ui");
+        candidates.push_back(os::join(dir, L"hd_ui"));
     }
-    candidates.push_back(data_dir + L"\\hd_ui");
-    GetCurrentDirectoryW(MAX_PATH, buf);
-    candidates.push_back(std::wstring(buf) + L"\\hd_ui");
+    candidates.push_back(os::join(data_dir, L"hd_ui"));
+    candidates.push_back(os::join(os::current_dir(), L"hd_ui"));
     for (const std::wstring& c : candidates) {
-        if (exists(c + L"\\map.json")) return c;
+        if (exists(os::join(c, L"map.json"))) return c;
     }
     return std::wstring();
 }
@@ -79,10 +75,10 @@ void UiHdApp::init(const UiHdOptions& options, const std::wstring& data_dir, Ren
         error_ = "pasta hd_ui com map.json não encontrada";
     } else {
         bool ok = false;
-        const std::string json = read_text(dir_ + L"\\map.json", &ok);
+        const std::string json = read_text(os::join(dir_, L"map.json"), &ok);
         std::string err;
         if (!ok) {
-            error_ = "não li " + narrow(dir_) + "\\map.json";
+            error_ = "não li " + narrow(os::join(dir_, L"map.json"));
         } else if (!ui_hd_parse_config(json, config_, &err)) {
             config_ = UiHdConfig{};
             error_ = "map.json: " + err;
@@ -100,7 +96,7 @@ void UiHdApp::init(const UiHdOptions& options, const std::wstring& data_dir, Ren
         std::filesystem::create_directories(inventory_dir_, ec);
         inventory_ = std::make_unique<UiHdInventory>();
         bool ok = false;
-        const std::string tsv = read_text(inventory_dir_ + L"\\inventory.tsv", &ok);
+        const std::string tsv = read_text(os::join(inventory_dir_, L"inventory.tsv"), &ok);
         if (ok) inventory_->load(tsv);
         saved_entries_ = inventory_->entries().size();
     }
@@ -133,7 +129,7 @@ void UiHdApp::after_collect(Renderer& renderer) {
             char tex_name[64];
             std::snprintf(tex_name, sizeof(tex_name), "tex_%08x.png", e.hash);
             if (tw > 0 && done.count(tex_name) == 0) {
-                Renderer::write_png(inventory_dir_ + L"\\" + widen(tex_name), tw, th, pixels.data());
+                Renderer::write_png(os::join(inventory_dir_, widen(tex_name)), tw, th, pixels.data());
                 cropped_.push_back(tex_name);
                 done.insert(tex_name);
             }
@@ -149,7 +145,7 @@ void UiHdApp::after_collect(Renderer& renderer) {
             std::memcpy(&crop[size_t(y) * size_t(cw) * 4], &pixels[(size_t(y0 + y) * size_t(tw) + size_t(x0)) * 4],
                         size_t(cw) * 4);
         }
-        Renderer::write_png(inventory_dir_ + L"\\" + widen(name), cw, ch, crop.data());
+        Renderer::write_png(os::join(inventory_dir_, widen(name)), cw, ch, crop.data());
         changed = true;
     }
     if (changed) save_inventory();
@@ -157,8 +153,8 @@ void UiHdApp::after_collect(Renderer& renderer) {
 
 void UiHdApp::save_inventory() {
     if (inventory_ == nullptr) return;
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, (inventory_dir_ + L"\\inventory.tsv").c_str(), L"wb") != 0 || f == nullptr) return;
+    FILE* f = os::open_file(os::join(inventory_dir_, L"inventory.tsv"), "wb");
+    if (f == nullptr) return;
     const std::string tsv = inventory_->to_tsv();
     std::fwrite(tsv.data(), 1, tsv.size(), f);
     std::fclose(f);

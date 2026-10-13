@@ -1,8 +1,8 @@
-// O disco do jogo no PC (platform/disc_source.h, platform/disc_pack.h) e a tela de configuração (ui/modern_setup.h):
+// O disco do jogo no PC (platform/disc_source.h, platform/disc_pack.h) e a tela de entrada (ui/modern_setup.h, a parte do
+// disco; o resto em test_launcher.cpp):
 // uma imagem ISO 9660 montada à mão, a versão do SYSTEM.CNF, a ordem da procura, a cópia pessoal ida e volta e a tela
 // com entradas sintéticas. Sem os dados do jogo.
 
-#include <windows.h>
 
 #include <cstdio>
 #include <cstring>
@@ -13,6 +13,7 @@
 #include "engine/pc_text.h"
 #include "platform/disc_pack.h"
 #include "platform/disc_source.h"
+#include "platform/os.h"
 #include "test_framework.h"
 #include "ui/modern_setup.h"
 
@@ -124,8 +125,7 @@ fs::path temp_dir(const char* name) {
 
 void write_file(const fs::path& p, const std::string& data) {
     fs::create_directories(p.parent_path());
-    FILE* f = nullptr;
-    _wfopen_s(&f, p.wstring().c_str(), L"wb");
+    FILE* f = nf::os::open_file(p.wstring(), "wb");
     if (f == nullptr) return;
     std::fwrite(data.data(), 1, data.size(), f);
     std::fclose(f);
@@ -403,12 +403,15 @@ TEST(disc_pack_round_trip) {
     // Sem SYSTEM.CNF a cópia não é feita (a versão não dá para conferir).
     fs::remove(src / "SYSTEM.CNF");
     CHECK(nf::pack_plan(*disc, title, exe_path, false).error == nf::PackError::NotVerified);
-    CHECK(nf::default_pack_path(L"C:\\g\\nightfire.exe") == L"C:\\g\\nightfire-personal.exe");
-    CHECK(nf::default_pack_path(L"C:\\g\\nightfire-personal.exe") == L"C:\\g\\nightfire-personal.exe");
+    // O caminho com o separador do sistema (no Windows, C:\g\...; no macOS e no Linux a barra).
+    const std::wstring g = std::wstring(L"C:") + nf::os::kPathSep + L"g" + nf::os::kPathSep;
+    CHECK(nf::default_pack_path(g + L"nightfire.exe") == g + L"nightfire-personal.exe");
+    CHECK(nf::default_pack_path(g + L"nightfire-personal.exe") == g + L"nightfire-personal.exe");
 }
 
 TEST(setup_screen_rows_and_requests) {
     PcText_SetLanguage("en");
+    using Row = nf::ui::SetupScreen::Row;
     nf::ui::SetupScreen s;
     const nf::ui::Canvas cv = nf::ui::make_canvas(1920, 1080);
     const nf::ui::Measure m;
@@ -422,40 +425,51 @@ TEST(setup_screen_rows_and_requests) {
     // A primeira montagem engole o que estava apertado.
     s.frame(1.0f / 60.0f, nf::ui::UiInput{}, cv, m);
     s.frame(1.0f / 60.0f, nf::ui::UiInput{}, cv, m);
-    CHECK(s.row_count() == 4 && s.row_kind(0) == nf::ui::SetupScreen::Row::Browse);
-    CHECK(s.row_locked(1) && s.row_locked(2) && !s.row_locked(3));  // PLAY e a cópia travados sem disco
+    // Sem disco: o foco na linha do disco (escolher a imagem); PLAY e a cópia travados.
+    CHECK(s.zone() == nf::ui::SetupScreen::Zone::Rows && s.focus_row() == Row::Disc);
+    CHECK(s.play_locked() && s.row_locked(s.row_of(Row::Pack)) && !s.row_locked(s.row_of(Row::Disc)));
+    CHECK(s.row_of(Row::Drive) < 0);
     run(nf::ui::Nav::Select);
     CHECK(s.take_request().action == nf::ui::SetupAction::Browse);
-    run(nf::ui::Nav::Down);
-    run(nf::ui::Nav::Select);  // PLAY travado: só o aviso
-    CHECK(s.focus() == 1 && s.take_request().action == nf::ui::SetupAction::None);
-    // Dois leitores: o certo e outra versão (travado, com o motivo).
+    run(nf::ui::Nav::Back);  // para PLAY, travado: só o aviso
+    CHECK(s.zone() == nf::ui::SetupScreen::Zone::Menu && s.focus_row() == Row::Play);
+    run(nf::ui::Nav::Select);
+    CHECK(s.take_request().action == nf::ui::SetupAction::None);
+    // Dois leitores: outra versão (travado, com o motivo) e o certo; uma linha cada, depois da do disco.
     v.drives = {{L"E:\\", false, L"another version"}, {L"F:\\", true, L""}};
     s.set_view(v);
     s.frame(1.0f / 60.0f, nf::ui::UiInput{}, cv, m);
-    CHECK(s.row_count() == 6 && s.row_kind(1) == nf::ui::SetupScreen::Row::Drive && s.row_locked(1) && !s.row_locked(2));
-    while (s.focus() != 2) run(s.focus() < 2 ? nf::ui::Nav::Down : nf::ui::Nav::Up);
+    const int e = s.row_of(Row::Drive);
+    CHECK(e == s.row_of(Row::Disc) + 1 && s.row_kind(e + 1) == Row::Drive && s.row_drive(e + 1) == 1);
+    CHECK(s.row_locked(e) && !s.row_locked(e + 1));
+    run(nf::ui::Nav::Right);  // da coluna da esquerda para as linhas
+    CHECK(s.zone() == nf::ui::SetupScreen::Zone::Rows);
+    while (s.focus() != e + 1) run(s.focus() < e + 1 ? nf::ui::Nav::Down : nf::ui::Nav::Up);
     run(nf::ui::Nav::Select);
     const nf::ui::SetupRequest r = s.take_request();
     CHECK(r.action == nf::ui::SetupAction::Drive && r.drive == 1);
+    run(nf::ui::Nav::Up);
+    run(nf::ui::Nav::Select);  // o leitor travado: o aviso, nenhum pedido
+    CHECK(s.focus() == e && s.take_request().action == nf::ui::SetupAction::None);
     // Um disco pronto: o foco vai para PLAY, que joga; a cópia também destrava.
+    v.drives.clear();
     v.ready = true;
     v.can_pack = true;
     v.disc = L"C:\\games\\007 - Nightfire (USA).iso";
+    v.disc_name = nf::ui::setup_disc_name(nf::DiscKind::Image, v.disc);
     v.status = nf::ui::setup_ready_text(nf::DiscCheck{nf::DiscStatus::Ok, "SLUS-20579"});
     s.set_view(v);
     s.focus_play();
     s.frame(1.0f / 60.0f, nf::ui::UiInput{}, cv, m);
-    CHECK(s.row_kind(s.focus()) == nf::ui::SetupScreen::Row::Play && !s.row_locked(s.focus()));
+    CHECK(v.disc_name == L"007 - Nightfire (USA).iso" && s.value_text(Row::Disc) == v.disc_name);
+    CHECK(s.focus_row() == Row::Play && !s.play_locked());
     run(nf::ui::Nav::Select);
     CHECK(s.take_request().action == nf::ui::SetupAction::Play);
-    run(nf::ui::Nav::Down);
-    CHECK(s.row_kind(s.focus()) == nf::ui::SetupScreen::Row::Pack);
-    // O desenho: o pedido do disco e o aviso da cópia (a linha com o foco).
+    // A cópia: a linha dela, o tamanho no valor e o aviso na descrição.
+    run(nf::ui::Nav::Right);
+    while (s.focus_row() != Row::Pack) run(nf::ui::Nav::Down);
     nf::ui::DrawList dl;
     s.build(dl, cv, m);
-    CHECK(dl.find_text(L"SELECT YOUR 007: NIGHTFIRE DISC IMAGE (PS2, USA)") != nullptr);
-    // O aviso vem quebrado em linhas na largura do painel.
     bool warned = false;
     for (const nf::ui::DrawCmd& c : dl.cmds) warned = warned || c.text.find(L"Do not share it.") != std::wstring::npos;
     CHECK(warned);
@@ -470,7 +484,10 @@ TEST(setup_screen_rows_and_requests) {
     s.frame(1.0f / 60.0f, nf::ui::UiInput{}, cv, m);
     run(nf::ui::Nav::Select);
     CHECK(!s.dialog_open() && s.take_request().action == nf::ui::SetupAction::None);
+    // Voltar das linhas leva a PLAY; embaixo dele, QUIT sai.
+    run(nf::ui::Nav::Back);
     run(nf::ui::Nav::Down);
+    CHECK(s.focus_row() == Row::Quit);
     run(nf::ui::Nav::Select);
     CHECK(s.take_request().action == nf::ui::SetupAction::Quit);
 }
@@ -483,8 +500,8 @@ TEST(setup_screen_mouse_and_texts) {
     s.open(nf::ui::SetupView{});
     nf::ui::UiInput in;
     for (int i = 0; i < 3; ++i) s.frame(1.0f / 60.0f, in, cv, m);
-    // O clique na primeira linha (o retângulo da última montagem) pede a escolha da imagem.
-    const nf::ui::Rect r = s.row_rect(0);
+    // O clique na linha do disco (o retângulo da última montagem) pede a escolha da imagem.
+    const nf::ui::Rect r = s.row_rect(s.row_of(nf::ui::SetupScreen::Row::Disc));
     in.mouse_inside = true;
     in.mouse_x = nf::ui::window_x(cv, r.cx());
     in.mouse_y = nf::ui::window_y(cv, r.cy());
@@ -510,6 +527,9 @@ TEST(setup_screen_mouse_and_texts) {
     CHECK(nf::ui::setup_problem_text(nf::DiscCheck{nf::DiscStatus::Ok}).empty());
     CHECK(nf::ui::setup_size_text(uint64_t(1.9 * 1073741824.0)) == L"1.9 GB");
     CHECK(nf::ui::setup_size_text(650ull << 20) == L"650 MB");
+    // Os nomes curtos do disco na linha.
+    CHECK(nf::ui::setup_disc_name(nf::DiscKind::Drive, L"E:\\") == L"Drive E:");
+    CHECK(nf::ui::setup_disc_name(nf::DiscKind::Packed, L"C:\\g\\nightfire-personal.exe") == L"This program (single-file copy)");
     PcText_SetLanguage("pt");
     CHECK(nf::ui::setup_problem_text(c).find(L"outra versão") != std::wstring::npos);
     nf::ui::SetupScreen p;
@@ -517,6 +537,9 @@ TEST(setup_screen_mouse_and_texts) {
     p.frame(1.0f / 60.0f, nf::ui::UiInput{}, cv, m);
     nf::ui::DrawList dl;
     p.build(dl, cv, m);
-    CHECK(dl.find_text(L"ESCOLHA A IMAGEM DO SEU DISCO DE 007: NIGHTFIRE (PS2, EUA)") != nullptr);
+    // O pedido do disco (sem disco), quebrado em linhas na coluna da esquerda.
+    bool asked = false;
+    for (const nf::ui::DrawCmd& d : dl.cmds) asked = asked || d.text.find(L"ESCOLHA A IMAGEM") != std::wstring::npos;
+    CHECK(asked);
     PcText_SetLanguage("en");
 }

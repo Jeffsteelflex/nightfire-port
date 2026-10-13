@@ -2,7 +2,6 @@
 // (Check_AutoAim), o raio laser, o do taser (Draw_LaserBeam, Draw_TaserBeam, FractalThing), o relógio (Player_SetWatch),
 // a câmera debaixo d'água (Camera_Shear) e a marola (Env_WaterRipple).
 
-#include <windows.h>
 
 #include <cmath>
 #include <cstring>

@@ -4,22 +4,21 @@
 // pedaços seguidos, achados pelo primeiro que serve num mapa de bits), ou uma lâmina de uma classe de tamanho do
 // alocador pequeno (blocos de até 32 KB, listas livres por classe, sem cabeçalho: a classe sai do pedaço). Os pedaços
 // só são comprometidos quando usados; um bloco grande liberado com 1 MB ou mais volta a ser só reservado.
+//
+// Daqui não sai nenhuma chamada ao sistema: a memória virtual, a trava e o fim do processo são de platform/os.h, e a
+// troca de pilha do jogo é do backend (arena_win32.cpp: o TEB, o MASM e o SEH do Windows).
 
 #include "platform/arena.h"
 
 #if NF_PTR64
 
-#include <windows.h>
-
-#include <intrin.h>
-
 #include <cstdio>
 #include <cstring>
 #include <new>
 
+#include "platform/compiler.h"
 #include "platform/crash_report.h"
-
-extern "C" void nf_arena_call_on_stack(void (*fn)(void*), void* arg, void* stack_top);
+#include "platform/os.h"
 
 namespace nf {
 
@@ -32,7 +31,7 @@ namespace nf {
                   p, reinterpret_cast<void*>(base), reinterpret_cast<void*>(base + 0x100000000ull));
     crash_report_here(msg);
     std::fflush(stderr);
-    ExitProcess(3);
+    os::exit_process(3);
 }
 
 namespace arena {
@@ -54,7 +53,7 @@ constexpr uint32_t kClassSizes[] = {16,    32,    48,    64,    80,    96,    11
 constexpr uint32_t kClassCount = sizeof(kClassSizes) / sizeof(kClassSizes[0]);
 constexpr uint32_t kSmallMax = 32768;
 
-SRWLOCK g_lock = SRWLOCK_INIT;
+os::Mutex g_lock;
 bool g_ready = false;
 uintptr_t g_begin = 0, g_end = 0;
 uint32_t g_chunks = 0;
@@ -73,8 +72,8 @@ ClassState g_class[kClassCount];
 Stats g_stats;
 
 struct Lock {
-    Lock() { AcquireSRWLockExclusive(&g_lock); }
-    ~Lock() { ReleaseSRWLockExclusive(&g_lock); }
+    Lock() { g_lock.lock(); }
+    ~Lock() { g_lock.unlock(); }
 };
 
 bool bit(const uint64_t* bits, uint32_t i) { return (bits[i >> 6] >> (i & 63)) & 1; }
@@ -84,38 +83,20 @@ void clear_bit(uint64_t* bits, uint32_t i) { bits[i >> 6] &= ~(uint64_t(1) << (i
 [[noreturn]] void fatal(const char* what) {
     std::fprintf(stderr, "arena: %s\n", what);
     std::fflush(stderr);
-    MessageBoxA(nullptr, what, "Nightfire (64 bits)", MB_ICONERROR);
-    ExitProcess(3);
+    os::show_error_narrow("Nightfire (64 bits)", what);
+    os::exit_process(3);
 }
 
 void init_locked() {
     if (g_ready) return;
     const uintptr_t base = reinterpret_cast<uintptr_t>(kP32Base);
-    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
     const uintptr_t window_end = base + 0x100000000ull;
-    uintptr_t at = (base + nt->OptionalHeader.SizeOfImage + kChunk - 1) & ~(kChunk - 1);
+    const uintptr_t at = (os::image_end() + kChunk - 1) & ~(kChunk - 1);
     // A maior região livre da janela depois da imagem.
     uintptr_t best = 0, best_size = 0;
-    while (at < window_end) {
-        MEMORY_BASIC_INFORMATION mbi;
-        if (VirtualQuery(reinterpret_cast<void*>(at), &mbi, sizeof(mbi)) == 0) break;
-        const uintptr_t region = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
-        uintptr_t region_end = region + mbi.RegionSize;
-        if (region_end > window_end) region_end = window_end;
-        if (mbi.State == MEM_FREE) {
-            const uintptr_t lo = (at + kChunk - 1) & ~(kChunk - 1);
-            const uintptr_t hi = region_end & ~(kChunk - 1);
-            if (hi > lo && hi - lo > best_size) {
-                best = lo;
-                best_size = hi - lo;
-            }
-        }
-        at = region_end;
-    }
+    os::vm_largest_free(at, window_end, kChunk, &best, &best_size);
     if (best_size < (size_t(256) << 20)) fatal("não há 256 MB livres na janela de 4 GB depois da imagem do programa");
-    void* r = VirtualAlloc(reinterpret_cast<void*>(best), best_size, MEM_RESERVE, PAGE_NOACCESS);
-    if (r != reinterpret_cast<void*>(best)) fatal("não consegui reservar a arena");
+    if (!os::vm_reserve_at(best, best_size)) fatal("não consegui reservar a arena");
     g_begin = best;
     g_end = best + best_size;
     g_chunks = uint32_t(best_size / kChunk);
@@ -140,9 +121,7 @@ uint32_t next_free(uint32_t i) {
     while (i < g_chunks) {
         const uint64_t w = g_free_bits[i >> 6] >> (i & 63);
         if (w != 0) {
-            unsigned long b;
-            _BitScanForward64(&b, w);
-            i += b;
+            i += ctz64(w);
             return i < g_chunks ? i : kNone;
         }
         i = (i | 63) + 1;
@@ -160,10 +139,7 @@ void commit(uint32_t first, uint32_t count) {
         }
         uint32_t j = i;
         while (j < end && !bit(g_commit_bits, j)) ++j;
-        if (VirtualAlloc(reinterpret_cast<void*>(chunk_addr(i)), size_t(j - i) * kChunk, MEM_COMMIT, PAGE_READWRITE) ==
-            nullptr) {
-            throw std::bad_alloc();
-        }
+        if (!os::vm_commit(chunk_addr(i), size_t(j - i) * kChunk)) throw std::bad_alloc();
         for (uint32_t k = i; k < j; ++k) set_bit(g_commit_bits, k);
         g_stats.committed += uint64_t(j - i) * kChunk;
         i = j;
@@ -204,7 +180,7 @@ void give_run(uint32_t first) {
     }
     g_run[first] = 0;
     if (n >= kDecommitChunks) {
-        VirtualFree(reinterpret_cast<void*>(chunk_addr(first)), size_t(n) * kChunk, MEM_DECOMMIT);
+        os::vm_decommit(chunk_addr(first), size_t(n) * kChunk);
         for (uint32_t k = first; k < first + n; ++k) clear_bit(g_commit_bits, k);
         g_stats.committed -= uint64_t(n) * kChunk;
     }
@@ -316,49 +292,16 @@ Stats stats() {
     return g_stats;
 }
 
-namespace {
-struct StackCall {
-    int (*fn)(void*);
-    void* arg;
-    int result;
-};
-
-LONG filter(EXCEPTION_POINTERS* info) {
-    crash_report_exception(info);
-    return EXCEPTION_EXECUTE_HANDLER;
-}
-
-void stack_entry(void* p) {
-    auto* call = static_cast<StackCall*>(p);
-    __try {
-        call->result = call->fn(call->arg);
-    } __except (filter(GetExceptionInformation())) {
-        std::fflush(stderr);
-        ExitProcess(3);
-    }
-}
-}  // namespace
-
 int run_on_game_stack(int (*fn)(void*), void* arg, size_t stack_bytes) {
     // A pilha: os 64 KB de baixo ficam sem acesso (um estouro vira acesso inválido em vez de corromper a arena).
     stack_bytes = (stack_bytes + kChunk - 1) & ~(kChunk - 1);
     auto* bottom = static_cast<uint8_t*>(alloc_pages(stack_bytes + kChunk));
-    DWORD old_protect = 0;
-    VirtualProtect(bottom, kChunk, PAGE_NOACCESS, &old_protect);
+    os::vm_protect(bottom, kChunk, false);
     uint8_t* top = bottom + kChunk + stack_bytes;
-    StackCall call{fn, arg, 0};
-    // Os limites da pilha no TEB: o desenrolador do Windows (exceções C++ e SEH) só aceita quadros dentro deles.
-    NT_TIB* tib = reinterpret_cast<NT_TIB*>(NtCurrentTeb());
-    void* const old_base = tib->StackBase;
-    void* const old_limit = tib->StackLimit;
-    tib->StackBase = top;
-    tib->StackLimit = bottom + kChunk;
-    nf_arena_call_on_stack(stack_entry, &call, top);
-    tib->StackBase = old_base;
-    tib->StackLimit = old_limit;
-    VirtualProtect(bottom, kChunk, PAGE_READWRITE, &old_protect);
+    const int result = call_on_stack(fn, arg, bottom + kChunk, top);
+    os::vm_protect(bottom, kChunk, true);
     free_pages(bottom);
-    return call.result;
+    return result;
 }
 
 }  // namespace arena

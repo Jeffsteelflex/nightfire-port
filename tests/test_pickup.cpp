@@ -2,7 +2,6 @@
 // o jogador pegando arma, munição, colete, chave e invisibilidade, reaparecimento, vida útil, giro e
 // o sorteio do conjunto de armas, com definições de arma sintéticas e uma sala com piso em y = 0.
 
-#include <windows.h>
 
 #include <cmath>
 #include <cstring>

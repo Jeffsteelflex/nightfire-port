@@ -21,8 +21,10 @@ namespace drv {
 constexpr int kRigidBodySlots = 48;
 constexpr int kSimpleBodySlots = 96;
 
+#if defined(_MSC_VER)
 #pragma warning(push)
 #pragma warning(disable : 4324)  // o preenchimento dos membros alinhados a 16 bytes
+#endif
 struct Simulation {
     int32_t use_scratchpad = 0;               // +0x04 os corpos estão na cópia do scratchpad
     uint32_t scratchpad_bodies_size = 0x1800; // +0x14 o tamanho da cópia (e o começo da área livre)
@@ -46,7 +48,9 @@ struct Simulation {
     alignas(16) RigidBodyScratch scratch = {};
     WWorldPos* world_pos_pool = nullptr;  // os WWorldPos que o construtor aloca (16 por corpo)
 };
+#if defined(_MSC_VER)
 #pragma warning(pop)
+#endif
 
 Simulation& simulation();
 // A Simulation do começo da missão (o FUN_001feda0, a parte que zera o estado e calcula o passo pela taxa do vídeo).

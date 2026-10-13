@@ -3,8 +3,6 @@
 
 #include "platform/disc_source.h"
 
-#include <windows.h>
-
 #include <algorithm>
 #include <cstring>
 #include <cwchar>
@@ -14,52 +12,37 @@
 #include <set>
 
 #include "platform/disc_pack.h"
+#include "platform/os.h"
 
 namespace nf {
 
 namespace {
 
-std::string narrow_utf8(const std::wstring& w) {
-    if (w.empty()) return {};
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), int(w.size()), nullptr, 0, nullptr, nullptr);
-    std::string s(size_t(std::max(0, n)), '\0');
-    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.data(), int(w.size()), s.data(), n, nullptr, nullptr);
-    return s;
-}
+std::string narrow_utf8(const std::wstring& w) { return os::to_utf8(w); }
 
-bool host_exists(const std::wstring& p) { return GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES; }
-bool host_is_dir(const std::wstring& p) {
-    const DWORD a = GetFileAttributesW(p.c_str());
-    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
-}
+bool host_exists(const std::wstring& p) { return os::exists(p); }
+bool host_is_dir(const std::wstring& p) { return os::is_dir(p); }
 
 std::wstring parent_of(const std::wstring& p) {
     const size_t cut = p.find_last_of(L"\\/");
     return cut == std::wstring::npos ? std::wstring() : p.substr(0, cut);
 }
 
-// "PS2/ENGLISH/X" -> "PS2\ENGLISH\X" dentro da pasta.
+// "PS2/ENGLISH/X" -> "PS2\ENGLISH\X" dentro da pasta (o separador do sistema, os::kPathSep).
 std::wstring host_path(const std::wstring& root, std::string_view path) {
     std::wstring r = root;
-    if (!r.empty() && r.back() != L'\\' && r.back() != L'/') r += L'\\';
-    const std::string n(path);
-    const int len = MultiByteToWideChar(CP_UTF8, 0, n.data(), int(n.size()), nullptr, 0);
-    std::wstring w(size_t(std::max(0, len)), L'\0');
-    if (len > 0) MultiByteToWideChar(CP_UTF8, 0, n.data(), int(n.size()), w.data(), len);
+    if (!r.empty() && r.back() != L'\\' && r.back() != L'/') r += os::kPathSep;
+    std::wstring w = os::from_utf8(std::string(path));
     for (wchar_t& c : w) {
-        if (c == L'/') c = L'\\';
+        if (c == L'/') c = os::kPathSep;
     }
     size_t a = 0;
-    while (a < w.size() && w[a] == L'\\') ++a;
+    while (a < w.size() && w[a] == os::kPathSep) ++a;
     return r + w.substr(a);
 }
 
-// Sem as caixas "Não há disco na unidade" do Windows enquanto vivo (uma unidade de DVD vazia).
-struct QuietErrors {
-    UINT old;
-    QuietErrors() : old(SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX)) {}
-    ~QuietErrors() { SetErrorMode(old); }
-};
+// Sem as caixas "Não há disco na unidade" do sistema enquanto vivo (uma unidade de DVD vazia).
+using QuietErrors = os::QuietDriveErrors;
 
 // Uma pasta (ou a raiz de uma unidade).
 class FolderDisc : public DiscSource {
@@ -71,8 +54,8 @@ public:
     }
     bool exists(std::string_view path) const override {
         QuietErrors quiet;
-        const DWORD a = GetFileAttributesW(host_path(location(), strip_version(path)).c_str());
-        return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
+        const std::wstring p = host_path(location(), strip_version(path));
+        return os::exists(p) && !os::is_dir(p);
     }
     std::vector<DiscEntry> list(std::string_view dir) const override {
         QuietErrors quiet;
@@ -140,15 +123,14 @@ DiscFile& DiscFile::operator=(DiscFile&& o) noexcept {
 
 DiscFile DiscFile::open_host(const std::wstring& path, uint64_t base, uint64_t size) {
     DiscFile f;
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return f;
-    LARGE_INTEGER total{};
-    if (!GetFileSizeEx(h, &total) || uint64_t(total.QuadPart) < base) {
-        CloseHandle(h);
+    os::FileHandle h = os::file_open_read(path);
+    if (h == nullptr) return f;
+    uint64_t total = 0;
+    if (!os::file_size(h, &total) || total < base) {
+        os::file_close(h);
         return f;
     }
-    const uint64_t avail = uint64_t(total.QuadPart) - base;
+    const uint64_t avail = total - base;
     f.handle_ = h;
     f.base_ = base;
     f.size_ = size == UINT64_MAX ? avail : std::min(size, avail);
@@ -157,7 +139,7 @@ DiscFile DiscFile::open_host(const std::wstring& path, uint64_t base, uint64_t s
 }
 
 void DiscFile::close() {
-    if (handle_ != nullptr) CloseHandle(handle_);
+    if (handle_ != nullptr) os::file_close(handle_);
     handle_ = nullptr;
     base_ = size_ = pos_ = 0;
 }
@@ -165,19 +147,7 @@ void DiscFile::close() {
 size_t DiscFile::read_at(uint64_t pos, void* dst, size_t n) const {
     if (handle_ == nullptr || pos >= size_ || n == 0) return 0;
     n = size_t(std::min<uint64_t>(n, size_ - pos));
-    size_t done = 0;
-    auto* out = static_cast<uint8_t*>(dst);
-    while (done < n) {
-        const DWORD chunk = DWORD(std::min<size_t>(n - done, size_t(1) << 26));
-        const uint64_t at = base_ + pos + done;
-        OVERLAPPED ov{};
-        ov.Offset = DWORD(at & 0xffffffffu);
-        ov.OffsetHigh = DWORD(at >> 32);
-        DWORD got = 0;
-        if (!ReadFile(handle_, out + done, chunk, &got, &ov) || got == 0) break;
-        done += got;
-    }
-    return done;
+    return os::file_read_at(handle_, base_ + pos, dst, n);
 }
 
 size_t DiscFile::read(void* dst, size_t n) {
@@ -402,7 +372,7 @@ std::shared_ptr<DiscSource> open_disc(const std::wstring& path, std::string* err
     if (p.size() == 2 && p[1] == L':') p += L'\\';
     if (host_is_dir(p)) {
         const bool root = p.size() == 3 && p[1] == L':' && (p[2] == L'\\' || p[2] == L'/');
-        const bool drive = root && GetDriveTypeW(p.c_str()) == DRIVE_CDROM;
+        const bool drive = root && os::is_optical_drive(p);
         return open_disc_folder(p, drive ? DiscKind::Drive : DiscKind::Folder);
     }
     if (!host_exists(p)) {
@@ -419,16 +389,7 @@ std::shared_ptr<DiscSource> open_disc(const std::wstring& path, std::string* err
     return open_disc_image(p, error);
 }
 
-std::vector<std::wstring> optical_drives() {
-    std::vector<std::wstring> out;
-    wchar_t buf[512];
-    const DWORD n = GetLogicalDriveStringsW(DWORD(std::size(buf)), buf);
-    if (n == 0 || n > std::size(buf)) return out;
-    for (const wchar_t* d = buf; *d != 0; d += std::wcslen(d) + 1) {
-        if (GetDriveTypeW(d) == DRIVE_CDROM) out.push_back(d);
-    }
-    return out;
-}
+std::vector<std::wstring> optical_drives() { return os::optical_drives(); }
 
 // ---------------------------------------------------------------- a versão
 
@@ -529,12 +490,9 @@ const char* disc_origin_name(DiscOrigin o) {
 
 DiscPlaces disc_places_here() {
     DiscPlaces p;
-    wchar_t buf[MAX_PATH * 4];
-    const DWORD n = GetModuleFileNameW(nullptr, buf, DWORD(std::size(buf)));
-    p.exe.assign(buf, n);
+    p.exe = os::exe_path();
     p.exe_dir = parent_of(p.exe);
-    const DWORD c = GetCurrentDirectoryW(DWORD(std::size(buf)), buf);
-    p.cwd.assign(buf, c);
+    p.cwd = os::current_dir();
     // As imagens .iso ao lado do executável, em ordem de nome.
     {
         std::error_code ec;
@@ -588,13 +546,15 @@ std::shared_ptr<DiscSource> default_open(const DiscCandidate& c, std::string* er
     // não é um "disco". A do .ini e os leitores valem como forem.
     if (c.origin == DiscOrigin::ExeFolder || c.origin == DiscOrigin::WorkFolder || c.origin == DiscOrigin::RepoFolder) {
         if (host_is_dir(c.path)) {
-            if (!host_exists(c.path + L"\\FILES.BIN") && !host_exists(c.path + L"\\SYSTEM.CNF")) return nullptr;
+            if (!host_exists(os::join(c.path, L"FILES.BIN")) && !host_exists(os::join(c.path, L"SYSTEM.CNF"))) {
+                return nullptr;
+            }
             return open_disc_folder(c.path, DiscKind::Folder);
         }
     }
     if (c.origin == DiscOrigin::Drive) {
         // Um leitor vazio ou com um disco que não é de PS2: nada (sem SYSTEM.CNF).
-        if (!host_exists(c.path + L"SYSTEM.CNF") && !host_exists(c.path + L"\\SYSTEM.CNF")) return nullptr;
+        if (!host_exists(c.path + L"SYSTEM.CNF") && !host_exists(os::join(c.path, L"SYSTEM.CNF"))) return nullptr;
         return open_disc_folder(c.path, DiscKind::Drive);
     }
     return open_disc(c.path, error);

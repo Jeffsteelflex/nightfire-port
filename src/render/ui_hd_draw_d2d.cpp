@@ -1,11 +1,11 @@
-// Camada 2D em alta definição: Direct2D, DirectWrite e WIC. Ver ui_hd_draw.h.
+// Camada 2D em alta definição no Windows: Direct2D e DirectWrite (o backend vetorial; as imagens PNG pelo
+// platform/image_io.h). Ver ui_hd_draw_d2d.h.
 
-#include "render/ui_hd_draw.h"
+#include "render/ui_hd_draw_d2d.h"
 
 #include <d2d1_3.h>
 #include <dwrite_3.h>
 #include <shlwapi.h>
-#include <wincodec.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -14,6 +14,8 @@
 #include <cstring>
 #include <map>
 #include <vector>
+
+#include "platform/image_io.h"
 
 namespace nf {
 
@@ -181,7 +183,6 @@ struct UiHdDevice::Impl {
     Com<ID2D1DeviceContext5> ctx5;  // SVG
     Com<IDWriteFactory> dwrite;
     Com<IDWriteFontCollection> collection;  // as do usuário (hd_ui/fonts) e as do sistema
-    Com<IWICImagingFactory> wic;
     Com<ID2D1Bitmap1> target;
     Com<ID2D1StrokeStyle> stroke_style;
     Com<ID2D1SolidColorBrush> white;
@@ -238,8 +239,7 @@ struct UiHdDevice::Impl {
             error = "DWriteCreateFactory falhou";
             return false;
         }
-        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+        CoInitializeEx(nullptr, COINIT_MULTITHREADED);  // o COM da thread (as imagens do platform/image_io.h usam o WIC)
         const D2D1_STROKE_STYLE_PROPERTIES sp = D2D1::StrokeStyleProperties(
             D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
         factory->CreateStrokeStyle(sp, nullptr, 0, &stroke_style);
@@ -421,45 +421,22 @@ struct UiHdDevice::Impl {
     // GS de volta a 0..255.
     void dump(int index, int w, int h, const std::vector<uint8_t>& rgba) {
         wchar_t folder[MAX_PATH];
-        if (wic == nullptr || GetEnvironmentVariableW(L"NF_UI_HD_DUMP", folder, MAX_PATH) == 0) return;
+        if (GetEnvironmentVariableW(L"NF_UI_HD_DUMP", folder, MAX_PATH) == 0) return;
         std::vector<uint8_t> px = rgba;
         for (size_t i = 3; i < px.size(); i += 4) px[i] = uint8_t(std::min(255, px[i] * 255 / 128));
         wchar_t name[64];
         swprintf(name, 64, L"/asset%02d_%dx%d.png", index, w, h);
-        Com<IWICStream> stream;
-        Com<IWICBitmapEncoder> enc;
-        Com<IWICBitmapFrameEncode> fr;
-        WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppRGBA;
-        if (FAILED(wic->CreateStream(&stream)) || FAILED(stream->InitializeFromFilename((std::wstring(folder) + name).c_str(), GENERIC_WRITE)) ||
-            FAILED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc)) ||
-            FAILED(enc->Initialize(stream.Get(), WICBitmapEncoderNoCache)) || FAILED(enc->CreateNewFrame(&fr, nullptr)) ||
-            FAILED(fr->Initialize(nullptr)) || FAILED(fr->SetSize(UINT(w), UINT(h))) || FAILED(fr->SetPixelFormat(&fmt))) {
-            return;
-        }
-        fr->WritePixels(UINT(h), UINT(w) * 4, UINT(px.size()), px.data());
-        fr->Commit();
-        enc->Commit();
+        write_png_rgba(std::wstring(folder) + name, w, h, px.data());
     }
 
     ID3D11ShaderResourceView* load_png(int index) {
-        if (wic == nullptr) return nullptr;
         const std::wstring path = dir + L"\\" + widen_path(config->images[size_t(index)].file);
-        Com<IWICBitmapDecoder> dec;
-        Com<IWICBitmapFrameDecode> frame_dec;
-        Com<IWICFormatConverter> conv;
-        UINT w = 0, h = 0;
-        if (FAILED(wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec)) ||
-            FAILED(dec->GetFrame(0, &frame_dec)) || FAILED(wic->CreateFormatConverter(&conv)) ||
-            FAILED(conv->Initialize(frame_dec.Get(), GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0,
-                                    WICBitmapPaletteTypeCustom)) ||
-            FAILED(conv->GetSize(&w, &h)) || w == 0 || h == 0 || w > 8192 || h > 8192) {
-            return nullptr;
-        }
-        std::vector<uint8_t> bgra(size_t(w) * h * 4);
-        if (FAILED(conv->CopyPixels(nullptr, w * 4, UINT(bgra.size()), bgra.data()))) return nullptr;
+        int w = 0, h = 0;
+        std::vector<uint8_t> bgra;
+        if (!read_image_bgra(path, 8192, &w, &h, &bgra)) return nullptr;
         std::vector<uint8_t> rgba;
-        to_gs_rgba(bgra.data(), w * 4, int(w), int(h), false, rgba);
-        return make_texture(rgba, int(w), int(h), true);
+        to_gs_rgba(bgra.data(), UINT(w) * 4, w, h, false, rgba);
+        return make_texture(rgba, w, h, true);
     }
 };
 

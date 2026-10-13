@@ -3,9 +3,10 @@
 // uma interface (PadSource) para os testes e as capturas (--input com pad_*) injetarem estados sem um
 // controle de verdade.
 //
-// A fonte real é o XInput 1.4 (xinput.lib). XInputGetState num índice vazio demora (o driver procura o
-// aparelho), então um índice sem controle só é consultado de novo a cada 60 leituras; os conectados são
-// lidos a cada tick de lógica (psiInput_PollDevices).
+// A fonte real é a do sistema (system_pad_source): no Windows, o XInput 1.4 (xinput.lib, gamepad_xinput.cpp; o estado
+// no formato dele é o deste cabeçalho, e um backend de outro sistema converte o seu). XInputGetState num índice vazio
+// demora (o driver procura o aparelho), então um índice sem controle só é consultado de novo a cada 60 leituras; os
+// conectados são lidos a cada tick de lógica (psiInput_PollDevices).
 //
 // O que o jogo vê é o controle do PS2: platform/psi_pad.h converte este estado no "slot" da libpad
 // (botões SCE_PAD*, analógicos de 0 a 255) e daí as funções portadas fazem o resto.
@@ -58,7 +59,9 @@ public:
     virtual void vibrate(int pad, uint16_t low, uint16_t high) = 0;
 };
 
-// A fonte em uso: o XInput, a não ser que set_pad_source tenha posto outra (nulo volta ao XInput).
+// A fonte do sistema (o backend da plataforma: gamepad_xinput.cpp no Windows; no macOS, o GameController, etapa 3).
+PadSource& system_pad_source();
+// A fonte em uso: a do sistema, a não ser que set_pad_source tenha posto outra (nulo volta à do sistema).
 PadSource& pad_source();
 void set_pad_source(PadSource* source);
 // Falso (main.cpp: janela sem foco): os controles continuam conectados, mas parados, e a vibração para.

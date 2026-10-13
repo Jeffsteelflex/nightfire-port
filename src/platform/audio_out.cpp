@@ -2,16 +2,15 @@
 
 #include "platform/audio_out.h"
 
-#include <windows.h>
-#include <objbase.h>
-#include <xaudio2.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <vector>
 
+#include "platform/audio_device.h"
+#include "platform/os.h"
 #include "platform/sfx_iop.h"
 #include "platform/fmath.h"
 
@@ -21,9 +20,8 @@ namespace {
 
 constexpr int kFramesPerVBlank = 800;              // 48000 / 60
 constexpr uint32_t kMaxGapVBlanks = 600;           // 10 s
-constexpr int kChunks = 16;                        // buffers na fila do XAudio2
 constexpr int kChunkFrames = 4096;
-constexpr int kMaxQueuedChunks = 8;                // acima disso o pedaço é descartado (latência)
+constexpr int kMaxQueuedChunks = 8;                // acima disso o pedaço é descartado (latência; o XAudio2 guarda 16)
 
 AudioMode g_mode = AudioMode::Off;
 bool g_started = false;
@@ -40,14 +38,9 @@ struct Meter {
 };
 std::vector<Meter> g_meters;
 
-// ---- XAudio2 ----
-IXAudio2* g_xa = nullptr;
-IXAudio2MasteringVoice* g_master = nullptr;
-IXAudio2SourceVoice* g_source = nullptr;
+// ---- o aparelho (platform/audio_device.h: o XAudio2 no Windows) ----
+std::unique_ptr<AudioDevice> g_device;
 uint64_t g_submitted = 0;  // amostras entregues à voz desde que ela foi criada (o silêncio da frente incluído)
-std::vector<int16_t> g_ring[kChunks];
-int g_ring_next = 0;
-bool g_com = false;
 
 // ---- WAV ----
 FILE* g_wav = nullptr;
@@ -102,21 +95,14 @@ void meter(const int16_t* pcm, int frames) {
 }
 
 void device_submit(const int16_t* pcm, int frames) {
-    if (g_source == nullptr || frames <= 0) return;
-    XAUDIO2_VOICE_STATE st{};
-    g_source->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
-    if (st.BuffersQueued == 0 && g_started) ++g_stats.starved;
-    if (st.BuffersQueued >= kMaxQueuedChunks) {
+    if (g_device == nullptr || frames <= 0) return;
+    const int queued = g_device->queued_buffers();
+    if (queued == 0 && g_started) ++g_stats.starved;
+    if (queued >= kMaxQueuedChunks) {
         ++g_stats.dropped_chunks;
         return;
     }
-    std::vector<int16_t>& buf = g_ring[g_ring_next];
-    g_ring_next = (g_ring_next + 1) % kChunks;
-    buf.assign(pcm, pcm + frames * 2);
-    XAUDIO2_BUFFER xb{};
-    xb.AudioBytes = UINT32(frames * 4);
-    xb.pAudioData = reinterpret_cast<const BYTE*>(buf.data());
-    if (SUCCEEDED(g_source->SubmitSourceBuffer(&xb))) g_submitted += uint64_t(frames);
+    if (g_device->submit(pcm, frames)) g_submitted += uint64_t(frames);
 }
 
 void deliver(const int16_t* pcm, int frames) {
@@ -138,42 +124,21 @@ void deliver(const int16_t* pcm, int frames) {
 
 bool audio_out_open_device() {
     audio_out_close();
-    const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    g_com = SUCCEEDED(co);
-    if (FAILED(XAudio2Create(&g_xa, 0, XAUDIO2_DEFAULT_PROCESSOR))) {
-        g_xa = nullptr;
-        return false;
-    }
-    if (FAILED(g_xa->CreateMasteringVoice(&g_master))) {
-        audio_out_close();
-        return false;
-    }
-    WAVEFORMATEX fmt{};
-    fmt.wFormatTag = WAVE_FORMAT_PCM;
-    fmt.nChannels = 2;
-    fmt.nSamplesPerSec = 48000;
-    fmt.wBitsPerSample = 16;
-    fmt.nBlockAlign = 4;
-    fmt.nAvgBytesPerSec = 48000 * 4;
-    if (FAILED(g_xa->CreateSourceVoice(&g_source, &fmt))) {
-        audio_out_close();
-        return false;
-    }
+    g_device = open_audio_device();
+    if (g_device == nullptr) return false;
     g_submitted = 0;
     // 50 ms de silêncio na frente: a folga para o ritmo irregular dos quadros.
     std::vector<int16_t> silence(2400 * 2, 0);
     device_submit(silence.data(), 2400);
-    g_source->Start(0);
+    g_device->start();
     g_mode = AudioMode::Device;
     return true;
 }
 
 bool audio_out_open_dump(const std::wstring& path) {
     audio_out_close();
-    if (_wfopen_s(&g_wav, path.c_str(), L"wb") != 0 || g_wav == nullptr) {
-        g_wav = nullptr;
-        return false;
-    }
+    g_wav = os::open_file(path, "wb");
+    if (g_wav == nullptr) return false;
     g_wav_frames = 0;
     g_wav_since_header = 0;
     wav_write_header();
@@ -182,23 +147,7 @@ bool audio_out_open_dump(const std::wstring& path) {
 }
 
 void audio_out_close() {
-    if (g_source != nullptr) {
-        g_source->Stop(0);
-        g_source->DestroyVoice();
-        g_source = nullptr;
-    }
-    if (g_master != nullptr) {
-        g_master->DestroyVoice();
-        g_master = nullptr;
-    }
-    if (g_xa != nullptr) {
-        g_xa->Release();
-        g_xa = nullptr;
-    }
-    if (g_com) {
-        CoUninitialize();
-        g_com = false;
-    }
+    g_device.reset();
     if (g_wav != nullptr) {
         wav_write_header();
         std::fclose(g_wav);
@@ -246,10 +195,8 @@ void audio_out_catch_up(uint32_t vblank) {
 uint64_t audio_out_vblanks() { return g_vblanks; }
 
 int64_t audio_out_queued_frames() {
-    if (g_mode != AudioMode::Device || g_source == nullptr) return 0;
-    XAUDIO2_VOICE_STATE st{};
-    g_source->GetState(&st, 0);
-    return std::max<int64_t>(0, int64_t(g_submitted) - int64_t(st.SamplesPlayed));
+    if (g_mode != AudioMode::Device || g_device == nullptr) return 0;
+    return std::max<int64_t>(0, int64_t(g_submitted) - int64_t(g_device->played_frames()));
 }
 
 AudioOutStats audio_out_stats() {

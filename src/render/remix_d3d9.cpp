@@ -1,9 +1,15 @@
+// O caminho de Direct3D 9 de função fixa para o RTX Remix (só no Windows). Ver remix_d3d9.h.
+
 #include "render/remix_d3d9.h"
+
+#include <d3d9.h>
+#include <wrl/client.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <set>
 #include <stdexcept>
 
 #include "core/xxh3.h"
@@ -74,7 +80,7 @@ bool is_identity_tint(const std::array<float, 4>& t) {
     return t[0] >= 0.999f && t[1] >= 0.999f && t[2] >= 0.999f && t[3] >= 0.999f;
 }
 
-// O estado efetivo de uma parte, como o resolve_state do Direct3D 11 (render/renderer.cpp, que continua a
+// O estado efetivo de uma parte, como o resolve_state do Direct3D 11 (render/renderer_d3d11.cpp, que continua a
 // referência): a parte da malha, depois o desenho, depois a regra antiga pelo modo de psiSetUpColourBlend (opaco
 // testa alfa em 50% e escreve Z; misturado descarta só alfa < 0.004 e não escreve Z). A profundidade aqui é a comum
 // (perto = 0), então GEQUAL do GS vira LESSEQUAL e GREATER vira LESS.
@@ -215,7 +221,103 @@ LRESULT CALLBACK hidden_proc(HWND h, UINT m, WPARAM w, LPARAM l) { return DefWin
 
 }  // namespace
 
-HWND RemixD3D9Renderer::create_hidden_window(int width, int height) {
+class RemixD3D9Impl final : public RemixD3D9Renderer {
+public:
+    // hwnd: a janela do jogo (o back buffer tem width x height, qualquer que seja o tamanho dela).
+    // adapter: o adaptador do Direct3D 11 escolhido por [video] adapter (nulo: auto). O Direct3D 9 só lista os
+    // adaptadores com monitor; o do mesmo fabricante e modelo (GetAdapterIdentifier: VendorId e DeviceId) é usado, e
+    // sem ele (o integrado sem monitor, por exemplo) o padrão (D3DADAPTER_DEFAULT), como antes; describe() diz qual.
+    RemixD3D9Impl(HWND hwnd, int width, int height, bool vsync, const AdapterInfo* adapter = nullptr);
+    ~RemixD3D9Impl() override;
+    RemixD3D9Impl(const RemixD3D9Impl&) = delete;
+    RemixD3D9Impl& operator=(const RemixD3D9Impl&) = delete;
+
+    // GfxMirror: os recursos da fase, criados uma vez.
+    void mirror_reset() override;
+    void mirror_texture(int slot, const Texture& texture) override;
+    void mirror_mesh(int id, const EntityMesh& mesh) override;
+
+    // O quadro: o 3D na ordem dos itens e depois o 2D, no back buffer.
+    void render(const std::vector<DrawItem>& items, const D3D9FrameParams& frame) override;
+    void present() override;
+    // O back buffer num PNG (antes do present).
+    bool save_png(const std::wstring& path) override;
+    std::string describe() const override;
+    const D3D9FrameStats& stats() const override { return stats_; }
+    int width() const override { return width_; }
+    int height() const override { return height_; }
+
+    // O hash que o Remix daria à textura do slot: o XXH3 de 64 bits do nível 0 como foi enviado (A8R8G8B8, linhas
+    // sem folga), a conta do D3D9CommonTexture do dxvk-remix (0 sem textura).
+    uint64_t texture_hash(int slot) const override;
+    // Guarda, a cada quadro, os hashes de textura por categoria (2D, céu, marcas, partículas, mundo) para o rtx.conf
+    // sugerido (--d3d9-remix-conf).
+    void set_record_hashes(bool on) override { record_ = on; }
+    // Um rtx.conf sugerido: a escala, os eixos e as texturas de UI, céu, marcas e partículas vistas até aqui. Os hashes
+    // são candidatos: só o Remix confirma (o menu Game Setup mostra as texturas marcadas).
+    bool write_remix_conf(const std::wstring& path) const override;
+
+
+private:
+    template <typename T>
+    using Com = Microsoft::WRL::ComPtr<T>;
+
+    struct Part {
+        int texture = -1;
+        uint32_t first_index = 0;
+        uint32_t index_count = 0;
+        uint32_t min_vertex = 0;   // a faixa de vértices que os índices da parte usam
+        uint32_t num_vertices = 0;
+        GsState gs;
+        bool env = false;
+    };
+    struct Mesh9 {
+        Com<IDirect3DVertexBuffer9> vb;
+        Com<IDirect3DIndexBuffer9> ib;
+        std::vector<Part> parts;
+        bool skinned = false;
+        int bones = 0;
+        bool software = false;     // skinning com mais ossos do que o hardware faz: processamento em software
+    };
+
+    bool begin_frame();
+    void set_frame_states(const D3D9FrameParams& frame);
+    void set_lights(const std::vector<DrawItem>& items);
+    void apply_state(const DrawItem& item, const GsState& own, bool sprite, bool env, bool fog);
+    void draw_mesh(const DrawItem& item, bool fog);
+    void draw_loose(const std::vector<Vertex>& tris, int texture, const DrawItem& item, bool fog);
+    void draw_2d(const DrawItem& item);
+    IDirect3DTexture9* texture(int slot);
+
+    HWND hwnd_;
+    int width_, height_;
+    bool vsync_;
+    Com<IDirect3D9> d3d_;
+    Com<IDirect3DDevice9> dev_;
+    D3DPRESENT_PARAMETERS pp_{};
+    D3DCAPS9 caps_{};
+    UINT ordinal_ = D3DADAPTER_DEFAULT;  // o adaptador do Direct3D 9
+    std::string adapter_note_;           // o nome dele e se seguiu a escolha do Direct3D 11
+    bool mixed_ = false;     // D3DCREATE_MIXED_VERTEXPROCESSING
+    bool software_ = false;  // D3DCREATE_SOFTWARE_VERTEXPROCESSING (o último recurso)
+    bool lost_ = false;
+    Com<IDirect3DTexture9> white_;
+    Com<IDirect3DTexture9> no_texture_;  // kQuadNoTexture
+    std::vector<Com<IDirect3DTexture9>> textures_;
+    std::vector<uint64_t> hashes_;  // por slot: o hash do Remix (texture_hash)
+    bool record_ = false;
+    std::set<uint64_t> seen_ui_, seen_sky_, seen_decal_, seen_particle_, seen_world_;
+    void record(std::set<uint64_t>& set, int slot);
+    std::vector<Mesh9> meshes_;
+    std::vector<Vertex> scratch_;   // os vértices dos desenhos sem buffer (partículas, estilhaços, 2D)
+    DWORD lights_enabled_ = 0;
+    std::string module_;  // o d3d9.dll carregado (o do sistema, ou o da ponte do Remix ao lado do executável)
+    D3D9FrameStats stats_;
+    uint32_t textures_count_ = 0, meshes_count_ = 0, software_meshes_ = 0;
+    uint32_t failed_textures_ = 0, failed_meshes_ = 0;  // recursos que o Direct3D 9 recusou (memória)
+};
+
+void* create_remix_hidden_window(int width, int height) {
     static bool registered = false;
     const HINSTANCE inst = GetModuleHandleW(nullptr);
     if (!registered) {
@@ -231,7 +333,7 @@ HWND RemixD3D9Renderer::create_hidden_window(int width, int height) {
                            std::max(1, width), std::max(1, height), nullptr, nullptr, inst, nullptr);
 }
 
-RemixD3D9Renderer::RemixD3D9Renderer(HWND hwnd, int width, int height, bool vsync, const AdapterInfo* adapter)
+RemixD3D9Impl::RemixD3D9Impl(HWND hwnd, int width, int height, bool vsync, const AdapterInfo* adapter)
     : hwnd_(hwnd), width_(std::max(1, width)), height_(std::max(1, height)), vsync_(vsync) {
     // O d3d9.dll só é carregado neste modo, e pela ordem de busca comum: com o RTX Remix instalado ao lado do
     // executável, é o d3d9.dll da ponte dele (o Direct3D 11, o padrão, nunca o carrega).
@@ -311,16 +413,16 @@ RemixD3D9Renderer::RemixD3D9Renderer(HWND hwnd, int width, int height, bool vsyn
     }
 }
 
-RemixD3D9Renderer::~RemixD3D9Renderer() = default;
+RemixD3D9Impl::~RemixD3D9Impl() = default;
 
-void RemixD3D9Renderer::mirror_reset() {
+void RemixD3D9Impl::mirror_reset() {
     textures_.clear();
     hashes_.clear();
     meshes_.clear();
     textures_count_ = meshes_count_ = software_meshes_ = failed_textures_ = failed_meshes_ = 0;
 }
 
-void RemixD3D9Renderer::mirror_texture(int slot, const Texture& t) {
+void RemixD3D9Impl::mirror_texture(int slot, const Texture& t) {
     if (slot < 0) return;
     // Um slot recriado perde a textura antiga já aqui: se a nova falhar, o slot fica branco, não com a de outra fase.
     if (slot < int(textures_.size())) textures_[size_t(slot)].Reset();
@@ -382,7 +484,7 @@ void RemixD3D9Renderer::mirror_texture(int slot, const Texture& t) {
     ++textures_count_;
 }
 
-void RemixD3D9Renderer::mirror_mesh(int id, const EntityMesh& mesh) {
+void RemixD3D9Impl::mirror_mesh(int id, const EntityMesh& mesh) {
     if (id < 0) return;
     if (id < int(meshes_.size())) meshes_[size_t(id)] = Mesh9{};
     if (mesh.empty()) return;
@@ -469,22 +571,22 @@ void RemixD3D9Renderer::mirror_mesh(int id, const EntityMesh& mesh) {
     if (meshes_[size_t(id)].software) ++software_meshes_;
 }
 
-IDirect3DTexture9* RemixD3D9Renderer::texture(int slot) {
+IDirect3DTexture9* RemixD3D9Impl::texture(int slot) {
     if (slot == kQuadNoTexture) return no_texture_.Get();
     if (slot >= 0 && slot < int(textures_.size()) && textures_[size_t(slot)] != nullptr) return textures_[size_t(slot)].Get();
     if (slot >= 0) ++stats_.missing_textures;
     return white_.Get();
 }
 
-uint64_t RemixD3D9Renderer::texture_hash(int slot) const {
+uint64_t RemixD3D9Impl::texture_hash(int slot) const {
     return slot >= 0 && slot < int(hashes_.size()) ? hashes_[size_t(slot)] : 0;
 }
 
-void RemixD3D9Renderer::record(std::set<uint64_t>& set, int slot) {
+void RemixD3D9Impl::record(std::set<uint64_t>& set, int slot) {
     if (const uint64_t h = texture_hash(slot); h != 0) set.insert(h);
 }
 
-bool RemixD3D9Renderer::begin_frame() {
+bool RemixD3D9Impl::begin_frame() {
     if (!lost_) return true;
     const HRESULT hr = dev_->TestCooperativeLevel();
     if (hr == D3DERR_DEVICENOTRESET) {
@@ -497,7 +599,7 @@ bool RemixD3D9Renderer::begin_frame() {
     return hr == D3D_OK ? (lost_ = false, true) : false;
 }
 
-void RemixD3D9Renderer::set_frame_states(const D3D9FrameParams& frame) {
+void RemixD3D9Impl::set_frame_states(const D3D9FrameParams& frame) {
     dev_->SetRenderState(D3DRS_LIGHTING, FALSE);  // a cor do vértice já é a iluminação (as cores do disco)
     dev_->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);  // o jogo desenha faces dos dois lados
     dev_->SetRenderState(D3DRS_NORMALIZENORMALS, TRUE);
@@ -548,7 +650,7 @@ void RemixD3D9Renderer::set_frame_states(const D3D9FrameParams& frame) {
 // D3DLIGHT9 pontuais. Com D3DRS_LIGHTING desligado elas não mudam a imagem rasterizada; o Remix as lê do estado do
 // dispositivo e as converte em luzes do path tracer. A queda da VU1 (1 / d² - 1 / r², vezes N . D sem normalizar) não
 // existe na função fixa: aqui alcance r, queda 1 / d² e cor = TColor / 128 (a escala do GS).
-void RemixD3D9Renderer::set_lights(const std::vector<DrawItem>& items) {
+void RemixD3D9Impl::set_lights(const std::vector<DrawItem>& items) {
     struct L {
         float pos[3];
         float col[3];
@@ -596,7 +698,7 @@ void RemixD3D9Renderer::set_lights(const std::vector<DrawItem>& items) {
 }
 
 // O estado do GS de uma parte (mistura, teste de alfa, Z), o tweak e a névoa.
-void RemixD3D9Renderer::apply_state(const DrawItem& item, const GsState& own, bool sprite, bool env, bool fog) {
+void RemixD3D9Impl::apply_state(const DrawItem& item, const GsState& own, bool sprite, bool env, bool fog) {
     const State9 st = resolve(own, item);
     const GsBlendEq gb = gs_blend_equation(st.alpha, st.abe, false);
     dev_->SetRenderState(D3DRS_ALPHABLENDENABLE, gb.enable ? TRUE : FALSE);
@@ -642,7 +744,7 @@ void RemixD3D9Renderer::apply_state(const DrawItem& item, const GsState& own, bo
     dev_->SetRenderState(D3DRS_FOGENABLE, fog ? TRUE : FALSE);
 }
 
-void RemixD3D9Renderer::draw_mesh(const DrawItem& item, bool fog) {
+void RemixD3D9Impl::draw_mesh(const DrawItem& item, bool fog) {
     if (item.mesh < 0 || item.mesh >= int(meshes_.size()) || meshes_[size_t(item.mesh)].vb == nullptr) {
         ++stats_.skipped;
         return;
@@ -700,7 +802,7 @@ void RemixD3D9Renderer::draw_mesh(const DrawItem& item, bool fog) {
 // Partículas e estilhaços: vértices já no mundo, desenhados direto da memória (DrawPrimitiveUP), sem o tweak (como o
 // microprograma de partículas e a rotina 0 dos estilhaços). O Remix não acha hash estável neles: são as categorias de
 // partícula (rtx.particleTextures) e de geometria dinâmica.
-void RemixD3D9Renderer::draw_loose(const std::vector<Vertex>& tris, int tex, const DrawItem& item, bool fog) {
+void RemixD3D9Impl::draw_loose(const std::vector<Vertex>& tris, int tex, const DrawItem& item, bool fog) {
     if (tris.size() < 3) return;
     std::vector<V9> v(tris.size());
     for (size_t i = 0; i < tris.size(); ++i) {
@@ -722,7 +824,7 @@ void RemixD3D9Renderer::draw_loose(const std::vector<Vertex>& tris, int tex, con
 // 2D (psiDrawSprites): quadrados em pixels da janela, desenhados com projeção ortográfica (_44 = 1) e sem Z, depois
 // de todo o 3D: o que o Remix trata como UI. Quadrados seguidos com a mesma textura, o mesmo ALPHA_1 e o mesmo filtro
 // saem num desenho só; o estado é o de psiStartSprites (alfa > 0, sem Z) e o recorte é a área da tela do PS2.
-void RemixD3D9Renderer::draw_2d(const DrawItem& item) {
+void RemixD3D9Impl::draw_2d(const DrawItem& item) {
     const size_t n = item.quads2d.size();
     const RECT clip{LONG(item.clip2d[0]), LONG(item.clip2d[1]), LONG(item.clip2d[2] + 0.5f), LONG(item.clip2d[3] + 0.5f)};
     dev_->SetScissorRect(&clip);
@@ -771,7 +873,7 @@ void RemixD3D9Renderer::draw_2d(const DrawItem& item) {
     }
 }
 
-void RemixD3D9Renderer::render(const std::vector<DrawItem>& items, const D3D9FrameParams& frame) {
+void RemixD3D9Impl::render(const std::vector<DrawItem>& items, const D3D9FrameParams& frame) {
     stats_ = D3D9FrameStats{};
     if (!begin_frame()) return;
     // A passada de névoa do jogo: o que vem antes dela na lista (a lista opaca) leva a névoa; o fundo vazio fica da cor
@@ -879,13 +981,13 @@ void RemixD3D9Renderer::render(const std::vector<DrawItem>& items, const D3D9Fra
     dev_->EndScene();
 }
 
-void RemixD3D9Renderer::present() {
+void RemixD3D9Impl::present() {
     if (lost_) return;
     const HRESULT hr = dev_->Present(nullptr, nullptr, nullptr, nullptr);
     if (hr == D3DERR_DEVICELOST) lost_ = true;
 }
 
-bool RemixD3D9Renderer::save_png(const std::wstring& path) {
+bool RemixD3D9Impl::save_png(const std::wstring& path) {
     Com<IDirect3DSurface9> back, sys;
     if (FAILED(dev_->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back))) return false;
     D3DSURFACE_DESC d;
@@ -911,7 +1013,7 @@ bool RemixD3D9Renderer::save_png(const std::wstring& path) {
     return Renderer::write_png(path, int(d.Width), int(d.Height), rgba.data());
 }
 
-bool RemixD3D9Renderer::write_remix_conf(const std::wstring& path) const {
+bool RemixD3D9Impl::write_remix_conf(const std::wstring& path) const {
     FILE* f = nullptr;
     if (_wfopen_s(&f, path.c_str(), L"w") != 0 || f == nullptr) return false;
     // A UI que também aparece no mundo (a mesma textura num desenho 3D) fica de fora: marcada como UI, o Remix deixaria
@@ -951,7 +1053,7 @@ bool RemixD3D9Renderer::write_remix_conf(const std::wstring& path) const {
     return true;
 }
 
-std::string RemixD3D9Renderer::describe() const {
+std::string RemixD3D9Impl::describe() const {
     char line[640];
     std::snprintf(line, sizeof(line),
                   "d3d9ff dispositivo %s blend_max_idx %lu luzes_max %lu aniso %lu | malhas %u (sw %u, falhas %u) "
@@ -966,6 +1068,11 @@ std::string RemixD3D9Renderer::describe() const {
                   stats_.depth_clears, stats_.fog ? 1 : 0,
                   double(stats_.fog_start), double(stats_.fog_end));
     return std::string(line) + " | modulo " + module_ + " | adaptador " + adapter_note_;
+}
+
+std::unique_ptr<RemixD3D9Renderer> create_remix_d3d9(void* window, int width, int height, bool vsync,
+                                                     const AdapterInfo* adapter) {
+    return std::make_unique<RemixD3D9Impl>(static_cast<HWND>(window), width, height, vsync, adapter);
 }
 
 }  // namespace nf

@@ -5,6 +5,7 @@
 #include <filesystem>
 
 #include "core/xxh3.h"
+#include "platform/os.h"
 
 namespace nf {
 
@@ -154,7 +155,7 @@ std::wstring TexturePack::find(int width, int height, bool bpp8, const uint8_t* 
         const auto it = by_texture_.find(h);
         if (it == by_texture_.end()) continue;
         for (const Entry& e : it->second) {
-            if (e.clut == clut) return dir_ + L"\\" + e.file;
+            if (e.clut == clut) return os::join(dir_, e.file);
         }
     }
     return {};

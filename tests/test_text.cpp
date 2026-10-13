@@ -25,6 +25,7 @@
 #include "engine/view.h"
 #include "platform/psi.h"
 #include "platform/psi_draw.h"
+#include "platform/os.h"
 #include "platform/psi_file.h"
 #include "test_framework.h"
 
@@ -60,8 +61,7 @@ struct TempFiles {
     std::wstring path;
     explicit TempFiles(const std::vector<uint8_t>& txt) {
         path = (std::filesystem::temp_directory_path() / L"nf_test_text_files.bin").wstring();
-        FILE* f = nullptr;
-        _wfopen_s(&f, path.c_str(), L"wb");
+        FILE* f = nf::os::open_file(path, "wb");
         std::fwrite(txt.data(), 1, txt.size(), f);
         std::fclose(f);
         std::memset(FileList, 0, sizeof(FileList));

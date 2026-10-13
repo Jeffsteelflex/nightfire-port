@@ -7,8 +7,9 @@
 // por triângulo do microprograma dão lugar à projeção e ao recorte do Direct3D; o Z cresce para longe (o do GS cresce
 // para perto: GEQUAL vira LESS_EQUAL); o alfa sai do shader limitado a 1 (o GS aceita até 2 em As = 0xff; os carros só
 // usam até 0x80); a passada que falha o teste de alfa com AFAIL "só RGB" vira um segundo desenho sem Z e sem alfa.
-
-#include <windows.h>
+//
+// Este cabeçalho não traz nada do sistema: o backend é drv_renderer_d3d11.cpp (Direct3D 11); a janela chega como o
+// identificador do sistema (Window::native_handle).
 
 #include <string>
 
@@ -38,8 +39,8 @@ class DrvRenderer {
 public:
     DrvRenderer();
     ~DrvRenderer();
-    // hwnd nulo: só o alvo fora da tela (as capturas).
-    bool init(HWND hwnd, const DrvRenderOptions& opt, std::string& error);
+    // window nulo: só o alvo fora da tela (as capturas); senão a janela do sistema (o HWND no Windows).
+    bool init(void* window, const DrvRenderOptions& opt, std::string& error);
     bool upload(const CarModel& car, std::string& error);
     void resize(int width, int height);
     // Desenha o carro girado de `yaw` (radianos), a câmera inclinada de `pitch`, a `dist` vezes o raio.

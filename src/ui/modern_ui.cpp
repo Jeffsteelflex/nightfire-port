@@ -165,7 +165,9 @@ bool parse_tokens(const std::string& json, Tokens& out, std::string* error) {
         {"menu_gap", &t.space.menu_gap},   {"button_row_h", &t.space.button_row_h}, {"hero_y", &t.space.hero_y},
         {"front_top", &t.space.front_top}, {"front_menu_y", &t.space.front_menu_y}, {"logo_h", &t.space.logo_h},
         {"picture", &t.space.picture},     {"key_cell", &t.space.key_cell},   {"key_gap", &t.space.key_gap},
-        {"press_y", &t.space.press_y},
+        {"press_y", &t.space.press_y},     {"launch_row_h", &t.space.launch_row_h},
+        {"launch_section_h", &t.space.launch_section_h}, {"launch_option_h", &t.space.launch_option_h},
+        {"launch_menu_y", &t.space.launch_menu_y},
     };
     const NumField motions[] = {
         {"open", &t.motion.open},         {"close", &t.motion.close},       {"stagger", &t.motion.stagger},

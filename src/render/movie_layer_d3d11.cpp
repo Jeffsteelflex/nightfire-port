@@ -1,6 +1,6 @@
-// O quadro dos filmes no Direct3D 11: ver movie_layer.h.
+// O quadro dos filmes no Direct3D 11: ver movie_layer_d3d11.h.
 
-#include "render/movie_layer.h"
+#include "render/movie_layer_d3d11.h"
 
 #include <d3dcompiler.h>
 

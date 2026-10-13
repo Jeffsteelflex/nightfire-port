@@ -211,10 +211,12 @@ por processamento em software (dispositivo misto).
 
 ## 8. O protótipo
 
-Arquivos: `src/render/remix_d3d9.h/.cpp` (`RemixD3D9Renderer`), o espelho `GfxMirror` em `src/render/runtime_gfx.h`
+Arquivos: `src/render/remix_d3d9.h/.cpp` (`RemixD3D9Renderer`: a interface e a fábrica `create_remix_d3d9` no
+cabeçalho, a classe com o Direct3D 9 só no `.cpp`), o espelho `GfxMirror` em `src/render/runtime_gfx.h`
 (o `RuntimeGfx` passa a ele cada textura e malha criada na carga, com o mesmo slot e o mesmo id do Renderer) e o
-`src/main.cpp` (opções, câmera, captura). O Direct3D 11 não muda: no modo `d3d9ff` ele continua existindo (as camadas
-2D e o Direct2D usam o dispositivo dele) numa janela invisível, desenhando nada; a janela do jogo fica com o Direct3D 9.
+`src/app/app_main.cpp` (opções, câmera, captura; o antigo `src/main.cpp`). O Direct3D 11 não muda: no modo `d3d9ff` ele
+continua existindo (as camadas 2D e o Direct2D usam o dispositivo dele) numa janela invisível, desenhando nada; a janela
+do jogo fica com o Direct3D 9.
 As capturas do Direct3D 11 continuam idênticas às de antes (`pngdiff`: 0 pixels em 07000001 e 07000012).
 
 Opções:

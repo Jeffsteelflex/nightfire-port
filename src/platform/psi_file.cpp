@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "engine/memory.h"
+#include "platform/crt_compat.h"
 
 // Globais do carregador (engine/loader.cpp) que psiFileLoad devolve no modo de arquivo único.
 extern void* DirFileBuf;
@@ -26,7 +27,7 @@ uint32_t offset = 0;  // setor atual dentro de FILES.BIN (no PS2, somado ao LSN 
 // maiúsculas sem alterar nada.
 bool find_file(const char* name) {
     for (int i = 0; i < kFileListCount; ++i) {
-        if (_strnicmp(FileList[i].name, name, sizeof(FileList[i].name)) == 0 &&
+        if (nf::str_nicmp(FileList[i].name, name, sizeof(FileList[i].name)) == 0 &&
             std::strlen(name) < sizeof(FileList[i].name)) {
             FileIndex = i;
             return true;
