@@ -285,5 +285,7 @@ pragma intrinsic
 pragma float_control
 pragma init_seg
 pragma section
-# #pragma warning só dentro de #if defined(_MSC_VER) (driving/physics/simulation.h).
-pragma warning src/driving/physics/simulation.h
+# #pragma warning só dentro de #if defined(_MSC_VER): o C4324 (o preenchimento de membros alinhados a 16 bytes) nas
+# estruturas do carro com um WWorldPos ou corpos alinhados (driving/physics/simulation.h, driving/ai/ground_vehicle.h,
+# driving/game/smackable.h, driving/game/explosion.h).
+pragma warning src/driving/physics/simulation.h src/driving/ai/ground_vehicle.h src/driving/game/smackable.h src/driving/game/explosion.h

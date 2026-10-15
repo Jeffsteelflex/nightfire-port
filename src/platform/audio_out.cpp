@@ -29,6 +29,8 @@ uint32_t g_last_vblank = 0;
 uint64_t g_vblanks = 0;
 AudioOutStats g_stats;
 std::vector<int16_t> g_mix;
+AudioSource g_source = nullptr;      // nula: a SPU2 do jogo a pé
+const Spu2* g_source_stats = nullptr;
 
 // Medida dos últimos 0.5 s: (pico, soma dos quadrados, amostras) por lote.
 struct Meter {
@@ -153,7 +155,7 @@ void audio_out_close() {
         std::fclose(g_wav);
         g_wav = nullptr;
         // A medida da folga para quem analisa o dump: onde a SPU2 saturou (amostras por canal).
-        const Spu2::Saturation& s = spu().saturation();
+        const Spu2::Saturation& s = (g_source_stats != nullptr ? *g_source_stats : spu()).saturation();
         const double peak_db = s.peak > 0 ? 20.0 * nf::fm::log10(double(s.peak) / 32768.0) : -120.0;
         std::fprintf(stderr, "spu2: saturacoes vozes0 %llu vozes1 %llu nucleo0 %llu saida %llu pico_sem_corte %+.1f dB\n",
                      static_cast<unsigned long long>(s.voices[0]), static_cast<unsigned long long>(s.voices[1]),
@@ -177,7 +179,8 @@ void audio_out_catch_up(uint32_t vblank) {
     g_vblanks += n;
     const int frames = int(n) * kFramesPerVBlank;
     g_mix.resize(size_t(frames) * 2);
-    spu().render(g_mix.data(), frames);
+    if (g_source != nullptr) g_source(g_mix.data(), frames);
+    else spu().render(g_mix.data(), frames);
     deliver(g_mix.data(), frames);
     if (g_mode == AudioMode::Device) {
         // Só o fim do que foi misturado cabe na fila; em pedaços de até kChunkFrames.
@@ -213,6 +216,11 @@ AudioOutStats audio_out_stats() {
     s.peak_db = db(peak);
     s.rms_db = n != 0 ? db(std::sqrt(sumsq / n)) : -120.0f;
     return s;
+}
+
+void audio_out_set_source(AudioSource render, const Spu2* stats) {
+    g_source = render;
+    g_source_stats = stats;
 }
 
 void audio_out_debug_power_on() {

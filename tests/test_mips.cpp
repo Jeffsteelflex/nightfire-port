@@ -572,10 +572,80 @@ TEST(mips_cop2_mmi_and_new_fpu_ops) {
     CHECK(m.fpr(4) == 40.0f);
 }
 
+TEST(mips_div_divu_and_word_exchanges) {
+    // DIV e DIVU: o quociente em LO e o resto em HI (truncados; o resto com o sinal do dividendo); PADDW zera 128 bits
+    // (o "clear" do GCC), PEXEW e PEXCW trocam as palavras 0 e 2 e 1 e 2.
+    MipsMachine m;
+    const uint32_t div_ = (uint32_t(R::a0) << 21) | (uint32_t(R::a1) << 16) | 0x1a;   // div a0, a1
+    const uint32_t divu_ = (uint32_t(R::a2) << 21) | (uint32_t(R::a1) << 16) | 0x1b;  // divu a2, a1
+    const uint32_t paddw = (0x1cu << 26) | (uint32_t(R::t0) << 11) | 0x08;              // paddw t0, zero, zero
+    const uint32_t pexew = (0x1cu << 26) | (uint32_t(R::t1) << 16) | (uint32_t(R::t2) << 11) | (0x1eu << 6) | 0x09;
+    const uint32_t pexcw = (0x1cu << 26) | (uint32_t(R::t1) << 16) | (uint32_t(R::t3) << 11) | (0x1eu << 6) | 0x29;
+    const uint32_t w[4] = {1, 2, 3, 4};
+    std::memcpy(m.mem(kData, 16), w, 16);
+    program(m, {addiu(R::a0, R::zero, -7), addiu(R::a1, R::zero, 2), div_, mflo(R::s0), mfhi(R::s1),
+                addiu(R::a2, R::zero, -7), divu_, mflo(R::s2), mfhi(R::s3), lui(R::v0, kData >> 16), lq(R::t1, 0, R::v0),
+                lq(R::t0, 0, R::v0), paddw, pexew, pexcw, sq(R::t0, 0x10, R::v0), sq(R::t2, 0x20, R::v0),
+                sq(R::t3, 0x30, R::v0), jr(R::ra), nop});
+    m.call(kCode);
+    CHECK(int64_t(m.gpr(R::s0)) == -3 && int64_t(m.gpr(R::s1)) == -1);
+    CHECK(uint32_t(m.gpr(R::s2)) == 0x7ffffffcu && uint32_t(m.gpr(R::s3)) == 1);
+    uint32_t o[4];
+    std::memcpy(o, m.mem(kData + 0x10, 16), 16);
+    CHECK(o[0] == 0 && o[1] == 0 && o[2] == 0 && o[3] == 0);
+    std::memcpy(o, m.mem(kData + 0x20, 16), 16);
+    CHECK(o[0] == 3 && o[1] == 2 && o[2] == 1 && o[3] == 4);
+    std::memcpy(o, m.mem(kData + 0x30, 16), 16);
+    CHECK(o[0] == 1 && o[1] == 3 && o[2] == 2 && o[3] == 4);
+}
+
+TEST(mips_madd_pipeline1_variable_shifts_and_uncached_ram) {
+    // MADD/MADDU somam o produto ao {HI, LO} de 32 bits cada (rd = LO); o pipeline 1 (MULT1, MADD1, DIV1, MFLO1,
+    // MFHI1, MTLO1, MTHI1) tem o seu LO1/HI1; MTLO/MTHI; DSLLV/DSRLV/DSRAV deslocam 64 bits por rs & 63; o espelho sem
+    // cache (0x20000000 | endereço) lê a mesma RAM; call passa até 8 argumentos (a0..a3, t0..t3).
+    MipsMachine m;
+    auto mmi = [](int rd, int rs, int rt, uint32_t funct) {
+        return (0x1cu << 26) | (uint32_t(rs) << 21) | (uint32_t(rt) << 16) | (uint32_t(rd) << 11) | funct;
+    };
+    const uint32_t mtlo = rtype(R::a3, 0, 0, 0, 0x13), mthi = rtype(R::a0, 0, 0, 0, 0x11);
+    program(m, {addiu(R::a0, R::zero, 3), addiu(R::a1, R::zero, -5), lui(R::a2, 1), addiu(R::a3, R::zero, 7),
+                addiu(R::v1, R::zero, 40), addiu(R::t9, R::zero, 60),
+                mult(0, R::a0, R::a1),                  // {HI, LO} = -15
+                mmi(R::t0, R::a0, R::a3, 0x00),         // madd: -15 + 21 = 6
+                mmi(R::t1, R::a2, R::a2, 0x01),         // maddu: 6 + 2^32
+                mfhi(R::t2),                            // 1
+                mmi(R::t3, R::a1, R::a3, 0x18),         // mult1: -35
+                mmi(R::t4, R::a0, R::a0, 0x20),         // madd1: -35 + 9
+                mmi(R::t5, 0, 0, 0x10),                 // mfhi1: -1
+                mmi(0, R::a1, R::a0, 0x1a),             // div1: -5 / 3
+                mmi(R::t6, 0, 0, 0x12), mmi(R::t7, 0, 0, 0x10),  // mflo1 -1, mfhi1 -2
+                mtlo, mflo(R::s0), mthi, mfhi(R::s1),   // 7, 3
+                mmi(0, R::a3, 0, 0x13), mmi(R::s5, 0, 0, 0x12),  // mtlo1 a3, mflo1 s5 = 7
+                rtype(R::v1, R::a2, R::s2, 0, 0x14),    // dsllv s2 = a2 << 40
+                rtype(R::a0, R::a1, R::s3, 0, 0x17),    // dsrav s3 = -5 >> 3
+                rtype(R::t9, R::a1, R::s4, 0, 0x16),    // dsrlv s4 = (2^64 - 5) >> 60
+                lui(R::t8, int32_t((0x20000000u | kData) >> 16)), lw(R::s6, 0, R::t8), jr(R::ra), nop});
+    m.write32(kData, 0x12345678u);
+    m.call(kCode);
+    CHECK(int64_t(m.gpr(R::t0)) == 6 && int64_t(m.gpr(R::t1)) == 6 && int64_t(m.gpr(R::t2)) == 1);
+    CHECK(int64_t(m.gpr(R::t3)) == -35 && int64_t(m.gpr(R::t4)) == -26 && int64_t(m.gpr(R::t5)) == -1);
+    CHECK(int64_t(m.gpr(R::t6)) == -1 && int64_t(m.gpr(R::t7)) == -2);
+    CHECK(int64_t(m.gpr(R::s0)) == 7 && int64_t(m.gpr(R::s1)) == 3 && int64_t(m.gpr(R::s5)) == 7);
+    CHECK(m.gpr(R::s2) == 0x0100000000000000ull && int64_t(m.gpr(R::s3)) == -1 && m.gpr(R::s4) == 0xf);
+    CHECK(uint32_t(m.gpr(R::s6)) == 0x12345678u);
+    // Oito argumentos.
+    program(m, {addu(R::v0, R::a0, R::a1), addu(R::v0, R::v0, R::a2), addu(R::v0, R::v0, R::a3),
+                addu(R::v0, R::v0, R::t0), addu(R::v0, R::v0, R::t1), addu(R::v0, R::v0, R::t2),
+                addu(R::v0, R::v0, R::t3), jr(R::ra), nop},
+            kCode + 0x1000);
+    m.call(kCode + 0x1000, {1, 2, 3, 4, 5, 6, 7, 8});
+    CHECK(m.gpr(R::v0) == 36);
+}
+
 TEST(mips_unknown_or_invalid_instructions_stop) {
     const uint32_t bad[] = {
         0x0000000cu,  // syscall
-        0x70000000u,  // madd (MMI)
+        0x70000004u,  // plzcw (MMI)
         0x4a000000u,  // COP2 (sem VU0 ligada)
         0x46000020u,  // cvt.s.s (não existe)
         0x00000034u,  // teq

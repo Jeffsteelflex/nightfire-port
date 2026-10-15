@@ -376,7 +376,12 @@ dali (`src/platform/ptr32.h`, `src/platform/arena.h`, comentários do cabeçalho
   comparações). `F32<R(A...)>` faz o mesmo com um ponteiro de função: o código fica na imagem, então o deslocamento
   basta (dispensa um registro de funções; as tabelas copiadas do ELF continuam resolvidas por `Engine_ResolveCode`).
 - A janela contém a imagem (o código, as globais, as strings literais) e a arena: a maior região livre da janela logo
-  depois da imagem, reservada sem comprometer. Dela saem o heap do jogo (`psiMem_Init`), todo `new`/`delete` do programa
+  depois da imagem, reservada sem comprometer. Entre a consulta da região e a reserva outra linha do processo (o
+  carregador de DLLs, uma DLL que um overlay injeta, o driver de vídeo) pode tomar parte dela: a arena consulta de novo
+  e tenta outra vez (até 32 vezes) e, se a maior região não se deixa reservar, aceita a metade, até 256 MB (antes
+  desistia na primeira falha: "não consegui reservar a arena", visto pelo usuário em 2026-10-15). Se nada der, a caixa
+  de erro (em inglês, UTF-8 pelo `MessageBoxW`) diz o maior bloco livre e sugere o `nightfire.exe` de 32 bits, que não
+  tem arena. Dela saem o heap do jogo (`psiMem_Init`), todo `new`/`delete` do programa
   (o `operator new` é trocado em x64: `std::vector`, `std::string` e os buffers que o port entrega ao jogo já caem na
   janela) e a pilha onde o jogo roda (`nf::run_main` envolve o `main` de cada executável; o código decompilado guarda
   endereços de variáveis locais em campos do jogo, como os testes de colisão e o `DroneImpact_tag` das explosões).
@@ -3011,6 +3016,25 @@ confere). Regras só do PC, com o comportamento do jogo em volta:
   arma na mão. Um espaço vazio, o aparelho que já está na mão ou um sem munição não fazem nada; a numeração não muda
   quando um fica sem munição. 07000005: 1 o taser (74), 2 o laser (78), 3 o gancho (80), 4 a micro-câmera (84), 5 nada.
   G cicla (o `gadget_next` do jogo; com mais de cinco aparelhos, o sexto só por ele).
+- **O míssil pilotado** (o AT-420 Sentinel, arma 0x2c, no modo "Guided"; 07000008, contra o helicóptero): no PS2 o
+  `Bullet_update` (0x0012e7b0) vira o míssil só pelo analógico direito (ação 0 vira, ação 5 inclina; no fim, pi/128 rad
+  por tick a 60 Hz, 84 graus por segundo; a rolagem acompanha a curva) e, no subestado 10 do jogador (pilotando, a
+  câmera 0xc do Redeemer), nada gira o corpo. No port o mouse só chegava ao corpo: o míssil seguia reto e o Bond,
+  invisível, girava no lugar (no teclado as setas viravam o míssil, mas ninguém as usa com o mouse). Agora, pilotando,
+  `Player_Update` não gira o corpo e passa o giro do mouse do tick (a sensibilidade do olhar, `mouse_sensitivity`, sem
+  a da mira nem o zoom; `mouse_invert_y`) a `Bullet_PortGuidedMouse` (`src/engine/bullet.h`, `GuidedMouse`), que o
+  guarda como giro pedido; o `Bullet_update` do míssil soma o pedido ao do analógico, com o total limitado ao giro do
+  analógico no fim (o míssil não vira mais rápido que no PS2, e a rolagem fica a do PS2), e o que passa espera nos
+  ticks seguintes, até 15 ticks de giro (0,368 rad, 21 graus; o resto se perde: um gesto rápido do mouse sai inteiro,
+  um giro longo e rápido satura sem passar do ponto). Mouse para a esquerda vira o míssil para a esquerda, para cima
+  levanta o nariz, como o olhar. Sem mouse o míssil é o do PS2, bit a bit (o controle não muda). Nos 15 ticks depois
+  da explosão (`BLData::ride_time`) o mouse não vira nada. Relatório: a linha `missil subestado camera montado soltar
+  pos dir dist veloc rolagem | mouse pedido feito ticks | helicoptero ... dist estado dano ligar`. Captura (o míssil
+  sai da varanda, o mouse o vira 0,15 rad para a esquerda e 0,035 para cima e ele acerta o helicóptero: `dano 101/448`
+  em 18,1 s):
+  `nightfire.exe --level 07000008 --at 109.5,28.5,-134,-2.625 --weapon 2c --channel 5 --fixed-video-hz 60 --input
+  "none:3 mlook=0,136:0.5 none:10.5 lmb:0.1 none:2.4 mlook=-276,-64:0.25 none:20" --wait 18 --screenshot m.png`
+  (`--wait 16.7`: o helicóptero no centro do anel).
 - **.ini antigo**: um comando escrito em `[bindings]` vale como está; um comando ausente (no padrão) perde a entrada que
   um comando escrito do mesmo grupo usa (`fire_mode = r` deixa o `reload` sem R, `gadget_next = 1` deixa o `gadget_1`
   sem 1), a não ser que um obrigatório ficasse sem tecla (então fica o padrão, com o conflito). Gravar de novo escreve o

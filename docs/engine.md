@@ -692,7 +692,9 @@ tiros seguidos do jogador; zero para quem mira com certas armas).
 A cada tick (`Bullet_update`): no primeiro, um passo de 0,5 a 1 x a velocidade e o modelo (ou o
 traçante esticado pela velocidade); depois, a velocidade da arma por tick a 60 Hz, com gravidade,
 giro, aceleração, teleguiado (`Bullet_homing`: o alvo mais próximo num cone à frente, virando no
-máximo 0,01 por componente por tick) ou o míssil pilotado pelo stick do jogador. O último passo é
+máximo 0,01 por componente por tick) ou o míssil pilotado pelo stick do jogador (flags2 4: o Sentinel 0x2c em
+"Guided"; o analógico direito vira e inclina até pi/128 rad por tick, sem passar da vertical, com rolagem; no PC o
+mouse também, docs/port.md "Controles"). O último passo é
 cortado no alcance da arma e o tiro some no tick seguinte. A bala monta o teste do trecho que vai
 andar: um raio de pelo menos 1 m a partir da posição antes do passo (ou uma esfera, se o passo for
 pequeno). `Collide_Update` roda o teste, copia cada acerto para a lista do objeto atingido com o

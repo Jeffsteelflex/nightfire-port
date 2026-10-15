@@ -41,6 +41,7 @@
 #include "driving/camera/camera_ini.h"
 #include "driving/camera/dafi.h"
 #include "driving/camera/player_camera.h"
+#include "driving/game/explosion.h"
 #include "driving/physics/rigid_body.h"
 #include "driving/physics/simulation.h"
 #include "driving/physics/world_collision.h"
@@ -89,6 +90,9 @@ constexpr uint32_t kIniBuf = 0x01017000;  // (o camera.ini: uns 45 KB)
 constexpr uint32_t kScratchpad = 0x01028000;
 constexpr uint32_t kFnCarType = 0x0102f000, kFnZero = 0x0102f010;
 constexpr uint32_t kMgr = 0x01030000, kGrid = 0x01030100;
+// As explosões perto da câmera (a seção 22: o CheckForCameraShaking lê o vetor +0xe2c da Simulation): as imagens (0x100
+// cada), o vetor e os corpos simples.
+constexpr uint32_t kExplImages = 0x01040000, kExplVec = 0x01040400, kSrbVec = 0x01041000;
 constexpr uint32_t kWorldBegin = 0x01100000, kWorldEnd = MipsMachine::kStackTop - 0x40000;
 
 struct Rng {
@@ -639,6 +643,22 @@ int run_camera_checks(const nf::Elf& elf, const nf::DiscSource& disc, const uint
                      jumps = 0, pending_before = drv::camera_pending();
             const uint64_t ground_before = cam->ground_hits, barrier_before = cam->barrier_hits;
             uint64_t transition_frames = 0, vertigo_frames = 0, noise_frames = 0, rigid_frames = 0, shake_frames = 0;
+            std::vector<std::pair<drv::Explosion*, int>> live_expl;
+            uint64_t explosions_made = 0, shaken_frames = 0;
+            // O vetor das explosões e os corpos simples no original (o dano +0x70 e a vaga +0x46 de cada imagem).
+            auto put_explosions = [&]() {
+                m.write32(kSim + 0x20, kSrbVec);
+                std::memcpy(m.mem(kSrbVec, 0x40 * drv::kSimpleBodySlots), sim.simple_bodies, 0x40 * drv::kSimpleBodySlots);
+                for (size_t i = 0; i < sim.explosions.size(); ++i) {
+                    const auto* x = static_cast<const drv::Explosion*>(sim.explosions[i]);
+                    const uint32_t img = kExplImages + 0x100u * uint32_t(i);
+                    m.write32(img + 0x44, 1u | uint32_t(uint16_t(x->po.slot)) << 16);
+                    std::memcpy(m.mem(img + 0x70, 4), &x->d.damage, 4);
+                    m.write32(kExplVec + 4u * uint32_t(i), img);
+                }
+                m.write32(kSim + 0xe2c, kExplVec);
+                m.write32(kSim + 0xe30, kExplVec + 4u * uint32_t(sim.explosions.size()));
+            };
             Pose pose;
             auto place = [&]() {
                 if (!walls.empty() && rng.chance(0.85)) {
@@ -736,8 +756,30 @@ int run_camera_checks(const nf::Elf& elf, const nf::DiscSource& disc, const uint
                     cam->restart(ctx);
                     ++restarts;
                 }
+                // As explosões perto do olho (algumas fora do alcance), vivas de 5 a 120 quadros.
+                if (live_expl.size() < 3 && rng.chance(0.012)) {
+                    const float p[3] = {cam->d.eye[0] + rng.uni(-15, 15), cam->d.eye[1] + rng.uni(-3, 5),
+                                        cam->d.eye[2] + rng.uni(-15, 15)};
+                    const float dir[3] = {0, 1, 0};
+                    drv::Explosion* x = drv::SpawnExplosionObject(sim, rng.uni(5, 300), 2, dir, p, nullptr, 0);
+                    if (x) {
+                        live_expl.push_back({x, rng.range(5, 120)});
+                        ++explosions_made;
+                    }
+                }
+                for (auto it = live_expl.begin(); it != live_expl.end();) {
+                    if (--it->second > 0) {
+                        ++it;
+                        continue;
+                    }
+                    sim.explosions.erase(std::find(sim.explosions.begin(), sim.explosions.end(), it->first));
+                    delete it->first;
+                    it = live_expl.erase(it);
+                }
+                put_explosions();
                 e->call(kFnUpdate, {kCam});
                 cam->update(ctx);
+                if (cam->d.shake_time > 0) ++shaken_frames;
                 ++t_frames.cases;
                 {
                     const drv::CameraModeInfo& md = tables->mode(cam->d.mode);
@@ -756,6 +798,14 @@ int run_camera_checks(const nf::Elf& elf, const nf::DiscSource& disc, const uint
                     if (t_frames.bad > 20) break;
                 }
             }
+            for (auto& [x, life] : live_expl) {
+                sim.explosions.erase(std::find(sim.explosions.begin(), sim.explosions.end(), x));
+                delete x;
+            }
+            live_expl.clear();
+            put_explosions();
+            std::printf("    explosões perto da câmera: %" PRIu64 " (quadros com tremor %" PRIu64 ")\n", explosions_made,
+                        shaken_frames);
             char what2[200];
             std::snprintf(what2, sizeof(what2),
                           "UpdateCamera (%s; %" PRIu64 " colisões, %" PRIu64 " pedidos de modo, %" PRIu64

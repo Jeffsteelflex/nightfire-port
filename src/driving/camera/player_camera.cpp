@@ -7,6 +7,10 @@
 #include <atomic>
 #include <cstring>
 
+#include "driving/game/explosion.h"
+#include "driving/game/rail.h"
+#include "driving/real/vu0_math.h"
+
 #include "driving/physics/rigid_body.h"
 #include "driving/physics/simulation.h"
 #include "driving/physics/world_collision.h"
@@ -65,7 +69,8 @@ const float* rb_vel(const RigidBody* rb) { return &rb->vel[0]; }
 
 }  // namespace
 
-uint64_t camera_pending() { return g_camera_pending.load(); }
+uint64_t camera_modes_pending();
+uint64_t camera_pending() { return g_camera_pending.load() + camera_modes_pending() + camera_math_pending(); }
 
 // ---------------------------------------------------------------- o ruído
 
@@ -348,8 +353,14 @@ void PlayerCamera::RestartWorldCamera(const CameraContext& ctx) {
     d.zoom_fov_target = 33.0f;
     d.fov = 33.0f;
     d.zoom_fov = 33.0f;
-    // A fila de entrada (ActionQueue::Flush), a animação e o trilho da IA (nenhum no port).
+    // A fila de entrada (ActionQueue::Flush; o port não tem), o RAnimEngine::Handle (~Handle) e o trilho da IA
+    // (~AISplinePath).
+    anim_handle.reset();
     d.anim_handle = 0;
+    if (AISplinePath* path = nf::p32_ptr<AISplinePath>(d.ai_spline)) {
+        AISplinePath_Destruct(*path);
+        delete path;
+    }
     d.ai_spline = 0;
 }
 
@@ -357,7 +368,15 @@ void PlayerCamera::RestartWorldCamera(const CameraContext& ctx) {
 
 void PlayerCamera::construct(CameraTables& t, const CameraContext& ctx) {
     tables = &t;
+    anim_handle.reset();
+    if (AISplinePath* path = nf::p32_ptr<AISplinePath>(d.ai_spline)) {
+        AISplinePath_Destruct(*path);
+        delete path;
+    }
     d = PlayerCameraData{};
+    // [driving] 0x1a7ba0 RCameraSpline::RCameraSpline (o construtor do RPlayerCamera cria o +0x350)
+    spline = std::make_unique<PlayerCameraSpline>();
+    d.spline = 1;
     // [driving] 0x1a43d8 RCamera::RCamera
     std::memcpy(d.matrix, kIdentity, sizeof(kIdentity));
     std::memcpy(d.inverse, kIdentity, sizeof(kIdentity));
@@ -385,19 +404,20 @@ static void ResetState(PlayerCamState& s, const Simulation& sim) {
         s.enabled = 1;
         return;
     }
-    std::memset(s.unknown08, 0, sizeof(s.unknown08));
+    s.anim = s.cinematic = s.cpu_control = s.unknown14 = 0;
     s.paused = sim.state == 3 ? 1u : 0u;
-    std::memset(s.unknown20, 0, sizeof(s.unknown20));
+    s.target_lock = s.zoom_held = s.centering = s.lock_zoom = s.unknown30 = 0;
+    s.rot_x = s.rot_x2 = s.rot_y = s.rot_y2 = 0.0f;
     s.colorize = 0;
     s.unknown4c[0] = s.unknown4c[1] = 0;
     s.up_hold = 0;
     s.up_count = 0;
-    // (o global 0x3276e0 também volta a zero)
+    // (o global 0x3276e0, AICharacterHands::fgZoomButton, também volta a zero: no chamador)
 }
 
 void PlayerCamera::restart(const CameraContext& ctx) {
     RestartWorldCamera(ctx);
-    d.unknown1c0[0] = d.unknown1c0[1] = 0;
+    d.cursor[0] = d.cursor[1] = 0;
     d.distance = 0;
     const float one[4] = {0, 0, 0, 1};
     std::memcpy(d.offset, one, 16);
@@ -410,28 +430,31 @@ void PlayerCamera::restart(const CameraContext& ctx) {
     d.unknown240[3] = 0;
     d.unknown250 = d.unknown254 = 0;
     ResetState(state, *ctx.sim);
+    statics.zoom_button = 0;
     state.look_back = 0;
     state.unknown1c = 1;
-    d.unknown140 = 0;
-    std::memcpy(d.unknown150, one, 16);
+    d.lock_target = 0;
+    std::memcpy(d.lock_offset, one, 16);
     d.zoom_speed = 1.0f;
-    d.unknown164 = d.unknown160 = 0;
+    d.lock_total = d.lock_count = 0;
     d.tumble = 0;
     d.unknown210 = d.unknown214 = 0;
     d.vertigo = 0;
     d.shake_time = 0;
     d.shake_amount = 0;
     d.shaking = 0;
-    d.unknown290 = d.unknown294 = 0;
-    d.unknown2a0 = d.unknown2a4 = d.unknown2a8 = 0;
+    d.pitch_rate = d.yaw_rate = 0;
+    d.target_pitch_rate = d.target_yaw_rate = 0;
+    d.limited = 0;
     d.zoom_slope = 0;
-    d.unknown1f8 = 0;
-    for (int i = 2; i < 8; ++i) d.unknown1c0[i] = 0;
-    d.unknown1c0[0] = d.unknown1c0[1] = 0;
-    d.unknown1e0[3] = d.unknown1e0[2] = 0;
+    d.spin = 0;
+    d.unknown1c8[0] = d.unknown1c8[1] = 0;
+    d.dz_pitch = d.dz_yaw = d.ad_pitch = d.ad_yaw = 0;
+    d.cursor[0] = d.cursor[1] = 0;
+    d.weap_change = d.weap_change_step = 0;
     std::memcpy(d.unknown200, one, 16);
     d.unknown1f0 = 0;
-    d.unknown27f = -1;
+    d.ad_arm = -1;
     d.arm = 0;
     d.transition_override = 0;
     d.distance_rate = 0;
@@ -439,20 +462,20 @@ void PlayerCamera::restart(const CameraContext& ctx) {
     d.rate = 0;
     d.mode_change = 1;
     d.unknown280 = 0;
-    d.unknown260 = 0;
+    d.car_angle = 0;
     d.transition_on = 0;  // ClearTransition
     d.transition_first = 0;
     d.transition = 0;
     d.last_step = 0;
-    d.unknown1f4 = 0;
-    d.unknown1e0[0] = d.unknown1e0[1] = 0;
+    d.weapon_anim_step = 0;
+    d.accel_yaw = d.accel_pitch = 0;
     d.unknown168 = 0;
     std::memcpy(d.unknown310, kIdentity, sizeof(kIdentity));
     std::memcpy(d.matrix, kIdentity, sizeof(kIdentity));
     d.matrix_changed = 1;
     d.collision = 0;
     std::memcpy(d.matrix_copy, d.matrix, sizeof(d.matrix));
-    std::memcpy(d.unknown170, d.matrix + 8, 16);
+    std::memcpy(d.forward, d.matrix + 8, 16);
     director_queue.clear();
     // [driving] 0x1aa870 RDirectorQueue::RestartDirectorQueue
     director_flags = 2;
@@ -465,13 +488,7 @@ void PlayerCamera::restart(const CameraContext& ctx) {
 
 // [driving] 0x1ba418 RPlayerCamera::SetCameraModeByIndex (com os outros argumentos zero: o único uso portado) e
 // 0x1aab80 RDirectorQueue::AppendData
-void PlayerCamera::SetCameraModeByIndex(int32_t mode) {
-    if (!(mode < tables->tables.mode_count)) return;
-    DirectorQueueData q{};
-    q.vector[3] = 1.0f;
-    q.mode = uint16_t(mode);
-    director_queue.push_back(q);
-}
+void PlayerCamera::SetCameraModeByIndex(int32_t mode) { SetCameraModeByIndex(mode, 0, 0, 0, 0, 0, nullptr); }
 
 // [driving] 0x1aa890 RDirectorQueue::ProcessDirectorLogic
 void PlayerCamera::ProcessDirectorLogic(const CameraContext& ctx) {
@@ -494,8 +511,8 @@ void PlayerCamera::ProcessDirectorLogic(const CameraContext& ctx) {
         director_flags = 0;
         return;
     }
-    // Os pedidos com a bandeira 4 só valem se forem os últimos.
-    while ((director_queue.front().flags & 4) != 0 && director_queue.size() >= 2)
+    // Os pedidos sem a bandeira 4 que não são os últimos caem (os com ela esperam a vez).
+    while ((director_queue.front().flags & 4) == 0 && director_queue.size() >= 2)
         director_queue.erase(director_queue.begin());
     DirectorQueueData& q = director_queue.front();
     if (q.delay != 0) {
@@ -564,7 +581,7 @@ void PlayerCamera::SetCameraZoom(int32_t kind, float target, int32_t smooth) {
     float f12 = target;
     if (kind == 2) {
         const CameraModeInfo& m = tables->mode(d.mode);
-        const AutoDriveArmInfo& a = nf::raw(tables->modes.autodrive_arms)[d.unknown27f];
+        const AutoDriveArmInfo& a = ad_arm_info(d.ad_arm);
         f12 = m.default_fov;
         if (ee::lt(a.min_fov, f12)) {
             f12 = ee::sub(f12, ee::mul(target, ee::sub(f12, a.min_fov)));
@@ -638,11 +655,92 @@ void PlayerCamera::DirectorChangeCameraMode(const CameraContext& ctx, const Dire
             break;
         case kCamAnimation:
         case kCamAIPathAnimation:
+            // A câmera do míssil (RColorize) volta ao modo anterior antes de uma animação.
+            if (state.colorize != 0 || d.mode == g.missile_index) {
+                state.colorize = 0;  // e RColorize::SetEnabled(0)
+                d.mode = d.prev_mode;
+                g.autodrive_weap_trans_length = 0.0f;
+            }
+            if (m.type == kCamAnimation) {
+                if (q.flags & 0x40) {
+                    // [driving] 0x1d6860 RWorldCamera::LoadSingleAnimationFromList: as animações 'Cams' do modelo da
+                    // âncora (+0x108/+0x10c; nenhum modelo do port as tem: devolve 0).
+                    pending();
+                    return;
+                }
+                if (!LoadSingleAnimation(nf::p32_ptr<const uint8_t>(q.data18))) return;
+            } else {
+                if (!LoadAISplinePathAnimation(q.data1c)) return;
+            }
+            break;
         case kCamSpline:
-        case kCamAutoDrive:
-            // As animações (LoadSingleAnimation*), o trilho da IA, a rede de ruas (WRoadNetwork::Get) e o AutoDrive.
+            // A rede de ruas (WRoadNetwork::Get e o seu fValid): o modo Spline não foi portado.
             pending();
             break;
+        case kCamAutoDrive: {
+            CameraModeGlobals& mg = tables->modes;
+            AutoDriveArmInfo* arms = nf::raw(mg.autodrive_arms);
+            if (mg.autodrive_arm_count < 1) {
+                ++guards;
+                break;
+            }
+            if (arms[0].lock_arm_to_car == 0) d.weap_change = 1;
+            if (ee::eq(q.vector[0], -1.0f)) break;
+            const float* am = GetAnchorMatrix4(ctx);
+            const float heading = cam_atan2_turns(am[8], am[10]);
+            const float incline = cam_asin_turns(am[9]);
+            float f20, f12;
+            if (ee::eq(q.vector[3], 1.0f)) {
+                f20 = q.vector[0];
+                f12 = q.vector[1];
+            } else {
+                f20 = ee::sub(q.vector[0], heading);
+                f12 = ee::sub(q.vector[1], incline);
+            }
+            float xr[4][4], yr[4][4];
+            VU0_MATRIX4setxrot(xr, cam_wrap_turns(f12));
+            VU0_MATRIX4setyrot(yr, cam_wrap_turns(f20));
+            VU0_MATRIX4_mult(xr, yr, yr);
+            float q0[4];
+            VU0_m4toquat(yr, q0);
+            for (int32_t i = 0; i < mg.autodrive_arm_count; ++i) {
+                AutoDriveArmInfo& a = arms[i];
+                const float rest = cam_asin_turns(a.min_pitch[0]);
+                a.rest_pitch = rest;
+                if (a.has_rest_pos != 0) {
+                    a.rest_cur = rest;
+                    // O eixo é a linha 0 de yr, que acumula a rotação de cada braço com repouso (como no PS2).
+                    float r[4][4];
+                    const float axis[4] = {yr[0][0], yr[0][1], yr[0][2], yr[0][3]};
+                    RCameraMath_BuildRotationMat4(ee::neg(rest), r, axis);
+                    VU0_MATRIX4_mult(r, yr, yr);
+                    VU0_m4toquat(yr, a.rotation);
+                } else {
+                    std::memcpy(a.rotation, q0, 16);
+                }
+            }
+            if (ee::eq(q.vector[3], 1.0f)) {
+                f20 = ee::add(q.vector[0], heading);
+                f12 = ee::add(q.vector[1], incline);
+            } else {
+                f20 = q.vector[0];
+                f12 = q.vector[1];
+            }
+            VU0_MATRIX4setxrot(xr, cam_wrap_turns(f12));
+            float cm[4][4];
+            std::memcpy(cm, d.matrix, 64);
+            VU0_MATRIX4setyrot(cm, cam_wrap_turns(f20));
+            VU0_MATRIX4_mult(xr, cm, cm);
+            std::memcpy(d.matrix, cm, 64);
+            d.matrix_changed = 1;
+            std::memcpy(d.forward, d.matrix + 8, 16);
+            d.ad_pitch = ee::neg(cam_asin_turns(d.matrix[9]));
+            float yaw = ee::sub(cam_atan2_turns(d.matrix[8], d.matrix[10]), heading);
+            d.ad_yaw = yaw;
+            if (ee::le(1.0f, yaw)) d.ad_yaw = ee::sub(yaw, 1.0f);
+            if (ee::le(d.ad_yaw, -1.0f)) d.ad_yaw = ee::add(d.ad_yaw, 1.0f);
+            break;
+        }
         default:
             break;
     }
@@ -663,9 +761,9 @@ void PlayerCamera::DirectorChangeCameraMode(const CameraContext& ctx, const Dire
     d.transition_on = 0;  // [driving] 0x1b9e58 RPlayerCamera::ClearTransition
     d.transition_first = 0;
     d.transition = 0;
-    // (RCameraSpline::ClearSplinePtList: a lista de pontos do trilho; o port não a tem)
+    if ((tables->mode(d.mode).type != kCamAnimation || (q.flags & 0x10) != 0) && spline) spline->ClearSplinePtList();
     if (d.mode == g.missile_index) state.colorize = 1;  // e o RColorize::SetEnabled(2)
-    if ((q.flags & 0x80) == 0) d.unknown260 = 0;
+    if ((q.flags & 0x80) == 0) d.car_angle = 0;
 }
 
 // [driving] 0x1b29e0 RPlayerCamera::UpdateCamera
@@ -682,6 +780,15 @@ void PlayerCamera::update(const CameraContext& ctx) {
             ++heli_updates;
             break;
         case kCamUpdateNothing:
+            break;
+        case kCamUpdateAutoDrive:
+            UpdateAutoDriveCam(ctx);
+            break;
+        case kCamUpdateWorldAnimation:
+            UpdateWorldAnimationCam(ctx);
+            break;
+        case kCamUpdateAIPathAnimation:
+            UpdateAIPathAnimationCam(ctx);
             break;
         default:
             pending();  // os outros modos
@@ -1019,18 +1126,43 @@ int32_t PlayerCamera::CheckObjectCollisions(const CameraContext& ctx, float eye[
     return result;
 }
 
-// [driving] 0x1b9e98 RPlayerCamera::CheckForCameraShaking (sem explosões: o port não as cria)
+// [driving] 0x1b9e98 RPlayerCamera::CheckForCameraShaking: as explosões vivas da Simulation (o vetor +0xe2c,
+// driving/game/explosion.h) com o raio dano x 5 de pelo menos 50 sacodem a câmera cujo olho está a menos de "raio" (a
+// distância AO QUADRADO contra o raio, como no PS2): o tremor (o menor entre o máximo e (raio - d²) x a escala, x a
+// escala do modo; o da última explosão no alcance) e o tempo (raio x 3,6 x a escala do tempo x a do modo x a taxa / 60).
 void PlayerCamera::CheckForCameraShaking(const CameraContext& ctx) {
     const CameraModeInfo& mode = tables->mode(d.mode);
     if (d.shake_time <= 0) {
         d.shake_amount = 0;
         d.shaking = 0;
     }
-    (void)mode;
-    const float latest = 0.0f;  // f22: o tremor da última explosão (nenhuma)
+    const CameraConstants& c = tables->constants;
+    const float scale = mode.explosion_shake_scale;  // f21
+    float latest = 0.0f;                              // f22: o tremor da última explosão no alcance
+    for (PhysicsObject* po : ctx.sim->explosions) {
+        const Explosion* x = dynamic_cast<const Explosion*>(po);
+        if (!x) continue;
+        const float r = ee::mul(x->d.damage, 5.0f);
+        if (ee::lt(r, 50.0f)) continue;
+        const SimpleRigidBody* b = GetSimpleRigidBody(*ctx.sim, x->po.slot);
+        // vsub.xyz, vmul.xyz, vmulax.x, vmadday.x, vmaddz.x: o quadrado da distância do olho.
+        uint32_t dv[3];
+        for (int i = 0; i < 3; ++i) dv[i] = ps2::sub(ps2::fbits(d.eye[i]), ps2::fbits(b->pos[i]));
+        uint32_t acc = ps2::mul(dv[0], dv[0]);
+        acc = ps2::madd(acc, 0x3f800000u, ps2::mul(dv[1], dv[1]));
+        const float d2 = ps2::ffloat(ps2::madd(acc, 0x3f800000u, ps2::mul(dv[2], dv[2])));
+        if (!ee::lt(d2, r)) continue;
+        latest = ee::min(ee::mul(c.explosion_max_shake, scale),
+                         ee::mul(ee::mul(ee::sub(r, d2), c.explosion_scale), scale));
+        if (ee::lt(d.shake_amount, latest)) d.shake_amount = latest;
+        const float tf = ee::div(ee::mul(ee::mul(ee::mul(ee::mul(r, fb(0x40666666u)), c.explosion_time_scale), scale),
+                                         ee::cvt_s(ctx.sim->frame_rate)),
+                                 60.0f);
+        const int32_t frames = ee::cvt_w(tf);
+        if (d.shake_time < frames) d.shake_time = frames;
+    }
     d.shake_time -= 1;
     if (d.shake_time <= 0) return;
-    const CameraConstants& c = tables->constants;
     d.shake_amount = ee::add(d.shake_amount,
                              ee::mul(ee::mul(ee::sub(latest, d.shake_amount), c.explosion_after_shock),
                                      mode.explosion_shake_scale));

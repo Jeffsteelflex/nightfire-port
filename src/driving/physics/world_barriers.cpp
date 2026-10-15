@@ -37,21 +37,6 @@ void xform(const float src[3], const float m[16], float dst[3]) {
     dst[2] = r[2];
 }
 
-// [driving] 0x002d19b0 OrthoInverse (o mesmo de world_collision.cpp)
-void ortho_inverse(float m[16]) {
-    const float o[16] = {m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]};
-    const float nx = ee::neg(o[12]);
-    m[4] = o[1];
-    m[8] = o[2];
-    m[1] = o[4];
-    m[2] = o[8];
-    m[6] = o[9];
-    m[9] = o[6];
-    m[12] = ee::sub(ee::sub(ee::mul(nx, o[0]), ee::mul(o[13], o[1])), ee::mul(o[14], o[2]));
-    m[13] = ee::sub(ee::sub(ee::mul(nx, o[4]), ee::mul(o[13], o[5])), ee::mul(o[14], o[6]));
-    m[14] = ee::sub(ee::sub(ee::mul(nx, o[8]), ee::mul(o[13], o[9])), ee::mul(o[14], o[10]));
-}
-
 // A distância 2D aproximada das buscas do mundo: o maior dos |dx|, |dz| mais um quarto do menor.
 float approx_distance(float dx, float dz) {
     const float a = ee::abs(dx), b = ee::abs(dz);
@@ -185,7 +170,7 @@ void WCollisionMgr_GetBarrierList(const WCollisionMgr& mgr, std::vector<BarrierL
                 std::memcpy(inv, m, sizeof(inv));
                 inv[3] = inv[7] = inv[11] = 0.0f;
                 inv[15] = 1.0f;
-                ortho_inverse(inv);
+                OrthoInverse(inv);
                 inverse_built = true;
             }
             BarrierListEntry entry{};
@@ -229,7 +214,7 @@ bool WCollisionMgr_GetClosestIntersectingBarrier(const WCollisionMgr& mgr, const
             best = d;
             float m2[16];
             WCollisionInstance_MakeMatrix(mgr, *inst, m2, true);
-            ortho_inverse(m2);
+            OrthoInverse(m2);
             found = &e;
             xform(hit, m2, info.point);
         } else {

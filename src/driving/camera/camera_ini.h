@@ -212,9 +212,10 @@ struct AutoDriveArmInfo {
     uint32_t preserve_transform; // +0x60
     uint32_t has_rest_pos;       // +0x64
     uint32_t lock_arm_to_car;    // +0x68
-    uint8_t unknown6c[4];
+    float rest_span;             // +0x6c a volta até o repouso (o dobro, depois de começar; escrito em jogo)
     float rest_interpol_fall_scale;  // +0x70
-    uint8_t unknown74[8];
+    int32_t rest_start;          // +0x74 o passo do começo da volta ao repouso (escrito em jogo)
+    float rest_cur;              // +0x78 a inclinação corrente do repouso (voltas; escrito em jogo)
     float norm_cursor_move_speed;     // +0x7c (x π / 2)
     float norm_cursor_end_move_speed; // +0x80
     float target_cursor_move_speed;   // +0x84
@@ -225,7 +226,8 @@ struct AutoDriveArmInfo {
     float max_yaw[5];            // +0xc0
     float min_pitch[5];          // +0xd4
     float max_pitch[5];          // +0xe8
-    uint8_t unknownfc[4];
+    float rest_pitch;            // +0xfc a inclinação de repouso (voltas: o arco seno de min_pitch[0]; escrito ao entrar
+                                 // no modo)
 };
 static_assert(sizeof(AutoDriveArmInfo) == 0x100, "autodrive");
 
@@ -238,9 +240,12 @@ struct CameraTableGlobals {
     P32<SplineCamInfo> splines;         // 0x3339c0
     P32<EllipseCamInfo> ellipses;       // 0x3339c4
     P32<FixedCamInfo> fixeds;           // 0x3339c8
-    uint8_t unknown_cc[0x14];
-    int32_t autodrive_prev_weapon;      // 0x3339e0
-    uint8_t unknown_e4[8];
+    uint8_t unknown_cc[4];
+    // (os valores iniciais do .data)
+    float autodrive_prev_weap_quat[4] = {0, 0, 0, 1};  // 0x3339d0 fAutoDrivePrevWeapQuat (o braço anterior)
+    int32_t autodrive_prev_weapon;      // 0x3339e0 fAutoDrivePrevWeapIndex
+    float autodrive_weap_trans_length;  // 0x3339e4 fAutoDriveWeapTransLength (voltas x 2 da troca de braço)
+    float autodrive_weap_interp_time = 1.0f;  // 0x3339e8 fAutoDriveWeapInterpolTime (0..1)
     int32_t heli_count;                 // 0x3339ec
     int32_t spline_count;               // 0x3339f0
     int32_t ellipse_count;              // 0x3339f4

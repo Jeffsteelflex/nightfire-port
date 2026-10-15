@@ -24,6 +24,11 @@ inline uint32_t zero_result(uint32_t sign, FloatFlags* flags) {
 double value(uint32_t bits) {
     const int e = exponent_of(bits);
     if (e == 0) return sign_of(bits) ? -0.0 : 0.0;
+    if (e != 0xff) {  // um normal do IEEE: a conversão para double é exata (e bem mais rápida que o ldexp)
+        float f;
+        std::memcpy(&f, &bits, 4);
+        return double(f);
+    }
     const double m = 1.0 + double(bits & 0x7fffff) / 8388608.0;
     const double v = std::ldexp(m, e - 127);
     return sign_of(bits) ? -v : v;

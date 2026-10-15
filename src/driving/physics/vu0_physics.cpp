@@ -9,6 +9,8 @@
 
 #include "driving/physics/vu0_physics.h"
 
+#include "driving/physics/collide.h"
+
 #include <cstring>
 
 #include "driving/physics/rigid_body.h"
@@ -557,8 +559,11 @@ void Resolve_CollectVU0data() {
     for (int i = 0; i < 4; ++i) sqc2(body + 0x20 + 16 * i, 22 + i);  // velocidade, angular, P, L
     const float speed = ps2::ffloat(vu0().regs().vf[31][0]);
     if (ee::lt(0.3f, speed)) {
-        // O choque contra o chão: um ECollision (som e dano) com a força min(|v| (m / 8 / 4) / v, 1). O evento não
-        // foi portado; o porte guarda os números.
+        // O choque contra o chão: um ECollision (som e dano) com a força min(|v| (m / 8 / 4) / v, 1), entregue a
+        // collide_events().collision como os choques (o som e a vibração; sem somar em collisions: g_impacts conta):
+        // o ponto e a velocidade do corpo, a normal (0, 1, 0), a velocidade normal v x 0,3, o tipo do corpo e (abaixo
+        // de 5) a vaga, as bandeiras 0x10 (0x20 acima do tipo 3), o tipo 7, a etiqueta 1; os w são o que estava na
+        // pilha do PS2 (0 aqui).
         float strength = ee::mul(ee::div(s.vu0_body->mass, base_friction_mass()), 0.25f);
         strength = ee::mul(ee::abs(speed), strength);
         strength = ee::div(strength, speed);
@@ -567,7 +572,22 @@ void Resolve_CollectVU0data() {
         g_impacts.last_speed = speed;
         g_impacts.last_strength = strength;
         g_impacts.last_slot = s.vu0_body->slot;
-        physics_pending("ECollision (choque contra o chão)");
+        const CollideEvents& ce = collide_events();
+        if (ce.collision) {
+            CollisionInfo ci{};
+            std::memcpy(ci.point, rb->pos, 12);
+            ci.normal[1] = 1.0f;
+            std::memcpy(ci.velocity, rb->vel, 12);
+            ci.speed = ee::mul(speed, 0.3f);
+            ci.strength = strength;
+            ci.kind = uint8_t(rb->type);
+            ci.slot = uint8_t(rb->type) < 5 ? rb->slot : 0;
+            ci.flags = uint8_t(rb->type) > 3 ? 0x20 : 0x10;
+            ci.type = 7;
+            ci.tag = 1;
+            ci.other = -1;
+            ce.collision(ci);
+        }
     }
     s.vu0_busy = 0;
     s.vu0_body = nullptr;

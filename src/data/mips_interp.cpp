@@ -72,10 +72,21 @@ uint32_t add_zero(double a, double b) {
 
 }  // namespace
 
-MipsMachine::MipsMachine() : ram_(kRamSize, 0) { gpr_[sp].lo = kStackTop; }
+namespace {
+// Os espelhos da RAM do EE sem cache (0x20000000 + endereço físico) e "uncached accelerated" (0x30000000 + endereço):
+// o SND do DRIVING.ELF lê a sua tagbuf por 0x2035b380.
+uint32_t ee_phys(uint32_t addr) {
+    const uint32_t seg = addr >> 28;
+    if ((seg == 2 || seg == 3) && (addr & 0x0fffffffu) < MipsMachine::kRamSize) return addr & 0x0fffffffu;
+    return addr;
+}
+}  // namespace
+
+MipsMachine::MipsMachine() : ram_(kRamSize, 0), spr_(kScratchpadSize, 0) { gpr_[sp].lo = kStackTop; }
 
 void MipsMachine::load(const Elf& elf) {
     std::fill(ram_.begin(), ram_.end(), uint8_t(0));
+    std::fill(spr_.begin(), spr_.end(), uint8_t(0));
     const ByteView file = elf.file();
     for (const ElfSegment& s : elf.segments()) {
         if (s.type != 1) continue;  // PT_LOAD
@@ -87,6 +98,7 @@ void MipsMachine::load(const Elf& elf) {
     }
     for (Gpr& g : gpr_) g = {};
     std::memset(fpr_, 0, sizeof(fpr_));
+    facc_ = 0;
     fcc_ = false;
     lo_ = hi_ = 0;
     if (auto g = elf.find("_gp")) gpr_[gp].lo = sext32(g->value);
@@ -94,12 +106,20 @@ void MipsMachine::load(const Elf& elf) {
 }
 
 uint8_t* MipsMachine::mem(uint32_t addr, uint32_t size) {
-    if (addr > kRamSize || size > kRamSize - addr) throw MipsError("acesso fora da RAM em " + hex8(addr), addr, 0);
+    addr = ee_phys(addr);
+    if (addr > kRamSize || size > kRamSize - addr) {
+        if (in_scratchpad(addr, size)) return spr_.data() + (addr - kScratchpad);
+        throw MipsError("acesso fora da RAM em " + hex8(addr), addr, 0);
+    }
     return ram_.data() + addr;
 }
 
 const uint8_t* MipsMachine::mem(uint32_t addr, uint32_t size) const {
-    if (addr > kRamSize || size > kRamSize - addr) throw MipsError("acesso fora da RAM em " + hex8(addr), addr, 0);
+    addr = ee_phys(addr);
+    if (addr > kRamSize || size > kRamSize - addr) {
+        if (in_scratchpad(addr, size)) return spr_.data() + (addr - kScratchpad);
+        throw MipsError("acesso fora da RAM em " + hex8(addr), addr, 0);
+    }
     return ram_.data() + addr;
 }
 
@@ -138,7 +158,8 @@ void MipsMachine::fail(const std::string& what, uint32_t addr, uint32_t w) const
 }
 
 void MipsMachine::call(uint32_t entry, const std::vector<uint32_t>& args, uint64_t max_steps) {
-    if (args.size() > 4) throw MipsError("MIPS: mais de 4 argumentos", entry, 0);
+    // O EABI do PS2: a0..a3 e depois t0..t3 (os registradores 8..11).
+    if (args.size() > 8) throw MipsError("MIPS: mais de 8 argumentos", entry, 0);
     for (size_t i = 0; i < args.size(); ++i) gpr_[a0 + i].lo = sext32(args[i]);
     gpr_[ra].lo = sext32(kReturnAddress);
     pc_ = entry;
@@ -167,6 +188,27 @@ void MipsMachine::call(uint32_t entry, const std::vector<uint32_t>& args, uint64
         from = pc_;
         step();
     }
+}
+
+void MipsMachine::call_nested(uint32_t entry, const std::vector<uint32_t>& args, uint64_t max_steps) {
+    Gpr saved[32];
+    std::memcpy(saved, gpr_, sizeof(saved));
+    const uint32_t pc = pc_, npc = npc_;
+    const bool in_delay = in_delay_;
+    const uint64_t lo = lo_, hi = hi_, lo1 = lo1_, hi1 = hi1_;
+    gpr_[Reg::sp].lo = sext32(uint32_t(gpr_[Reg::sp].lo) - 0x400);
+    call(entry, args, max_steps);
+    const Gpr r0 = gpr_[Reg::v0], r1 = gpr_[Reg::v1];
+    std::memcpy(gpr_, saved, sizeof(saved));
+    gpr_[Reg::v0] = r0;
+    gpr_[Reg::v1] = r1;
+    pc_ = pc;
+    npc_ = npc;
+    in_delay_ = in_delay;
+    lo_ = lo;
+    hi_ = hi;
+    lo1_ = lo1;
+    hi1_ = hi1;
 }
 
 void MipsMachine::step() {
@@ -198,8 +240,13 @@ void MipsMachine::branch(uint32_t addr, uint32_t w, bool in_delay, bool taken, u
 template <typename T>
 T MipsMachine::load_mem(uint32_t addr, uint32_t pc, uint32_t w) const {
     if (addr % sizeof(T)) fail("leitura desalinhada de " + hex8(addr), pc, w);
-    if (addr > kRamSize || sizeof(T) > kRamSize - addr) fail("leitura fora da RAM em " + hex8(addr), pc, w);
+    addr = ee_phys(addr);
     T v;
+    if (addr > kRamSize || sizeof(T) > kRamSize - addr) {
+        if (!in_scratchpad(addr, sizeof(T))) fail("leitura fora da RAM em " + hex8(addr), pc, w);
+        std::memcpy(&v, spr_.data() + (addr - kScratchpad), sizeof(T));
+        return v;
+    }
     std::memcpy(&v, ram_.data() + addr, sizeof(T));
     return v;
 }
@@ -207,7 +254,12 @@ T MipsMachine::load_mem(uint32_t addr, uint32_t pc, uint32_t w) const {
 template <typename T>
 void MipsMachine::store_mem(uint32_t addr, T value, uint32_t pc, uint32_t w) {
     if (addr % sizeof(T)) fail("escrita desalinhada em " + hex8(addr), pc, w);
-    if (addr > kRamSize || sizeof(T) > kRamSize - addr) fail("escrita fora da RAM em " + hex8(addr), pc, w);
+    addr = ee_phys(addr);
+    if (addr > kRamSize || sizeof(T) > kRamSize - addr) {
+        if (!in_scratchpad(addr, sizeof(T))) fail("escrita fora da RAM em " + hex8(addr), pc, w);
+        std::memcpy(spr_.data() + (addr - kScratchpad), &value, sizeof(T));
+        return;
+    }
     std::memcpy(ram_.data() + addr, &value, sizeof(T));
 }
 
@@ -251,6 +303,14 @@ void MipsMachine::execute(uint32_t addr, uint32_t w, bool in_delay) {
         case 0x0e: t = uint64_t(s) ^ imm; return;                                   // XORI
         case 0x0f: t = sext32(imm << 16); return;                                   // LUI
         case 0x19: t = uint64_t(s) + simm; return;                                  // DADDIU
+        case 0x10:  // COP0: só DI/EI (nada: não há interrupções aqui) e MFC0 (0: o Status sem o bit EIE, a interrupção
+                    // já desligada, que é o que os laços "do { DI(); } while (Status & 0x10000)" esperam)
+            if (rs == 0x00) {
+                t = 0;
+                return;
+            }
+            if (rs == 0x10 && ((w & 0x3f) == 0x38 || (w & 0x3f) == 0x39)) return;
+            fail("instrução desconhecida (COP0)", addr, w);
         case 0x11: cop1(addr, w, in_delay); return;
         case 0x12: cop2(addr, w, in_delay); return;
         case 0x1c: mmi(addr, w); return;
@@ -369,6 +429,9 @@ void MipsMachine::special(uint32_t addr, uint32_t w, bool in_delay) {
         case 0x04: d = sext32(uint32_t(t) << (s & 31)); return;                    // SLLV
         case 0x06: d = sext32(uint32_t(t) >> (s & 31)); return;                    // SRLV
         case 0x07: d = sext32(uint32_t(int32_t(uint32_t(t)) >> (s & 31))); return; // SRAV
+        case 0x14: d = t << (s & 63); return;                                      // DSLLV
+        case 0x16: d = t >> (s & 63); return;                                      // DSRLV
+        case 0x17: d = uint64_t(int64_t(t) >> (s & 63)); return;                   // DSRAV
         case 0x08: branch(addr, w, in_delay, true, uint32_t(s), false); return;    // JR
         case 0x0a:                                                                 // MOVZ (64 bits)
             if (t == 0) d = s;
@@ -385,7 +448,9 @@ void MipsMachine::special(uint32_t addr, uint32_t w, bool in_delay) {
             return;
         }
         case 0x10: d = hi_; return;  // MFHI
+        case 0x11: hi_ = uint64_t(s); return;  // MTHI
         case 0x12: d = lo_; return;  // MFLO
+        case 0x13: lo_ = uint64_t(s); return;  // MTLO
         case 0x18: {                 // MULT (no R5900 também escreve rd = LO)
             const int64_t p = int64_t(int32_t(uint32_t(s))) * int64_t(int32_t(uint32_t(t)));
             lo_ = sext32(uint32_t(uint64_t(p)));
@@ -400,7 +465,24 @@ void MipsMachine::special(uint32_t addr, uint32_t w, bool in_delay) {
             d = lo_;
             return;
         }
+        case 0x1a: {  // DIV (o quociente em LO, o resto em HI; o GCC põe um break 7 antes do divisor zero)
+            const int32_t a = int32_t(uint32_t(s)), b = int32_t(uint32_t(t));
+            if (b == 0) fail("divisão por zero (DIV)", addr, w);
+            const bool overflow = a == INT32_MIN && b == -1;
+            lo_ = sext32(uint32_t(overflow ? a : a / b));
+            hi_ = sext32(uint32_t(overflow ? 0 : a % b));
+            return;
+        }
+        case 0x1b: {  // DIVU
+            const uint32_t a = uint32_t(s), b = uint32_t(t);
+            if (b == 0) fail("divisão por zero (DIVU)", addr, w);
+            lo_ = sext32(a / b);
+            hi_ = sext32(a % b);
+            return;
+        }
+        case 0x20:                                                 // ADD (sem a exceção de estouro, como ADDI)
         case 0x21: d = sext32(uint32_t(s) + uint32_t(t)); return;  // ADDU
+        case 0x22:                                                 // SUB (idem)
         case 0x23: d = sext32(uint32_t(s) - uint32_t(t)); return;  // SUBU
         case 0x24: d = s & t; return;                              // AND
         case 0x25: d = s | t; return;                              // OR
@@ -428,6 +510,12 @@ void MipsMachine::regimm(uint32_t addr, uint32_t w, bool in_delay) {
         case 0x01: branch(addr, w, in_delay, s >= 0, target, false); return;  // BGEZ
         case 0x02: branch(addr, w, in_delay, s < 0, target, true); return;    // BLTZL
         case 0x03: branch(addr, w, in_delay, s >= 0, target, true); return;   // BGEZL
+        case 0x18:  // MTSAB: o registrador SA em bytes (((rs ^ imm) & 0xf) x 8 bits), para o QFSRV
+            sa_reg_ = ((uint32_t(s) ^ w) & 0xf) * 8;
+            return;
+        case 0x19:  // MTSAH: em meias palavras
+            sa_reg_ = ((uint32_t(s) ^ w) & 0x7) * 16;
+            return;
         default: fail("instrução desconhecida (REGIMM)", addr, w);
     }
 }
@@ -486,6 +574,14 @@ void MipsMachine::cop1(uint32_t addr, uint32_t w, bool in_delay) {
                     fpr_[fd] = ((w & 63) == 0x28) == a_ge ? a : b;
                     return;
                 }
+                // O acumulador da FPU do EE: o produto truncado e depois a soma truncada, como o MADD da VU.
+                case 0x18: facc_ = add_zero(fin(a), fin(b)); return;                  // ADDA.S
+                case 0x19: facc_ = add_zero(fin(a), -fin(b)); return;                 // SUBA.S
+                case 0x1a: facc_ = round_zero(fin(a) * fin(b)); return;               // MULA.S
+                case 0x1c: fpr_[fd] = add_zero(fin(facc_), fin(round_zero(fin(a) * fin(b)))); return;   // MADD.S
+                case 0x1d: fpr_[fd] = add_zero(fin(facc_), -fin(round_zero(fin(a) * fin(b)))); return;  // MSUB.S
+                case 0x1e: facc_ = add_zero(fin(facc_), fin(round_zero(fin(a) * fin(b)))); return;      // MADDA.S
+                case 0x1f: facc_ = add_zero(fin(facc_), -fin(round_zero(fin(a) * fin(b)))); return;     // MSUBA.S
                 case 0x05: fpr_[fd] = a & 0x7fffffffu; return;  // ABS.S
                 case 0x06: fpr_[fd] = a; return;                // MOV.S
                 case 0x07: fpr_[fd] = a ^ 0x80000000u; return;  // NEG.S
@@ -605,10 +701,91 @@ void MipsMachine::mmi(uint32_t addr, uint32_t w) {
         return Gpr{uint64_t(w0) | (uint64_t(w1) << 32), uint64_t(w2) | (uint64_t(w3) << 32)};
     };
     Gpr out{};
+    // O pipeline 1 do R5900 (LO1/HI1, os 64 bits de cima de LO e HI): mult1, div1 e as cópias. Escrevem só os 64 bits
+    // de baixo de rd, como as instruções comuns.
+    auto set_lo_rd = [&](uint64_t v) {
+        if (rd != 0) gpr_[rd].lo = v;
+    };
+    // MADD/MADDU (e as do pipeline 1): {HI, LO} de 32 bits cada somados ao produto; rd = LO.
+    auto madd = [&](uint64_t& lo, uint64_t& hi, bool is_signed) {
+        const uint64_t acc = (uint64_t(uint32_t(hi)) << 32) | uint32_t(lo);
+        const uint64_t p = is_signed ? uint64_t(int64_t(int32_t(uint32_t(a.lo))) * int64_t(int32_t(uint32_t(b.lo))))
+                                     : uint64_t(uint32_t(a.lo)) * uint64_t(uint32_t(b.lo));
+        const uint64_t r = acc + p;
+        lo = sext32(uint32_t(r));
+        hi = sext32(uint32_t(r >> 32));
+        set_lo_rd(lo);
+    };
     switch (w & 63) {
+        case 0x00: madd(lo_, hi_, true); return;    // MADD
+        case 0x01: madd(lo_, hi_, false); return;   // MADDU
+        case 0x20: madd(lo1_, hi1_, true); return;  // MADD1
+        case 0x21: madd(lo1_, hi1_, false); return;  // MADDU1
+        case 0x10: set_lo_rd(hi1_); return;  // MFHI1
+        case 0x11: hi1_ = a.lo; return;      // MTHI1
+        case 0x12: set_lo_rd(lo1_); return;  // MFLO1
+        case 0x13: lo1_ = a.lo; return;      // MTLO1
+        case 0x18: {                         // MULT1
+            const int64_t p = int64_t(int32_t(uint32_t(a.lo))) * int64_t(int32_t(uint32_t(b.lo)));
+            lo1_ = sext32(uint32_t(uint64_t(p)));
+            hi1_ = sext32(uint32_t(uint64_t(p) >> 32));
+            set_lo_rd(lo1_);
+            return;
+        }
+        case 0x19: {  // MULTU1
+            const uint64_t p = uint64_t(uint32_t(a.lo)) * uint64_t(uint32_t(b.lo));
+            lo1_ = sext32(uint32_t(p));
+            hi1_ = sext32(uint32_t(p >> 32));
+            set_lo_rd(lo1_);
+            return;
+        }
+        case 0x1a: {  // DIV1
+            const int32_t x = int32_t(uint32_t(a.lo)), y = int32_t(uint32_t(b.lo));
+            if (y == 0) fail("divisão por zero (DIV1)", addr, w);
+            const bool overflow = x == INT32_MIN && y == -1;
+            lo1_ = sext32(uint32_t(overflow ? x : x / y));
+            hi1_ = sext32(uint32_t(overflow ? 0 : x % y));
+            return;
+        }
+        case 0x1b: {  // DIVU1
+            const uint32_t x = uint32_t(a.lo), y = uint32_t(b.lo);
+            if (y == 0) fail("divisão por zero (DIVU1)", addr, w);
+            lo1_ = sext32(x / y);
+            hi1_ = sext32(x % y);
+            return;
+        }
+        default: break;
+    }
+    switch (w & 63) {
+        case 0x3c:  // PSLLW: cada palavra de rt deslocada à esquerda pelo sa da instrução
+            out = make(word(b, 0) << sa, word(b, 1) << sa, word(b, 2) << sa, word(b, 3) << sa);
+            break;
+        case 0x3e:  // PSRLW (lógico)
+            out = make(word(b, 0) >> sa, word(b, 1) >> sa, word(b, 2) >> sa, word(b, 3) >> sa);
+            break;
         case 0x08:  // MMI0
+            if (sa == 0x00) {  // PADDW (o "clear" de 128 bits do GCC: paddw rd, zero, zero)
+                out = make(word(a, 0) + word(b, 0), word(a, 1) + word(b, 1), word(a, 2) + word(b, 2),
+                           word(a, 3) + word(b, 3));
+                break;
+            }
             if (sa == 0x12) {  // PEXTLW
                 out = make(word(b, 0), word(a, 0), word(b, 1), word(a, 1));
+                break;
+            }
+            if (sa == 0x17 || sa == 0x1b) {  // PPACH, PPACB: as metades (ou os bytes) pares de rt e depois de rs
+                const bool bytes = sa == 0x1b;
+                uint8_t src[2][16], dst[16];
+                std::memcpy(src[0], &b.lo, 8);
+                std::memcpy(src[0] + 8, &b.hi, 8);
+                std::memcpy(src[1], &a.lo, 8);
+                std::memcpy(src[1] + 8, &a.hi, 8);
+                const int unit = bytes ? 1 : 2;
+                for (int half = 0; half < 2; ++half)
+                    for (int i = 0; i < 8 / unit; ++i)
+                        std::memcpy(dst + half * 8 + i * unit, src[half] + i * 2 * unit, size_t(unit));
+                std::memcpy(&out.lo, dst, 8);
+                std::memcpy(&out.hi, dst + 8, 8);
                 break;
             }
             fail("instrução desconhecida (MMI0)", addr, w);
@@ -617,10 +794,50 @@ void MipsMachine::mmi(uint32_t addr, uint32_t w) {
                 out = make(word(b, 2), word(a, 2), word(b, 3), word(a, 3));
                 break;
             }
+            if (sa == 0x1b) {  // QFSRV: os 256 bits rs:rt deslocados à direita por SA bits (o MTSAB), os 128 de baixo
+                uint64_t q[4] = {b.lo, b.hi, a.lo, a.hi};
+                const uint32_t bits = sa_reg_ & 0x7f;
+                const uint32_t wsh = bits / 64, bsh = bits % 64;
+                uint64_t r[2];
+                for (int i = 0; i < 2; ++i) {
+                    const uint32_t k = uint32_t(i) + wsh;
+                    const uint64_t lo = k < 4 ? q[k] : 0, hi = k + 1 < 4 ? q[k + 1] : 0;
+                    r[i] = bsh == 0 ? lo : (lo >> bsh) | (hi << (64 - bsh));
+                }
+                out = {r[0], r[1]};
+                break;
+            }
             fail("instrução desconhecida (MMI1)", addr, w);
         case 0x09:  // MMI2
             if (sa == 0x0e) {  // PCPYLD
                 out = {b.lo, a.lo};
+                break;
+            }
+            if (sa == 0x1e) {  // PEXEW: troca as palavras pares de rt (0 e 2)
+                out = make(word(b, 2), word(b, 1), word(b, 0), word(b, 3));
+                break;
+            }
+            if (sa == 0x1a || sa == 0x1b) {  // PEXEH (troca as metades 0 e 2 de cada dupla), PREVH (inverte as quatro)
+                uint16_t h[8], o[8];
+                std::memcpy(h, &b.lo, 8);
+                std::memcpy(h + 4, &b.hi, 8);
+                for (int d = 0; d < 2; ++d) {
+                    const uint16_t* x = h + d * 4;
+                    uint16_t* y = o + d * 4;
+                    if (sa == 0x1a) {
+                        y[0] = x[2];
+                        y[1] = x[1];
+                        y[2] = x[0];
+                        y[3] = x[3];
+                    } else {
+                        y[0] = x[3];
+                        y[1] = x[2];
+                        y[2] = x[1];
+                        y[3] = x[0];
+                    }
+                }
+                std::memcpy(&out.lo, o, 8);
+                std::memcpy(&out.hi, o + 4, 8);
                 break;
             }
             fail("instrução desconhecida (MMI2)", addr, w);
@@ -629,12 +846,26 @@ void MipsMachine::mmi(uint32_t addr, uint32_t w) {
                 out = {a.hi, b.hi};
                 break;
             }
+            if (sa == 0x1e) {  // PEXCW: troca as palavras do meio de rt
+                out = make(word(b, 0), word(b, 2), word(b, 1), word(b, 3));
+                break;
+            }
             if (sa == 0x12) {  // POR
                 out = {a.lo | b.lo, a.hi | b.hi};
                 break;
             }
+            if (sa == 0x0a) {  // PINTEH: as meias palavras pares de rt e de rs intercaladas (rt na de baixo)
+                out = make((word(b, 0) & 0xffff) | (word(a, 0) << 16), (word(b, 1) & 0xffff) | (word(a, 1) << 16),
+                           (word(b, 2) & 0xffff) | (word(a, 2) << 16), (word(b, 3) & 0xffff) | (word(a, 3) << 16));
+                break;
+            }
             if (sa == 0x13) {  // PNOR
                 out = {~(a.lo | b.lo), ~(a.hi | b.hi)};
+                break;
+            }
+            if (sa == 0x1b) {  // PCPYH: a meia-palavra 0 de cada metade de rt nas quatro da metade (o memset do newlib)
+                const uint64_t l = b.lo & 0xffffu, h = b.hi & 0xffffu;
+                out = {l | l << 16 | l << 32 | l << 48, h | h << 16 | h << 32 | h << 48};
                 break;
             }
             fail("instrução desconhecida (MMI3)", addr, w);

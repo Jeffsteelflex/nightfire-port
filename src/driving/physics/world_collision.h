@@ -157,7 +157,8 @@ struct WCollisionObject {
 static_assert(sizeof(WCollisionObject) == 0x30);
 
 // WCollisionMgr::WorldCollisionInfo (0x60 bytes): um choque de um segmento com o mundo. A construção (inline nos
-// chamadores) põe o ponto em (0, 0, 0, 1) e zera +0x20..+0x5b, mas não a normal (o port a zera).
+// chamadores) põe o ponto em (0, 0, 0, 1) e zera +0x20..+0x4b, +0x50..+0x55 e +0x58, mas não a normal, o +0x4c, o +0x56
+// e o +0x5c (lixo da pilha, que o CheckHitWorld copia junto com o choque achado; ninguém os lê): o port os zera.
 struct alignas(16) WorldCollisionInfo {
     float point[4];           // +0x00
     float normal[4];          // +0x10
@@ -178,6 +179,10 @@ static_assert(offsetof(WorldCollisionInfo, barrier) == 0x20 && offsetof(WorldCol
               offsetof(WorldCollisionInfo, face_instance) == 0x58);
 // A construção inline de um WorldCollisionInfo (o ponto (0, 0, 0, 1) de 0x00355ba0, o resto zerado menos a normal).
 void WorldCollisionInfo_Init(WorldCollisionInfo& info);
+
+// OrthoInverse (0x002d19b0, world_collision.cpp): a inversa de uma matriz ortonormal no lugar (a rotação
+// transposta e a translação -t pelas linhas antigas). Uma só definição para o mundo, as barreiras e o CheckHitWorld.
+void OrthoInverse(float m[16]);
 
 // O mundo da pista para a física: o gerente e a grade montados sobre os dados do CARP (o grupo 'CDat', já
 // desserializado e resolvido: Track::root()), e as três consultas que RigidBody::TempGetHeightInformation faz.

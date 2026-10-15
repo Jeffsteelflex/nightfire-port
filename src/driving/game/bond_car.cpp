@@ -16,12 +16,22 @@
 #include <cstring>
 #include <string>
 
+#include "driving/ai/ground_vehicle.h"
+#include "driving/ai/road_spawn.h"
+#include "driving/ai/sim_random.h"
 #include "driving/bigf.h"
 #include "driving/carp.h"
 #include "driving/game/attributes.h"
+#include "driving/game/rail.h"
+#include "driving/game/missile.h"
+#include "driving/game/target_picker.h"
+#include "driving/physics/collide.h"
 #include "driving/physics/collision.h"
 #include "driving/physics/simulation.h"
+#include "driving/physics/world.h"
+#include "driving/physics/world_collision.h"
 #include "driving/real/vu0_math.h"
+#include "driving/render/vehicle.h"
 #include "platform/ps2_float.h"
 #include "platform/vu0_macro.h"
 
@@ -35,6 +45,7 @@ namespace {
 BondCarTuning g_tuning;
 BondCarScratch g_scratch{};
 BondCarStats g_stats;
+std::function<void(BondCar& car, float rpm)> g_audio_hook;  // bond_car_audio_hook
 
 constexpr uint32_t kOne = 0x3f800000u;
 const uint32_t kVf0[4] = {0, 0, 0, kOne};
@@ -220,6 +231,8 @@ float BondCar::lookup_float(const char* key) {
     if (std::strcmp(key, "CAR_WHEEL_ZR_OFFSET") == 0) return wheel_zr_offset;
     if (std::strcmp(key, "MASS") == 0) return lookup_mass;
     if (std::strcmp(key, "BOOST_EXTRA_ACC") == 0) return boost_extra_acc;
+    if (std::strcmp(key, "TYRE_RADIUS") == 0) return tyre_radius;
+    if (std::strcmp(key, "SPRING_REST_LENGTH") == 0) return spring_rest_length_attr;
     return 0.0f;
 }
 
@@ -243,19 +256,16 @@ void BondCar::set_in_shock(float shock) {
     if (c.car_class != 0) c.in_shock = int8_t(v + 1);
 }
 
-// [driving] 0x00189598 PBondCar::ApplyDamage: não portado (as zonas de dano, os pneus, a vida, os eventos da missão,
-// o HUD). Conta e devolve 0 (o que vai ao evento ECollision).
-int32_t BondCar::apply_damage(const float* /*from*/, const float* /*to*/, float amount, float /*split*/,
-                              int32_t /*kind*/) {
+// A entrada +0x1c da tabela virtual: o PBondCar::ApplyDamage (0x00189598, driving/game/bond_car_damage.cpp).
+int32_t BondCar::apply_damage(const float* from, const float* to, float amount, float split, int32_t kind) {
     ++damage_calls;
     damage_total += amount;
-    physics_pending("PBondCar::ApplyDamage");
-    return 0;
+    return PBondCar_ApplyDamage(*this, from, to, amount, split, kind);
 }
 
-// [driving] 0x0018ad28 PBondCar::GetSplinePath: o trilho do AIGroundVehicle (+0x2e4); o port não tem a IA (nulo).
+// [driving] 0x0018ad28 PBondCar::GetSplinePath: o trilho do AIGroundVehicle (+0x2e4; AIVehicle::GetSplinePath, +0x50).
 uint32_t BondCar::spline_path() {
-    if (d.ai_ground_vehicle != 0) physics_pending("AIVehicle::GetSplinePath");
+    if (const AIGroundVehicle* v = nf::p32_ptr<const AIGroundVehicle>(d.ai_ground_vehicle)) return v->spline_path;
     return 0;
 }
 
@@ -625,9 +635,26 @@ void PBondCar_ProcessPhysics(BondCar& car) {
             PBondCar_ImproveLanding(car);
         if (c.two_wheel_mode != 0) PBondCar_TwoWheelStunt(car);
         if (ee::lt(0.01f, c.landing_impact)) {
-            // Um ECollision (0x58 bytes) com a força da aterrissagem (até 1) na posição do corpo: o som e a câmera.
+            // Um ECollision (0x58 bytes) com a força da aterrissagem (até 1) na posição do corpo: o som e a vibração
+            // (collide_events().collision, como os choques). A normal (0, 1, 0), a velocidade zero, as bandeiras 0xe
+            // (o PlayLanding do som), o tipo 7, a etiqueta 1; os w e o +0x38 são o que estava na pilha do PS2 (0 aqui).
             c.landing_impact = ee::min(c.landing_impact, 1.0f);
             ++g_stats.landing_impacts;
+            CollisionInfo ci{};
+            std::memcpy(ci.point, s.position, 12);
+            ci.point[3] = s.rear_grip;
+            ci.normal[1] = 1.0f;
+            ci.speed = c.landing_impact;
+            ci.strength = c.landing_impact;
+            ci.kind = uint8_t(body->type);
+            ci.slot = body->slot;
+            ci.flags = 0xe;
+            ci.type = 7;
+            ci.unknown_4d = 0;
+            ci.tag = 1;
+            ci.other = -1;
+            const CollideEvents& ce = collide_events();
+            if (ce.collision) ce.collision(ci);
         }
     }
     // O giro das rodas.
@@ -1006,23 +1033,35 @@ void PBondCar_GetControllerInput(BondCar& car) {
 }
 
 // [driving] 0x00188200 PBondCar::Simulate
-// Portada a parte que move o carro do jogador (classe 0), na ordem do PS2: os contadores de choque e de dano, a cópia
-// do CarPhysics para a área de rascunho (o DMA para o scratchpad), o laser, o "pode ser recolocado" de cabeça para
-// baixo, GetControllerInput, o EMP, os controles zerados no choque e travados por tempo, o física (com +0x23c apontando
-// para a cópia) e CalculateRPM (que escolhe a marcha). Fica de fora (só conta, bond_car_stats): a lista de desenho, as
-// luzes de freio e de ré (GlareOn/GlareOff), as setas, as bolhas e a neve (TriggerFX), o resto do som do motor, o
-// rastro dos pneus (ControlTyreTracks), PhysicsObject::Simulate (a posição do render), as armas, a IA; as outras
-// classes de carro e as outras físicas (ProcessSimplePhysics, de submarino, de moto de neve, de trilho).
+// Portada a parte que move os carros, na ordem do PS2: o pulo de um passo em dois de um carro do tráfego longe da câmera
+// (a mais de 50 m: só nos passos da paridade da vaga), os contadores de choque e de dano, a cópia do CarPhysics para a
+// área de rascunho (o DMA para o scratchpad), o laser, o "pode ser recolocado" de cabeça para baixo (o do jogador até 30
+// passos e ResetCar; os da IA até 120, levando 100 de dano a cada passo, que o port só conta: ApplyDamage não foi
+// portado), GetControllerInput, o EMP, os controles zerados no choque e travados por tempo, a física (com +0x23c
+// apontando para a cópia: ProcessPhysics no carro do jogador, ProcessSimplePhysics nos outros) e CalculateRPM. Fica de
+// fora (só conta, bond_car_stats e physics_pending): a lista de desenho, as luzes de freio e de ré dos da IA, as setas,
+// as bolhas e a neve (TriggerFX), o resto do som do motor, o rastro dos pneus (ControlTyreTracks),
+// PhysicsObject::Simulate (a posição do render), as armas; as outras físicas (de submarino, de moto de neve, de trilho).
 void PBondCar_Simulate(BondCar& car) {
     PBondCarData& c = car.d;
     RigidBody* body = car.body();
     if (body->state == 3) return;
     if (c.in_shock != 0) c.in_shock = int8_t(uint8_t(c.in_shock) - 1);
     if (c.damage_by_player_timer != 0) c.damage_by_player_timer = uint8_t(c.damage_by_player_timer - 1);
-    if (c.car_class == 3) physics_pending("PBondCar::Simulate (classe 3: longe da câmera)");
+    if (c.car_class == 3 && (body->radius_flags & 1u) == 0) {
+        // A câmera (a lista de câmeras do mundo, 0x333ed8): longe dela (|d|² > 2500, vmadday sem raiz), o carro anda um
+        // passo em dois.
+        const float (*cam)[4] = traffic_world().camera;
+        if (cam) {
+            uint32_t d[3];
+            for (int i = 0; i < 3; ++i) d[i] = ps2::sub(bits(body->pos[i]), bits(cam[3][i]));
+            const float d2 = flt(vu_length_sq(d));
+            if (ee::lt(g_tuning.far_distance_sq, d2) && (body->slot & 1) != (simulation().steps & 1)) return;
+        }
+    }
     BondCarScratch& s = g_scratch;
     std::memcpy(&s.physics, car.physics(), sizeof(CarPhysics));  // FUN_002a6528: DMA toSPR, 16 quadwords
-    if (c.target_beacon != 0 && ee::le(car.hit_points(), 0.0f)) physics_pending("PBondCar::DisableTargetBeacon");
+    if (c.target_beacon != 0 && ee::le(car.hit_points(), 0.0f)) PBondCar_DisableTargetBeacon(car);
     c.laser_active = c.laser_timer > 0 ? 1 : 0;
     if (c.laser_timer > 0) c.laser_timer -= 1;
     if (c.car_class == 0) {
@@ -1038,9 +1077,25 @@ void PBondCar_Simulate(BondCar& car) {
             }
         }
         PBondCar_GetControllerInput(car);
+        PBondCar_SimulateLights(car);
         if (c.emp_active != 0 && c.emp_timer < simulation().steps) c.emp_active = 0;  // + RVehicle::SetEMPVictimEffect
+    } else if (c.car_class == 1) {
+        if (ee::lt(GetOrientToGround(body), ps2::ffloat(0x3e99999au)) && body->ground_levers != 0) {
+            if (c.reset_available < 30) c.reset_available += 1;
+        } else {
+            c.reset_available = 0;
+        }
     } else {
-        physics_pending("PBondCar::Simulate (classe de IA)");
+        // Os da IA de cabeça para baixo no chão: o contador sobe até 120 e o carro leva dano enquanto vivo.
+        if (ee::lt(GetOrientToGround(body), ps2::ffloat(0x3e99999au)) && body->ground_levers != 0)
+            c.reset_available += 1;
+        else
+            c.reset_available = 0;
+        if (!(c.reset_available < 121)) c.reset_available = 120;
+        if (c.reset_available != 0 && ee::lt(0.0f, car.hit_points())) {
+            const float zero[3] = {0.0f, 0.0f, 0.0f};
+            car.apply_damage(zero, body->pos, 100.0f, 0.5f, 3);  // a entrada +0x1c (não portada: conta)
+        }
     }
     if (c.in_shock != 0) {
         c.control.gas = 0.0f;
@@ -1054,13 +1109,21 @@ void PBondCar_Simulate(BondCar& car) {
     }
     const uint32_t saved = c.physics;
     c.physics = nf::p32_u(&s.physics);
-    if (s.physics.sub_physics != 0) physics_pending("PBondCar::ProcessSubmarinePhysics");
+    const AIGroundVehicle* ai = nf::p32_ptr<const AIGroundVehicle>(c.ai_ground_vehicle);
+    if (ai && ai->spline_path != 0 && ee::lt(0.0f, car.hit_points())) PBondCar_ProcessSplinePhysics(car);  // rail.h
+    else if (s.physics.sub_physics != 0) physics_pending("PBondCar::ProcessSubmarinePhysics");
     else if (s.physics.is_snowmobile != 0) physics_pending("PBondCar::ProcessSnowmobilePhysics");
     else if (c.car_class == 0) PBondCar_ProcessPhysics(car);
-    else physics_pending("PBondCar::ProcessSimplePhysics");
+    else PBondCar_ProcessSimplePhysics(car);
     c.physics = saved;
-    if (nf::p32_ptr<CarPhysics>(saved)->sub_physics != 1 && c.car_class != 1) PBondCar_CalculateRPM(car);
+    // O som (0x00188c64..0x00189390): CalculateRPM e o objeto de som (bond_car_audio_hook).
+    if (nf::p32_ptr<CarPhysics>(saved)->sub_physics != 1 && c.car_class != 1) {
+        const float rpm = PBondCar_CalculateRPM(car);
+        if (g_audio_hook) g_audio_hook(car, rpm);
+    }
 }
+
+std::function<void(BondCar& car, float rpm)>& bond_car_audio_hook() { return g_audio_hook; }
 
 // [driving] 0x00210540 Util_GenerateMatrix
 void Util_GenerateMatrix(float out[4][4], const float dir[3]) {
@@ -1104,8 +1167,7 @@ void PBondCar_InitializeCarControls(BondCar& car) {
 }
 
 // [driving] 0x00187350 PBondCar::InitializeCarVariables
-// Divergência: +0x424 (bob_angle) é SimRandom_Generate x 2^-16 no PS2 (o gerador da simulação, não portado); aqui 0. O
-// global 0x332094, zerado aqui no PS2, não é lido pelo que foi portado.
+// (O global 0x332094, zerado aqui no PS2, não é lido pelo que foi portado.)
 void PBondCar_InitializeCarVariables(BondCar& car, bool init_controls, uint32_t tyre_damage_points) {
     PBondCarData& c = car.d;
     c.previous_gear = -1;
@@ -1150,7 +1212,8 @@ void PBondCar_InitializeCarVariables(BondCar& car, bool init_controls, uint32_t 
     for (int w = 0; w < 4; ++w) c.tyre_damage_points[w] = tyre_damage_points;  // LookupUInt("TYRE_DAMAGE_POINTS")
     c.control_lock_timer = -1;
     c.unknown420 = 0;
-    c.bob_angle = 0.0f;
+    // O sorteio do SimRandom da Simulation (cvt.s.w) vezes 2^-16 (0x37800000): a fase da onda de um barco.
+    c.bob_angle = ee::mul(ee::cvt_s(int32_t(SimRandom_Generate(sim_random()))), ps2::ffloat(0x37800000u));
     c.unknown428 = 0;
     c.was_in_air = 1;
     for (int w = 0; w < 4; ++w) c.wheels[w] = WWorldPos{};
@@ -1164,7 +1227,7 @@ void PBondCar_ResetDamage(BondCar& car) {
         c.damage_zones[z][0] = 0.0f;
     }
     // RSceneObj::Reset (0x1c7f10) do render: não portado.
-    std::memset(c.unknown3a8, 0, 0x40);  // +0x3a8..+0x3e7: os 16 brilhos e o que segue
+    std::memset(c.glare_on, 0, sizeof c.glare_on);  // +0x3a8..+0x3e7: os 16 brilhos
     c.damage_by_player_timer = 0;
     c.hit_points = 700.0f;
     c.damage_by_player = 0.0f;
@@ -1199,6 +1262,8 @@ bool read_car_desc(const Bigf& arc, const std::string& car, CarDesc& out, std::s
         std::memcpy(out.bbox_min, b + 0x10, 12);
         std::memcpy(out.bbox_max, b + 0x20, 12);
         std::memcpy(&out.desc38, b + 0x38, 4);
+        std::memcpy(out.zone_min, b + 0x40, 12);
+        std::memcpy(out.zone_max, b + 0x50, 12);
         uint32_t count = 0;
         std::memcpy(&count, b + 0x3c, 4);
         if (base->data + 0x60 + 16ull * count > bytes.size()) break;
@@ -1210,7 +1275,7 @@ bool read_car_desc(const Bigf& arc, const std::string& car, CarDesc& out, std::s
     return false;
 }
 
-// [driving] 0x001c9778 RSceneObj::GetBoundingDimensions
+// A conta do RSceneObj::GetBoundingDimensions (0x001c9778, a marca em smackable.cpp) sobre o CarDesc do carro.
 void CarDesc_HalfExtents(const CarDesc& d, float half[4]) {
     for (int i = 0; i < 3; ++i) half[i] = ee::mul(ee::sub(d.bbox_max[i], d.bbox_min[i]), 0.5f);
     half[3] = 0.0f;
@@ -1221,6 +1286,17 @@ float CarDesc_RenderOffset(const CarDesc& d) {
     const float h = ee::mul(ee::sub(d.bbox_max[1], d.bbox_min[1]), 0.5f);
     const float f1 = ee::mul(d.desc38, 0.5f);
     return ee::add(f1, ee::sub(f1, h));
+}
+
+// [driving] 0x00186fb0 PBondCar::~PBondCar, a parte da mira (o resto, a fila de ações e as rodas, é do port): o alvo
+// sai do WTargetPicker, vira do tipo 0 e perde a referência do carro.
+BondCar::~BondCar() {
+    if (d.target_beacon != 0) {
+        WTargetPicker_UnregisterTarget(d.target_beacon);
+        nf::p32_ptr<WTargetableData>(d.target_beacon)->kind = 0;
+        WTargetable_RemoveReference(d.target_beacon);
+        d.target_beacon = 0;
+    }
 }
 
 // [driving] 0x001862c0 PBondCar::PBondCar
@@ -1248,13 +1324,55 @@ RigidBody* PBondCar_Construct(BondCar& car, int car_class, const std::string& ca
     car.wheel_zf_offset = attrs.lookup_float("CAR_WHEEL_ZF_OFFSET");
     car.wheel_zr_offset = attrs.lookup_float("CAR_WHEEL_ZR_OFFSET");
     car.is_police = attrs.lookup_bool("IS_POLICE");
+    car.is_heli = attrs.lookup_bool("IS_HELI");
+    car.has_siren = attrs.lookup_bool("HAS_SIREN");
+    // As que a IA dos elementos pergunta (AttributeSet::LookupBool no EAICommand, no RegisterAgentGroundVehicle e nas
+    // armas do motorista: driving/ai/element_controller.h).
+    for (const char* k : {"HAS_TURRET", "HAS_MACHINEGUNS", "HAS_CANNONS", "HAS_ROCKETS", "HAS_MISSLES", "HAS_TORPEDOS",
+                          "IS_ALPHASUB", "IS_HELI"})
+        car.ai_bools[k] = attrs.lookup_bool(k);
+    {
+        // AttributeSet::LookupVector (0x00169e48, não portado: os números do texto da chave, até quatro).
+        std::string text;
+        car.turret_range_found = attrs.find("TURRET_RANGE", text);
+        const char* p = text.c_str();
+        for (int i = 0; i < 4 && car.turret_range_found; ++i) {
+            while (*p && !(std::isdigit(uint8_t(*p)) || *p == '-' || *p == '.' || *p == '+')) ++p;
+            char* end = nullptr;
+            car.turret_range[i] = std::strtof(p, &end);
+            if (end == p) break;
+            p = end;
+        }
+    }
+    // Os assentos dos passageiros (AttributeSet::LookupVector do WakeUp, 0x0012cb08: docs/driving.md seção 26).
+    for (const char* k : {"AIC_EWIND_POS", "AIC_ESUNR_POS", "AIC_ESNOW_POS", "AIC_BOND_POS", "AIC_PASS_POS"}) {
+        std::string text;
+        if (!attrs.find(k, text)) continue;
+        std::array<float, 4> v = {0, 0, 0, 0};
+        const char* p = text.c_str();
+        for (int i = 0; i < 4; ++i) {
+            while (*p && !(std::isdigit(uint8_t(*p)) || *p == '-' || *p == '.' || *p == '+')) ++p;
+            char* end = nullptr;
+            v[size_t(i)] = std::strtof(p, &end);
+            if (end == p) break;
+            p = end;
+        }
+        car.attr_vectors[k] = v;
+    }
+    car.tyre_radius = attrs.lookup_float("TYRE_RADIUS");
+    car.spring_rest_length_attr = attrs.lookup_float("SPRING_REST_LENGTH");
+    car.tyre_damage_points_attr = uint32_t(attrs.lookup_int("TYRE_DAMAGE_POINTS"));
     c.laser_active = 0;
     // O modelo (RVehicle::Load não portado aqui: o render é do nf_driving): a caixa e a geometria de colisão.
     float dims[4];
     CarDesc_HalfExtents(desc, dims);
     car.collision_points = desc.collision;
     car.collision_y_offset = ee::neg(CarDesc_RenderOffset(desc));  // PhysicsObject::GetCollisionGeometry
-    std::memset(c.unknown3a8, 0, 0x40);
+    std::memcpy(car.desc_half, dims, sizeof car.desc_half);         // o que o ApplyDamage lê do render
+    car.desc_render_offset = CarDesc_RenderOffset(desc);
+    std::memcpy(car.desc_zone_min, desc.zone_min, sizeof car.desc_zone_min);
+    std::memcpy(car.desc_zone_max, desc.zone_max, sizeof car.desc_zone_max);
+    std::memset(c.glare_on, 0, sizeof c.glare_on);
     uint8_t* raw = reinterpret_cast<uint8_t*>(&c);
     auto put32 = [raw](uint32_t off, uint32_t v) { std::memcpy(raw + off, &v, 4); };
     put32(0x378, 0);
@@ -1262,10 +1380,10 @@ RigidBody* PBondCar_Construct(BondCar& car, int car_class, const std::string& ca
         c.car_class = 2;
         put32(0x378, 1);
     }
-    put32(0x390, 60);           // o período das setas
+    c.turn_signal_period = 60;  // o período das setas
     put32(0x394, 0x3ecccccdu);  // 0,4
-    put32(0x39c, 0);
-    put32(0x38c, 0);
+    c.turn_signal_mode = 0;
+    c.turn_signal_start = 0;
     const CarPhysics& ph = car.car_physics;
     c.tyre_blow_outs = car_class != 0 && ph.is_sub == 0 && ph.is_snowmobile == 0 && !attrs.lookup_bool("IS_TANK") &&
                                !attrs.lookup_bool("IS_HELICOPTER") && !attrs.lookup_bool("TYRES_INVUNERABLE")
@@ -1278,7 +1396,7 @@ RigidBody* PBondCar_Construct(BondCar& car, int car_class, const std::string& ca
     c.hit_point_loc = nf::p32_u(&c.hit_points);
     c.immunity = 0;
     c.control.fire_primary = 0;
-    PBondCar_InitializeCarVariables(car, true, uint32_t(attrs.lookup_int("TYRE_DAMAGE_POINTS")));
+    PBondCar_InitializeCarVariables(car, true, car.tyre_damage_points_attr);
     PBondCar_ResetDamage(car);
     RigidBodyParams p;
     Util_GenerateMatrix(p.orient, direction);
@@ -1292,7 +1410,110 @@ RigidBody* PBondCar_Construct(BondCar& car, int car_class, const std::string& ca
     p.flag2 = 0;
     RigidBody* rb = simulation_add_body(simulation(), p, &car);
     if (rb) c.slot = rb->slot;
+    // O alvo da mira (+0x2e0, docs/driving.md seção 24): o carro do jogador (a classe 0) tem um WTargetable fora da
+    // lista, os agentes (a classe 2) se registram no WTargetPicker; os outros nenhum (a classe 4 vira 2 sem alvo). O PS2
+    // o cria depois do GetBoundingDimensions, com o corpo já na vaga do PhysicsObject; o port, logo depois do corpo.
+    c.target_beacon = 0;
+    if (car_class == 0 || car_class == 2) c.target_beacon = WTargetable_NewObject(&car);
+    if (car_class == 2) WTargetPicker_RegisterTarget(c.target_beacon);
+    // O carro do jogador: a vibração (o IFeedback da porta do controle, o UberBond +0x990: 0 no port) e os faróis.
+    if (car_class == 0) {
+        IFeedback_Construct(car.feedback, 0);
+        c.feedback_object = car.feedback.port >= 0 ? 1u : 0u;  // no port só "tem" (o ponteiro do PS2 não existe)
+        c.ai_ground_vehicle = 0;
+        PBondCar_GlareOn(car, 1);
+    } else {
+        c.ai_ground_vehicle = 0;
+    }
     return rb;
+}
+
+namespace {
+
+// O TriggerFX do render (a +0x84 da tabela virtual do RSceneObj de +0x48, com a intensidade -1 e as posições zero):
+// as lâmpadas pelo RVehicle; os efeitos contados.
+void render_fx(BondCar& car, int32_t type, uint32_t which) {
+    if (!car.vehicle) {
+        ++g_stats.guards;  // o PS2 sempre tem o render (o construtor o cria)
+        return;
+    }
+    if (!RVehicle_TriggerFX(*car.vehicle, type, int32_t(which))) ++car.render_fx;
+}
+
+}  // namespace
+
+// [driving] 0x0018b328 PBondCar::GlareOn
+void PBondCar_GlareOn(BondCar& car, int32_t glare) {
+    int32_t& on = car.d.glare_on[glare & 15];
+    if (on != 0) return;
+    render_fx(car, 0, 1u << ((glare + 16) & 31));
+    render_fx(car, 0xb, uint32_t(glare));
+    on = 1;
+}
+
+// [driving] 0x0018b408 PBondCar::GlareOff
+void PBondCar_GlareOff(BondCar& car, int32_t glare) {
+    int32_t& on = car.d.glare_on[glare & 15];
+    if (on != 1) return;
+    render_fx(car, 2, 1u << ((glare + 16) & 31));
+    render_fx(car, 0xc, uint32_t(glare));
+    on = 0;
+}
+
+// [driving] 0x0018b580 PBondCar::HandleTurnSignals
+void PBondCar_HandleTurnSignals(BondCar& car) {
+    PBondCarData& c = car.d;
+    PBondCar_GlareOff(car, 3);
+    PBondCar_GlareOff(car, 4);
+    bool cancel;
+    if (c.turn_signal_mode == 1) cancel = ee::lt(c.turn_signal_cancel, c.control.steering);
+    else if (c.turn_signal_mode == 2) cancel = ee::lt(c.control.steering, c.turn_signal_cancel);
+    else return;
+    if (cancel) c.turn_signal_mode = 0;
+    // divu: (passo - início) e o período sem sinal; o resto e o período em float pelo truque do sem sinal (srl 1, o bit
+    // de baixo, cvt.s.w, x 2).
+    const uint32_t period = c.turn_signal_period;
+    if (period == 0) {
+        ++g_stats.guards;  // break 7 no PS2
+        return;
+    }
+    const uint32_t rem = (uint32_t(simulation().steps) - uint32_t(c.turn_signal_start)) % period;
+    auto u2f = [](uint32_t u) {
+        if (int32_t(u) >= 0) return ee::cvt_s(int32_t(u));
+        const float h = ee::cvt_s(int32_t((u & 1u) | (u >> 1)));
+        return ee::add(h, h);
+    };
+    const float lit = c.turn_signal_lit;
+    const bool flash = ee::lt(ee::mul(u2f(period), ee::sub(1.0f, lit)), u2f(rem));
+    if (c.turn_signal_mode == 1) {
+        if (flash) PBondCar_GlareOn(car, 3);  // a +0x174 da tabela virtual
+    } else if (c.turn_signal_mode == 2) {
+        if (flash) PBondCar_GlareOn(car, 4);
+    }
+}
+
+// [driving] 0x00188510 PBondCar::Simulate (as luzes)
+void PBondCar_SimulateLights(BondCar& car) {
+    PBondCarData& c = car.d;
+    const RigidBody* body = car.body();
+    // vmul.xyz da velocidade do corpo pela frente (a linha 2 da orientação), vaddy.x, vaddz.x.
+    uint32_t p[3];
+    for (int i = 0; i < 3; ++i) p[i] = ps2::mul(R(body->vel)[i], R(body->info->orient[2])[i]);
+    const float v = flt(ps2::add(ps2::add(p[0], p[1]), p[2]));
+    if (ee::lt(0.0f, c.control.brake) && ee::lt(v, 0.0f)) PBondCar_GlareOn(car, 5);  // a +0x174 da tabela virtual
+    else if (ee::le(0.0f, v)) PBondCar_GlareOff(car, 5);
+    if (ee::le(v, 0.0f)) {
+        if (ee::lt(0.0f, c.control.gas) && ee::lt(v, -2.5f)) PBondCar_GlareOn(car, 2);
+        else PBondCar_GlareOff(car, 2);
+    } else {
+        if (ee::lt(0.0f, c.control.brake)) PBondCar_GlareOn(car, 2);
+        else PBondCar_GlareOff(car, 2);
+    }
+    if (car.physics()->is_sub == 1) {
+        // As bolhas do submarino: TriggerFX 0 (com a intensidade min(1, (v - 5) x 0,1)) acima de 5 m/s, senão 4.
+        render_fx(car, ee::lt(5.0f, v) ? 0 : 4, 0x800000u);
+    }
+    PBondCar_HandleTurnSignals(car);
 }
 
 // [driving] 0x0018bb00 PBondCar::DisableTwoWheelStunt: o giro em z do corpo zerado, o tensor refeito no próximo
@@ -1354,6 +1575,384 @@ void PBondCar_TwoWheelStunt(BondCar& car) {
     z = ee::min(z, g_tuning.two_wheel_limit);
     v[2] = z;
     ModifyAngularMomentum(body, v);
+}
+
+// ---------------------------------------------------------------- os carros da IA (classe 3: o tráfego)
+
+// [driving] 0x0018b730 PBondCar::ClearEMPState (sem o RVehicle::SetEMPVictimEffect do render, contado)
+void PBondCar_ClearEMPState(BondCar& car) {
+    ++car.render_fx;
+    car.d.emp_timer = 0;
+    car.d.emp_active = 0;
+}
+
+// [driving] 0x00187eb8 PBondCar::ResetCar(COORD3 &, COORD3 &): o carro parado em `pos`, de frente para `dir`, com as
+// rodas no chão: a altura do corpo vem da média das rodas assentadas (o y de `pos` é reescrito, como no PS2). Fica de
+// fora o que é do render e da câmera (RSceneObj +0x7c, SetEMPVictimEffect, RPlayerCamera::ResetCamera no carro do
+// jogador, os rastros dos pneus: FastFree e InitTyreTracks).
+void PBondCar_ResetCar(BondCar& car, float pos[3], const float dir[3]) {
+    PBondCarData& c = car.d;
+    PBondCar_InitializeCarVariables(car, false, car.tyre_damage_points_attr);
+    float m[4][4];
+    Util_GenerateMatrix(m, dir);
+    RigidBody* body = car.body();
+    if (car.physics()->sub_physics == 0) {
+        float h = 0.0f;
+        TrackWorld* tw = world() ? world()->track_world() : nullptr;
+        if (!tw || !tw->world_height_at_point(pos, h)) h = ee::add(pos[1], 1.0f);
+        alignas(16) float base[4] = {pos[0], 0.0f, pos[2], 0.0f};
+        base[1] = ee::add(ee::add(ee::add(h, car.lookup_float("TYRE_RADIUS")), car.lookup_float("SPRING_REST_LENGTH")),
+                          body->info->half_size[1]);
+        float sum = 0.0f;
+        for (int w = 0; w < 4; ++w) {
+            RigidBodyInfo* info = body->info;
+            // vmulax.xyz/vmadday.xyz/vmaddz.xyz: a alavanca girada (o w fica).
+            Reg r0, r1, r2, l, acc, out;
+            load(r0, m[0]);
+            load(r1, m[1]);
+            load(r2, m[2]);
+            load(l, info->lever_local[w]);
+            load(out, info->lever_world[w]);
+            mulabc(acc, r0, l, BX, XYZ);
+            maddabc(acc, r1, l, BY, XYZ);
+            maddbc(out, acc, r2, l, BZ, XYZ);
+            store(info->lever_world[w], out);
+            std::memcpy(c.wheel_pos[w], info->lever_world[w], 16);
+            for (int i = 0; i < 3; ++i) c.wheel_pos[w][i] = ee::add(c.wheel_pos[w][i], base[i]);
+            TempGetHeightInformation(body, c.wheel_pos[w], c.wheel_road_normal[w], &c.wheels[w]);
+            c.suspension[w] = ee::mul(car.physics()->spring_compression_limit, ps2::ffloat(0x3e19999au));  // 0,15
+            c.wheel_pos[w][1] = ee::sub(ee::add(c.wheel_pos[w][1], c.wheel_road_normal[w][3]), c.suspension[w]);
+            sum = ee::add(sum, c.wheel_pos[w][1]);
+        }
+        sum = ee::mul(sum, 0.25f);
+        pos[1] = ee::add(ee::add(ee::add(sum, car.lookup_float("TYRE_RADIUS")), car.lookup_float("SPRING_REST_LENGTH")),
+                         body->info->half_size[1]);
+    }
+    RigidBody_ResetObject(body, m, pos);
+    ++car.render_fx;  // o RSceneObj (+0x7c) e SetEMPVictimEffect(0) do render
+}
+
+// [driving] 0x0018e548 PBondCar::AddSimpleWheelForces: a mola, a tração ao longo da roda, a aderência de lado cortada no
+// limite e o freio de mão; uma roda fora do chão com o corpo girando sobre ela leva um empurrão que para a rolagem.
+// Devolve as rodas com a mola comprimida.
+int8_t PBondCar_AddSimpleWheelForces(BondCar& car, BondCarWheelInput* input, const float (*headings)[4],
+                                     float (*road_normals)[4], float (*wheel_pos)[4], float* slips) {
+    PBondCarData& c = car.d;
+    RigidBody* body = car.body();
+    BondCarScratch& s = g_scratch;
+    s.wheels_on_ground = 0;
+    s.lift_above_ground = 0.0f;
+    s.force_info = nf::p32_u(nf::raw(body->info));
+    if (ee::le(car.hit_points(), 0.0f) && car.physics()->is_boat != 0) return 0;
+    const float* heading = headings[0];
+    for (int w = 0; w < 4; ++w) {
+        BondCarWheelInput& in = input[w];
+        const float* normal = road_normals[w];
+        const CarPhysics* ph = car.physics();
+        std::memcpy(s.lever, wheel_pos[w], 16);
+        s.compression = ee::add(normal[3], ph->spring_rest_length);
+        if (!PBondCar_IsWheelOnGround(car, w)) s.lift_above_ground = ee::max(s.lift_above_ground, s.compression);
+        const float limited = ee::min(s.compression, ph->spring_compression_limit);
+        s.compression = limited;
+        if (ee::lt(limited, 0.0f)) s.compression = 0.0f;
+        const float comp = s.compression;
+        const RigidBodyInfo* finfo = nf::p32_ptr<const RigidBodyInfo>(s.force_info);
+        if ((ee::lt(0.0f, comp) || ee::lt(0.0f, c.suspension[w])) &&
+            ee::lt(g_tuning.enable_roll_stops_threshold, ee::mul(finfo->orient[1][1], normal[1]))) {
+            if (ee::lt(0.0f, comp)) {
+                s.wheels_on_ground += 1;
+                const float change = ee::sub(comp, c.suspension[w]);
+                s.heading[3] = change;  // compression_change (+0x2fc)
+                const float damping = w < 2 ? ph->spring_damping_front : ph->spring_damping_rear;
+                const float stiffness = w < 2 ? ph->spring_stiffness_front : ph->spring_stiffness_rear;
+                s.ground_normal[3] = ee::add(ee::mul(comp, stiffness), ee::mul(change, damping));  // spring_force
+                if (!PBondCar_IsWheelOnGround(car, w))
+                    c.landing_impact = ee::max(ee::mul(s.compression, 5.0f), c.landing_impact);  // 0x396330: 5
+            } else {
+                s.ground_normal[3] = 0.0f;
+            }
+            Reg nv;
+            load(nv, normal);
+            vu_cross(R(s.axle), R(heading), nv);
+            vu_unit(R(s.axle), R(s.axle));
+            vu_cross(R(s.rolling), nv, R(s.axle));
+            vu_unit(R(s.rolling), R(s.rolling));
+            vu_cross(R(s.lateral), nv, R(s.rolling));
+            for (int i = 0; i < 3; ++i) R(s.lever)[i] = ps2::sub(R(s.lever)[i], R(body->pos)[i]);
+            vu_cross(R(s.point_velocity), R(body->ang_vel), R(s.lever));
+            for (int i = 0; i < 3; ++i) R(s.point_velocity)[i] = ps2::add(R(s.point_velocity)[i], R(body->vel)[i]);
+            float lf = ee::mul(vu_dot(s.point_velocity, s.lateral), in.grip);
+            s.lateral_force = lf;
+            lf = ee::max(lf, ee::neg(in.friction_limit));
+            s.lateral_force = lf;
+            lf = ee::min(lf, in.friction_limit);
+            const float twice = ee::abs(ee::add(lf, lf));
+            s.lateral_force = lf;
+            slips[w] = ee::div(twice, in.friction_limit);
+            slips[w] = ee::min(slips[w], 1.0f);
+            for (int i = 0; i < 3; ++i) R(s.lateral)[i] = ps2::mul(R(s.lateral)[i], bits(s.lateral_force));
+            for (int i = 0; i < 3; ++i) R(s.force)[i] = ps2::mul(R(s.rolling)[i], bits(in.drive));
+            const RigidBodyInfo* bi = body->info;
+            if (bi->flags[1] != 0 || bi->flags[2] != 0) s.lever[1] = 0.0f;
+            else s.lever[1] = ee::mul(s.lever[1], ph->wheel_force_app_scale);
+            for (int i = 0; i < 3; ++i) R(s.axle)[i] = ps2::mul(R(normal)[i], bits(s.ground_normal[3]));
+            s.axle[0] = ee::mul(s.axle[0], car.physics()->slope_scale);
+            s.axle[2] = ee::mul(s.axle[2], car.physics()->slope_scale);
+            if (!ee::eq(in.handbrake, 0.0f)) {
+                vu_unit(R(s.drag), R(s.point_velocity));
+                for (int i = 0; i < 3; ++i) R(s.drag)[i] = ps2::mul(R(s.drag)[i], bits(in.handbrake));
+                for (int i = 0; i < 3; ++i) R(s.axle)[i] = ps2::sub(R(s.axle)[i], R(s.drag)[i]);
+            }
+            if (ee::eq(in.handbrake, 0.0f) || ee::lt(1.0f, c.car_speed))
+                for (int i = 0; i < 3; ++i) R(s.axle)[i] = ps2::sub(R(s.axle)[i], R(s.lateral)[i]);
+            for (int i = 0; i < 3; ++i) R(s.force)[i] = ps2::add(R(s.force)[i], R(s.axle)[i]);
+            vu_cross(R(s.torque), R(s.lever), R(s.force));
+            ResolveMassScaledForce4(body, s.force);
+            ResolveMassScaledTorque4(body, s.torque);
+        }
+        if (ee::eq(s.compression, 0.0f)) {
+            bool push = false;
+            if (c.tyre_damage_points[w] != 0 && c.two_wheel_mode == 0 && c.num_wheels_on_ground != 0 &&
+                ee::lt(g_tuning.enable_roll_stops_threshold, ee::mul(finfo->orient[1][1], normal[1]))) {
+                const bool dead2 = c.car_class == 2 && ee::le(car.hit_points(), 0.0f);
+                if (c.car_class == 1) push = true;
+                else
+                    push = !dead2 && c.in_shock == 0 && body->info->flags[2] == 0 && (body->radius_flags & 1u) != 0 &&
+                           body->info->flags[1] == 0;
+            }
+            if (push) {
+                std::memcpy(s.lever, wheel_pos[w], 16);
+                for (int i = 0; i < 3; ++i) R(s.lever)[i] = ps2::sub(R(s.lever)[i], R(body->pos)[i]);
+                vu_cross(R(s.spin), R(body->ang_vel), R(s.lever));
+                if (ee::lt(0.0f, s.spin[1])) {
+                    s.force[2] = 0.0f;
+                    s.force[1] = -25.0f;
+                    s.force[0] = 0.0f;
+                    vu_cross(R(s.torque), R(s.lever), R(s.force));
+                    ResolveMassScaledTorque4(body, s.torque);
+                }
+            }
+            slips[w] = 0.0f;
+        }
+        c.suspension[w] = s.compression;
+        if (w == 1) heading = headings[1];
+    }
+    body->pos[1] = ee::add(body->pos[1], s.lift_above_ground);
+    return int8_t(s.wheels_on_ground);
+}
+
+// [driving] 0x0018ecb8 PBondCar::ProcessSimplePhysics: o passo dos carros da IA com o modelo simples (os eixos com a
+// parte fixa da aderência, a tração só atrás, a direção pela matriz girada, as rodas de trás de um carro longe copiando o
+// chão das da frente).
+// Divergência: o ECollision de uma aterrissagem forte (como em ProcessPhysics) só conta.
+void PBondCar_ProcessSimplePhysics(BondCar& car) {
+    PBondCarData& c = car.d;
+    RigidBody* body = car.body();
+    BondCarScratch& s = g_scratch;
+    s.info = nf::p32_u(nf::raw(body->info));
+    std::memcpy(s.velocity, body->vel, 12);
+    std::memcpy(s.forward, body->info->orient[2], 12);
+    std::memcpy(s.steered_forward, s.forward, 12);
+    if (ee::lt(c.control.brake, c.control.gas)) c.control.brake = 0.0f;
+    else c.control.gas = 0.0f;
+    // Um barco fora de trilho balança na onda (+0x420 a altura, +0x424 e +0x428 as fases).
+    auto boat_off_spline = [&]() {
+        if (car.physics()->is_boat == 0) return false;
+        const AIGroundVehicle* ai = nf::p32_ptr<const AIGroundVehicle>(c.ai_ground_vehicle);
+        return ai && ai->spline_path == 0;
+    };
+    const bool boat = boat_off_spline();
+    if (boat) {
+        float bob = ps2::ffloat(c.unknown420);
+        body->pos[1] = ee::add(body->pos[1], bob);
+        float wave = VU0_Sin(c.bob_angle);
+        const float wave2 = VU0_Sin(ps2::ffloat(c.unknown428));
+        wave = ee::add(ee::add(wave, 1.0f), wave2);
+        const float a = ee::add(c.bob_angle, ps2::ffloat(0x3b102de0u));  // 0,0022
+        c.bob_angle = a;
+        c.unknown420 = bits(ee::add(ee::mul(wave, 0.1f), 1.0f));
+        if (ee::lt(1.0f, a)) c.bob_angle = ee::sub(a, 1.0f);
+        const float b = ee::add(ps2::ffloat(c.unknown428), ps2::ffloat(0x3b656042u));  // 0,0035
+        c.unknown428 = bits(b);
+        if (ee::lt(1.0f, b)) c.unknown428 = bits(ee::sub(b, 1.0f));
+    }
+    c.wheel_spin_flag = 0.0f;
+    c.car_speed = vu_length_xz(body->vel);
+    s.velocity[1] = 0.0f;
+    s.forward_speed = vu_dot(s.velocity, s.forward);
+    if (c.control.hand_brake != 0) {
+        if (ee::lt(5.0f, c.car_speed)) {
+            s.front_grip = ps2::ffloat(0x3f4ccccdu);  // 0,8
+            s.rear_grip = ps2::ffloat(0x3e4ccccdu);   // 0,2
+        } else {
+            s.front_grip = 0.5f;
+            s.rear_grip = 0.5f;
+        }
+        c.control.brake = 0.0f;
+        c.control.gas = 0.0f;
+    } else {
+        s.front_grip = ps2::ffloat(0x3e99999au);  // 0,3
+        s.rear_grip = ps2::ffloat(0x3f333333u);   // 0,7
+    }
+    if (c.in_shock == 0) {
+        s.rear_grip = ee::mul(s.rear_grip, 5.0f);
+        s.front_grip = ee::mul(s.front_grip, 5.0f);
+        if (c.car_class == 1 || c.car_class == 2) {  // GetCarClass (+0x9c)
+            s.front_grip = ee::mul(s.front_grip, 1.5f);
+            s.rear_grip = ee::mul(s.rear_grip, 1.5f);
+        }
+    }
+    c.braking_at_speed = ee::lt(ps2::ffloat(0x3d4ccccdu), c.control.brake) ? 1 : 0;  // 0,05
+    const CarPhysics* ph = car.physics();
+    if (c.control.hand_brake != 0) {
+        if (ee::lt(c.car_speed, 1.0f)) s.handbrake = ee::add(ee::add(c.car_speed, c.car_speed), 1.0f);
+        else
+            s.handbrake = ee::mul(ph->handbrake_force,
+                                  ee::add(ee::mul(c.car_speed, ps2::ffloat(0x3d99999au)), 1.75f));  // 0,075
+    } else {
+        s.handbrake = 0.0f;
+    }
+    // As voltas das rodas por passo (sqrt.S da FPU), a tração e a direção.
+    const float speed = ee::sqrt(ee::add(ee::mul(s.velocity[0], s.velocity[0]), ee::mul(s.velocity[2], s.velocity[2])));
+    s.wheel_speed = speed;
+    const float per_turn =
+        ee::mul(ee::mul(ph->wheel_radius, ps2::ffloat(0x40ca3d71u)), ee::cvt_s(simulation().frame_rate));  // 6,32
+    s.wheel_speed = ee::div(speed, per_turn);
+    if (ee::lt(s.wheel_speed, ps2::ffloat(0x3c23d70au)) && c.control.hand_brake != 0) s.wheel_speed = 0.0f;  // 0,01
+    s.wheel_speed = ee::min(s.wheel_speed, 1.0f);
+    const float max_acc = ee::max(12.5f, ph->max_acc);
+    const float max_brake = ee::max(12.5f, ph->max_brake);
+    s.drive_force = ee::sub(ee::mul(c.control.gas, max_acc), ee::mul(c.control.brake, max_brake));
+    const RigidBodyInfo* sinfo = nf::p32_ptr<const RigidBodyInfo>(s.info);
+    if (c.num_wheels_on_ground != 0 && ee::lt(0.1f, sinfo->orient[1][1])) {
+        const float spin = ee::min(s.wheel_speed, g_tuning.max_wheel_spin_rate_ai);
+        c.car_wheel_speed = spin;
+        if (ee::lt(s.forward_speed, 0.0f)) c.car_wheel_speed = ee::neg(spin);
+    } else {
+        c.car_wheel_speed = ee::mul(c.car_wheel_speed, ps2::ffloat(0x3f733333u));  // 0,95
+    }
+    const float max_steer = ee::max(0.2f, ph->max_steering);
+    c.car_steer = ee::mul(c.control.steering, max_steer);
+    s.unknown414 = c.control.steering;
+    if (c.tyre_damage_points[0] == 0) s.unknown414 = ee::sub(c.control.steering, 1.5f);
+    if (c.tyre_damage_points[1] == 0) s.unknown414 = ee::add(s.unknown414, 1.5f);
+    if (c.tyre_damage_points[2] == 0) s.unknown414 = ee::sub(s.unknown414, 0.5f);
+    if (c.tyre_damage_points[3] == 0) s.unknown414 = ee::add(s.unknown414, 0.5f);
+    s.unknown414 = ee::max(-1.0f, s.unknown414);
+    const float steer = ee::min(1.0f, s.unknown414);
+    s.unknown414 = steer;
+    VU0_MATRIX4setyrot(s.steering_turn, ee::mul(steer, ee::max(0.2f, ph->max_steering)));
+    VU0_MATRIX4_mult(nf::p32_ptr<RigidBodyInfo>(s.info)->orient, s.steering_turn, s.steered_orient);
+    std::memcpy(s.steered_forward, s.steered_orient[2], 12);
+    std::memcpy(s.position, body->pos, 12);
+    // Float_COORD3toCOORD4: o rolling_resistance da área (o que ficou do carro anterior) com w = 0; ninguém o lê aqui.
+    s.rolling_resistance4[0] = s.rolling_resistance[0];
+    s.rolling_resistance4[1] = s.rolling_resistance[1];
+    s.rolling_resistance4[2] = s.rolling_resistance[2];
+    s.rolling_resistance4[3] = 0.0f;
+    c.landing_impact = 0.0f;
+    // As entradas das rodas: a frente só dirige, a tração atrás.
+    std::memcpy(s.wheel_heading[0], s.steered_forward, 12);
+    std::memcpy(s.wheel_heading[1], s.forward, 12);
+    for (int w = 0; w < 4; ++w) {
+        s.wheel_input[w].grip = w < 2 ? s.front_grip : s.rear_grip;
+        s.wheel_input[w].drive = w < 2 ? 0.0f : s.drive_force;
+        s.wheel_input[w].friction_limit = 20.0f;
+    }
+    if (c.oil_slick != 0) {
+        const float d = ee::mul(s.drive_force, 0.75f);
+        s.wheel_input[2].friction_limit = 2.0f;
+        s.wheel_input[3].friction_limit = 2.0f;
+        s.wheel_input[2].drive = d;
+        s.wheel_input[3].drive = d;
+    }
+    s.unknown444 = 0;  // os pneus estourados
+    for (int w = 3; w >= 0; --w)
+        if (c.tyre_damage_points[w] == 0) s.unknown444 = uint8_t(s.unknown444 + 1);
+    s.unknown418 = s.unknown444 == 1 ? 0.5f : 1.0f;
+    float tyre_radius = -1.0f;
+    for (int w = 0; w < 4; ++w) {
+        BondCarWheelInput& in = s.wheel_input[w];
+        in.handbrake = s.handbrake;
+        std::memcpy(c.wheel_pos[w], body->info->lever_world[w], 16);
+        if (c.car_class != 1 && s.unknown444 != 0) {
+            // Um pneu estourado: a roda mais baixa (com o carro em pé) e o carro arrastando nas outras.
+            if (c.tyre_damage_points[w] == 0 && ee::lt(ps2::ffloat(0x3f34fdf4u), sinfo->orient[1][1])) {  // 0,707
+                if (ee::lt(tyre_radius, 0.0f)) tyre_radius = car.lookup_float("TYRE_RADIUS");
+                c.wheel_pos[w][1] = ee::add(c.wheel_pos[w][1], tyre_radius);
+            }
+            in.drive = ee::mul(in.drive, ee::sub(1.0f, s.unknown418));
+            in.handbrake = s.unknown418;
+        }
+        for (int i = 0; i < 3; ++i) c.wheel_pos[w][i] = ee::add(c.wheel_pos[w][i], s.position[i]);
+        if (c.car_class == 3 && (body->radius_flags & 1u) == 0 && (w == 1 || w == 3)) {
+            // Um carro do tráfego: as rodas da direita copiam o chão das da esquerda (uma consulta a menos por eixo).
+            c.wheels[w] = c.wheels[w - 1];
+            std::memcpy(c.wheel_road_normal[w], c.wheel_road_normal[w - 1], 16);
+            c.wheel_road_normal[w][3] =
+                ee::add(c.wheel_road_normal[w][3], ee::sub(c.wheel_pos[w - 1][1], c.wheel_pos[w][1]));
+        } else {
+            TempGetHeightInformation(body, c.wheel_pos[w], c.wheel_road_normal[w], &c.wheels[w]);
+        }
+    }
+    for (int w = 0; w < 4; ++w) s.wheel_slip[w] = 0.0f;
+    c.num_wheels_on_ground =
+        PBondCar_AddSimpleWheelForces(car, s.wheel_input, s.wheel_heading, c.wheel_road_normal, c.wheel_pos,
+                                      s.wheel_slip);
+    for (int w = 0; w < 4; ++w) {
+        c.wheel_pos[w][1] = ee::add(c.wheel_pos[w][1], ee::add(c.wheel_road_normal[w][3], ps2::ffloat(0x3c23d70au)));
+        const float slip = ee::mul(ee::sub(s.wheel_slip[w], ps2::ffloat(0x3ecccccdu)), ps2::ffloat(0x3fd55555u));
+        c.wheel_slip[w] = slip;
+        if (ee::lt(slip, 0.0f)) c.wheel_slip[w] = 0.0f;
+    }
+    // A aterrissagem: a poeira e as rodas escorregando por alguns passos.
+    if (c.num_wheels_on_ground != 0 && c.landing_fx_timer == 0 && !(c.landing_flag < 11))
+        c.landing_fx_timer = c.landing_flag;
+    if (c.landing_fx_timer != 0) {
+        c.skidding = 1;
+        c.landing_fx_timer = uint8_t(c.landing_fx_timer - 1);
+        std::string type = car.name_;
+        for (char& ch : type) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+        const float slip = type == "750" ? 1.75f : ps2::ffloat(0x3f733333u);  // 0x2a9198 (sem caixa)
+        for (int w = 0; w < 4; ++w) c.wheel_slip[w] = slip;
+    } else {
+        c.skidding = 0;
+    }
+    if (c.num_wheels_on_ground != 0) c.landing_flag = 0;
+    else if (c.landing_flag < 255) c.landing_flag = uint8_t(c.landing_flag + 1);
+    c.wheel_spin_angle[0] = ee::add(c.wheel_spin_angle[0], c.car_wheel_speed);
+    c.wheel_spin_angle[1] = ee::add(c.wheel_spin_angle[1], c.car_wheel_speed);
+    c.wheel_spin_angle[0] = wrap_turn(c.wheel_spin_angle[0]);
+    c.wheel_spin_angle[1] = wrap_turn(c.wheel_spin_angle[1]);
+    bool landing = c.car_class == 1;
+    if (!landing && ee::lt(0.0f, car.hit_points()) && c.car_class == 2) landing = true;
+    if (landing) {
+        const RigidBodyInfo* info = body->info;
+        if (info->flags[1] == 0 && uint32_t(g_tuning.landing_air_steps) < uint32_t(info->age) &&
+            c.num_wheels_on_ground == 0 && body->ground_levers == 0)
+            PBondCar_ImproveLanding(car);
+    }
+    if (ee::lt(ps2::ffloat(0x3c23d70au), c.landing_impact)) {
+        c.landing_impact = ee::min(c.landing_impact, 1.0f);
+        ++g_stats.landing_impacts;  // o ECollision (o som e a câmera)
+    }
+    if (boat_off_spline()) body->pos[1] = ee::add(body->pos[1], ee::neg(ps2::ffloat(c.unknown420)));
+}
+
+// [driving] 0x0018ad50 PBondCar::EnableTargetBeacon(bool criar): o alvo da mira do carro (criado e registrado com
+// `create`) volta a valer (+0x40).
+void PBondCar_EnableTargetBeacon(BondCar& car, bool create) {
+    PBondCarData& c = car.d;
+    if (create && c.target_beacon == 0) {
+        c.target_beacon = WTargetable_NewObject(&car);
+        WTargetPicker_RegisterTarget(c.target_beacon);
+    }
+    if (c.target_beacon != 0) nf::p32_ptr<WTargetableData>(c.target_beacon)->unknown40 = 1;
+}
+
+// [driving] 0x0018adc0 PBondCar::DisableTargetBeacon
+void PBondCar_DisableTargetBeacon(BondCar& car) {
+    if (car.d.target_beacon != 0) nf::p32_ptr<WTargetableData>(car.d.target_beacon)->unknown40 = 0;
 }
 
 }  // namespace drv

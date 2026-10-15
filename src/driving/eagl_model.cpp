@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "driving/eagl_state.h"
+#include "platform/ps2_float.h"
 
 namespace drv::eagl {
 
@@ -185,6 +186,28 @@ void DmaBuffer::align16() {
 
 void Model_SetCommandBase(uint32_t base) { g_cmd_base = base; }
 
+void Model_PaletteScaleMatrix(const float scale[3], const float offset[3], uint32_t out[16]) {
+    const uint32_t k128 = 0x43000000u;  // 128.0 (lui 0x4300)
+    for (int i = 0; i < 16; ++i) out[i] = 0;
+    for (int c = 0; c < 3; ++c) {
+        out[c * 5] = ps2::mul(ps2::fbits(scale[c]), k128);
+        out[12 + c] = ps2::sub(ps2::mul(ps2::neg(ps2::fbits(scale[c])), k128), ps2::fbits(offset[c]));
+    }
+    out[15] = 0x3f800000u;
+}
+
+// As operações 0xb e 0xd (0x002a46e4.. e 0x002a4d30..): out = s x m (linha k = s[k].x m0 + s[k].y m1 + s[k].z m2 +
+// s[k].w m3: vmulax, vmadday, vmaddaz, vmaddw nas quatro pistas), na aritmética da VU.
+void Palette_Multiply(const uint32_t s[16], const uint32_t* m, uint32_t out[16]) {
+    for (int k = 0; k < 4; ++k)
+        for (int l = 0; l < 4; ++l) {
+            uint32_t acc = ps2::mul(m[l], s[k * 4 + 0]);
+            acc = ps2::madd(acc, m[4 + l], s[k * 4 + 1]);
+            acc = ps2::madd(acc, m[8 + l], s[k * 4 + 2]);
+            out[k * 4 + l] = ps2::madd(acc, m[12 + l], s[k * 4 + 3]);
+        }
+}
+
 void GeoPrim_ResetMicrocode() {
     g_cur_microcode = 0;
     g_vu_code_next = 0;
@@ -193,11 +216,12 @@ void GeoPrim_ResetMicrocode() {
 }
 
 // [driving] 0x002a3290 EAGL::GeoPrim::Draw
-// Portados: as operações 1, 3, 4, 5, 6, 7, 0xe, 0xf, 0x10-0x13 e o fim. As outras (2, 8-0xd, 0x14-0x1b: matrizes de
-// paleta para pele, parâmetros por instância) não aparecem nos carros; são puladas e contadas (DrawStats).
-// Divergências: o op 1 não manda o microcódigo (MPG), só marca o microprograma como residente num endereço da memória
-// de código (ele não roda no PC); o op 3 (subir as texturas para a VRAM) não faz nada; as contagens de desempenho
-// (Perf, Count, PCR0/1) não existem.
+// Portados: as operações 1, 3, 4, 5, 6, 7, 0xa, 0xb, 0xd, 0xe, 0xf, 0x10-0x13 e o fim. As outras (2, 8, 9, 0xc,
+// 0x14-0x1b: as paletas com a matriz das normais ortonormalizada, os parâmetros por instância) não aparecem nos carros nem
+// nos personagens; são puladas e contadas (DrawStats). Divergências: o op 1 não manda o microcódigo (MPG), só marca o
+// microprograma como residente num endereço da memória de código (ele não roda no PC); o op 3 (subir as texturas para a
+// VRAM) não faz nada; as contagens de desempenho (Perf, Count, PCR0/1) não existem; o printf de depuração do op 8
+// ("PALLETMATRIX_UPLOAD") não é portado com ele.
 uint32_t GeoPrim_Draw(uint32_t geoprim, DmaBuffer& out, const DrawContext& ctx, DrawStats& stats) {
     ++stats.geoprims;
     uint32_t p = *W(geoprim);
@@ -290,6 +314,44 @@ uint32_t GeoPrim_Draw(uint32_t geoprim, DmaBuffer& out, const DrawContext& ctx, 
             out.advance(size_t(reinterpret_cast<uint8_t*>(end) - out.cur()));
             break;
         }
+        case 0xa:
+        case 0xb: {  // as matrizes de paleta: o EAGLAnimationBuffer pelos índices da lista (0xb: vezes a escala)
+            const uint32_t base = W(p)[1];
+            const uint32_t count = W(p)[2];
+            const uint32_t list = W(p)[3];
+            out.copy(W(p) + 4, size_t(n) * 4);
+            p += (4 + n) * 4;
+            DrawStats::PaletteUpload up;
+            up.data = out.cur();
+            for (uint32_t i = 0; i < count; ++i) {
+                const int32_t bone = int32_t(W(list)[i]);
+                up.bones.push_back(bone);
+                const uint32_t src = base + uint32_t(bone) * 0x40;
+                if (op == 0xa || base < 0x10000) {
+                    out.copy(base < 0x10000 ? nullptr : ptr_at(src), 64);  // só do port: base não resolvida = zeros
+                } else {
+                    uint32_t m[16];
+                    Palette_Multiply(ctx.palette_scale, ptr_at<const uint32_t>(src), m);
+                    out.copy(m, 64);
+                }
+            }
+            stats.palette_matrices += int(count);
+            stats.palette_uploads.push_back(std::move(up));
+            break;
+        }
+        case 0xd: {  // `count` matrizes seguidas de um ponteiro, vezes a escala
+            const uint32_t count = W(p)[1];
+            uint32_t src = W(p)[2];
+            out.copy(W(p) + 3, size_t(n) * 4);
+            p += (3 + n) * 4;
+            for (uint32_t i = 0; i < count; ++i, src += 0x40) {
+                uint32_t m[16] = {};
+                if (src >= 0x10000) Palette_Multiply(ctx.palette_scale, ptr_at<const uint32_t>(src), m);
+                out.copy(m, 64);
+            }
+            stats.palette_matrices += int(count);
+            break;
+        }
         case 0xe:  // abre uma etiqueta CNT
             open_cnt = out.cur();
             out.advance(16);
@@ -322,6 +384,7 @@ uint32_t GeoPrim_Draw(uint32_t geoprim, DmaBuffer& out, const DrawContext& ctx, 
         default:
             ++stats.unported_ops;
             stats.last_unported_op = int(op);
+            ++stats.unported_by_op[op & 31];
             p += uint32_t(op_words(w)) * 4;
             break;
         }
@@ -379,9 +442,12 @@ void register_eagl_types() {
     register_type("EAGL::TAR", [](uint32_t addr, DynamicLoader&) { TAR_Construct(addr); }, nullptr);
     register_runtime_alloc(
         "EAGL::GeoPrimState",
-        [](const char*, DynamicLoader&, uint32_t&, bool&) -> uint32_t {
-            ++runtime_alloc_unported;  // o analisador de 14 KB (0x0027fe80) não foi portado
-            return addr_of(RStateManager_GetGeoPrimState(""));
+        [](const char* spec, DynamicLoader&, uint32_t&, bool&) -> uint32_t {
+            // O analisador (0x0027fe80) com as chaves que os dados usam; uma chave desconhecida conta.
+            int unknown = 0;
+            uint8_t* s = GeoPrimState_FromRuntimeSpec(spec, &unknown);
+            if (unknown) ++runtime_alloc_unported;
+            return addr_of(s);
         },
         nullptr);
     register_runtime_alloc(

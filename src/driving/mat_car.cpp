@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <memory>
+
+#include "platform/ps2_float.h"
 
 namespace drv {
 
@@ -32,6 +35,13 @@ const CarMethodLayout kLayouts[] = {
     // As luzes: o SwitchData em 0x11 empurra o resto um qword (SplitReg 0x12); o SwitchParam em 0xf1, depois do DmgNrm.
     {"MatCarTextureSwitchPacked", kPassBase, true, 44, 0, 1, 5, 9, 0x0a, 0, 0, 0x12, 0x15, 0x41, 0x6d, 0x99, 0xc5,
      0x107, 0x133, 0x134, 0xfb, 0, kCarSwitch, 0, 0, 0x11, 0xf1},
+    // O Gouraud (mat_car.h): sem textura; o "stq" é a área de luz 0xce, a "cor" a de trabalho 0xfa; ColourSlot 0xbd e
+    // ColourSet 0xbe.
+    {"MatCarGouraudDullPacked", kPassBase, true, 44, 0, 1, 5, 9, 0, 0, 0, 0x0a, 0x0d, 0xce, 0x39, 0x65, 0x91, 0xfa,
+     0x126, 0x127, 0xc6, 0, kCarGouraud, 0, 0, 0, 0, 0xbd, 0xbe},
+    // A sombra (mat_car.h): só posição e cor; a "cor" é o CarShadowColour 0xa8; dois qwords por vértice na saída.
+    {"BondCarShadow", kPassBase, false, 160, 0, 1, 0, 0, 0, 0, 0, 0x05, 0x08, 0, 0, 0, 0, 0xa8, 0xb4, 0xb5, 0xac, 0,
+     kCarShadow, 0, 0, 0, 0, 0, 0, 2},
 };
 
 float bits(uint32_t u) {
@@ -133,7 +143,10 @@ bool car_decode_batch(const VuMemory& m, uint32_t top, const CarMethodLayout& l,
         eagl::gs_read_packet(reinterpret_cast<const uint8_t*>(buf), qw, regs);
     };
     for (int p = 0; p < kCarMaxPasses; ++p) b.pass[p] = eagl::GsRegs();
-    if (l.kind == kCarGlass) {
+    if (l.kind == kCarGouraud || l.kind == kCarShadow) {
+        // Só o State (o XGKICK de TOP+state): o Gouraud e a sombra não têm textura.
+        packet(l.state, 8, b.pass[0]);
+    } else if (l.kind == kCarGlass) {
         // O GlassDmgState com o DmgTexture e depois com o Texture; o EnvMapState com o especular e com o reflexo.
         packet(l.state, 8, b.pass[0]);
         packet(l.tar_dmg, 7, b.pass[0]);
@@ -157,6 +170,8 @@ bool car_decode_batch(const VuMemory& m, uint32_t top, const CarMethodLayout& l,
     }
     b.strip = (m.u(t + l.state + 1, 0) & 7) != 3;
     for (int i = 0; i < 12; ++i) b.split[i] = int(m.u(t + l.split + i / 4, i % 4) & 0xFFFF);
+    if (l.kind == kCarShadow)
+        for (int c = 0; c < 4; ++c) b.shadow_colour[c] = m.u(t + l.colour, c);
     b.v.resize(size_t(b.count));
     for (int i = 0; i < b.count; ++i) {
         CarVertexIn& v = b.v[size_t(i)];
@@ -166,12 +181,90 @@ bool car_decode_batch(const VuMemory& m, uint32_t top, const CarMethodLayout& l,
         for (int c = 0; c < 4; ++c) v.dmgvec[c] = m.u(t + l.dmgvec + i, c);
         for (int c = 0; c < 4; ++c) v.dmgnrm[c] = m.u(t + l.dmgnrm + i, c);
     }
+    if (l.kind == kCarGouraud) car_gouraud_colours(m, top, l, b);
     return true;
+}
+
+// [driving] MatCarGouraudDullPacked 0x0e-0x36 (o microprograma): o passo 1 grava (x I1 - 32, y I1 - 32, 1, 0) nos
+// `count` qwords da área de luz a partir do .xy que estava lá (ITOF0.xy, MULAi.xy, MADDw.xy com vf24 = -32 e o vf21 de
+// partida (0, 0, 1, 0)); depois um LQI só, de ColourSet + slot (ILWR.x do ColourSlot, IADD de 16 bits), e o laço
+// 0x34-0x36 grava esse mesmo qword `count` vezes na cor de trabalho: o lote inteiro tem uma cor, a do slot (as variações
+// de cor do carro). Feito numa cópia da memória da VU: com um slot de 16 ou mais a origem cai na área de luz já
+// convertida, como no PS2.
+void car_gouraud_colours(const VuMemory& m, uint32_t top, const CarMethodLayout& l, CarBatch& b) {
+    auto mem = std::make_unique<VuMemory>(m);
+    const int t = int(top);
+    const uint32_t i1 = 0x3a7ffff7u, m32 = ps2::fbits(-32.0f), one = 0x3f800000u;
+    for (int i = 0; i < b.count; ++i) {
+        const int q = (t + l.stq + i) & 1023;
+        uint32_t* w = &mem->w[q << 2];
+        for (int c = 0; c < 2; ++c) w[c] = ps2::madd(ps2::mul(ps2::from_int(int32_t(w[c])), i1), m32, one);
+        w[2] = one;
+        w[3] = 0;
+    }
+    const uint32_t slot = mem->u(t + l.colour_slot, 0) & 0xFFFFu;
+    const int from = int(((uint32_t(t + l.colour_set) + slot) & 0xFFFFu) & 1023u);
+    for (int i = 0; i < b.count; ++i) std::memcpy(b.v[size_t(i)].colour, &mem->w[from << 2], 16);
+}
+
+// [driving] MatCarGouraudDullPacked 0x37-0x106 (o microprograma), a cor de um vértice com as operações da VU na ordem
+// do código: o dano (MULw.xyz pela escala, MAXi 0, FTOI0.xyz), a luz direcional vezes o (127, 127, 127) de 0xce (MULAx,
+// MADDAy, MADDAz, MADDw do ambiente; MUL; MINIi 255; FTOI0) e as pontuais somadas a ela (MULAw por 1, MADDAx/y/z,
+// MADDw), MINIi 255, vezes a cor (MUL.xyz), vezes 1/128 (MULi), FTOI0.
+void car_gouraud_vertex(const uint32_t colour[4], float s_rgb, const float A[3][3], const float n[3], const float pw[3],
+                        const float props[4], const CarConstants& k, int32_t rgba[4]) {
+    using ps2::fbits;
+    const uint32_t zero = 0, one = 0x3f800000u, k255 = fbits(255.0f), k127 = fbits(127.0f), inv128 = 0x3c000000u;
+    // O dano: a cor ITOF0 vezes a escala, no mínimo 0, FTOI0.
+    uint32_t col[3];
+    for (int c = 0; c < 3; ++c) {
+        const uint32_t v = ps2::max(ps2::mul(ps2::from_int(int32_t(colour[c])), fbits(s_rgb)), zero);
+        col[c] = uint32_t(ps2::to_int(v));
+    }
+    // A luz direcional (C0 x difusa e o ambiente x prop. ambiente, como no começo do trecho).
+    uint32_t d[3];
+    for (int c = 0; c < 3; ++c) {
+        uint32_t acc = ps2::mul(fbits(A[0][c]), fbits(n[0]));
+        acc = ps2::madd(acc, fbits(A[1][c]), fbits(n[1]));
+        d[c] = ps2::max(ps2::madd(acc, fbits(A[2][c]), fbits(n[2])), zero);
+    }
+    int32_t dir[3];
+    for (int c = 0; c < 3; ++c) {
+        const uint32_t c0 = ps2::mul(fbits(k.light_col[0][c]), fbits(props[1]));
+        const uint32_t amb = ps2::mul(fbits(k.ambient[c]), fbits(props[0]));
+        uint32_t acc = ps2::mul(c0, d[0]);
+        acc = ps2::madd(acc, fbits(k.light_col[1][c]), d[1]);
+        acc = ps2::madd(acc, fbits(k.light_col[2][c]), d[2]);
+        const uint32_t l = ps2::madd(acc, amb, one);
+        dir[c] = ps2::to_int(ps2::min(ps2::mul(l, k127), k255));
+    }
+    // As luzes pontuais: att = max(0, d² x (-K) + 255).
+    uint32_t att[4];
+    for (int L = 0; L < 4; ++L) {
+        uint32_t dd[3];
+        for (int c = 0; c < 3; ++c) dd[c] = ps2::sub(fbits(k.point_pos[c][L]), fbits(pw[c]));
+        uint32_t d2 = ps2::mul(dd[0], dd[0]);
+        d2 = ps2::madd(d2, dd[1], dd[1]);
+        d2 = ps2::madd(d2, dd[2], dd[2]);
+        const uint32_t nk = ps2::mul(fbits(k.point_pos[3][L]), fbits(-1.0f));
+        att[L] = ps2::max(ps2::madd(ps2::mul(d2, nk), k255, one), zero);
+    }
+    for (int c = 0; c < 3; ++c) {
+        uint32_t acc = ps2::mul(ps2::from_int(dir[c]), one);
+        acc = ps2::madd(acc, fbits(k.point_col[0][c]), att[0]);
+        acc = ps2::madd(acc, fbits(k.point_col[1][c]), att[1]);
+        acc = ps2::madd(acc, fbits(k.point_col[2][c]), att[2]);
+        uint32_t v = ps2::min(ps2::madd(acc, fbits(k.point_col[3][c]), att[3]), k255);
+        v = ps2::mul(ps2::mul(v, ps2::from_int(int32_t(col[c]))), inv128);
+        rgba[c] = ps2::to_int(v);
+    }
+    rgba[3] = int32_t(colour[3]);
 }
 
 CarVertexWork car_convert(const CarMethodLayout& l, const CarVertexIn& v) {
     CarVertexWork o{};
     for (int c = 0; c < 3; ++c) o.pos[c] = bits(v.pos[c]);
+    for (int c = 0; c < 4; ++c) o.colour[c] = v.colour[c];
     o.zone = v.dmgnrm[3];
     if (l.packed) {
         // ITOF0 e depois ACC = x * I, resultado = ACC + (-32 ou -1) x 1 (MULAi + MADDw).
@@ -189,11 +282,63 @@ CarVertexWork car_convert(const CarMethodLayout& l, const CarVertexIn& v) {
     return o;
 }
 
+namespace {
+
+// [driving] BondCarShadow 0x0e-0x40 (o microprograma): clip = p x MyMatrix, Q = 1/w, tela = VU 0 + clip x VU 1 x Q,
+// XYZF = FTOI4 com w 0, ou 2047 quando o FCAND 0x3ffff (os seis indicadores dos três últimos CLIPw) dá algo; o RGBAQ é o
+// CarShadowColour. O CLIP do vértice i entra na decisão do vértice i (o pipeline guarda o XYZF dele depois do FCAND).
+void shadow_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVertexOut>& out) {
+    const int n = b.count;
+    out.assign(size_t(n), CarVertexOut{});
+    uint32_t flags = 0;  // os indicadores do CLIP, 6 bits por chamada (o mais novo em baixo)
+    using ps2::fbits;
+    for (int i = 0; i < n; ++i) {
+        // MULAx/MADDAy/MADDAz/MADDw, CLIPw, MUL pela escala, DIV Q = 1/w, ADDA do deslocamento e MADDq, FTOI4: na
+        // aritmética da VU (o Z perto de 2^28 perderia ulps no arredondamento do PC).
+        uint32_t clip[4];
+        for (int c = 0; c < 4; ++c) {
+            uint32_t a = ps2::mul(fbits(b.mvp[0][c]), b.v[size_t(i)].pos[0]);
+            a = ps2::madd(a, fbits(b.mvp[1][c]), b.v[size_t(i)].pos[1]);
+            a = ps2::madd(a, fbits(b.mvp[2][c]), b.v[size_t(i)].pos[2]);
+            clip[c] = ps2::madd(a, fbits(b.mvp[3][c]), 0x3f800000u);
+        }
+        const uint32_t aw = ps2::abs(clip[3]);
+        uint32_t f = 0;
+        for (int c = 0; c < 3; ++c) {
+            if (ps2::less(aw, clip[c])) f |= 1u << (c * 2);
+            if (ps2::less(clip[c], ps2::neg(aw))) f |= 1u << (c * 2 + 1);
+        }
+        flags = ((flags << 6) | f) & 0xFFFFFFu;
+        const uint32_t q = ps2::div(0x3f800000u, clip[3]);
+        CarVertexOut& v = out[size_t(i)];
+        for (int c = 0; c < 3; ++c) {
+            const uint32_t s = ps2::mul(clip[c], fbits(k.vp_scale[c]));
+            v.xyzf[c] = ps2::to_int(ps2::madd(fbits(k.vp_offset[c]), s, q), 4);
+        }
+        v.xyzf[3] = (i > 0 && (flags & 0x3FFFFu)) ? ftoi(2047.0f, 4) : 0;
+        for (int c = 0; c < 4; ++c) v.rgba[c] = int32_t(b.shadow_colour[c]);
+    }
+    for (int s : b.split) {
+        const int v = s / 2;
+        for (int j = v; j < v + 2 && j < n; ++j) {
+            out[size_t(j)].xyzf[3] = 0x8000;
+            out[size_t(j)].adc = true;
+        }
+    }
+}
+
+}  // namespace
+
 void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVertexOut> out[kCarMaxPasses]) {
     const int n = b.count;
     const int passes = b.layout ? b.layout->passes : kPassBase;
     const bool glass = b.layout && b.layout->kind == kCarGlass;
+    const bool gouraud = b.layout && b.layout->kind == kCarGouraud;
     for (int p = 0; p < kCarMaxPasses; ++p) out[p].assign(size_t((passes >> p) & 1 ? n : 0), CarVertexOut{});
+    if (b.layout && b.layout->kind == kCarShadow) {
+        shadow_reference(b, k, out[0]);
+        return;
+    }
 
     // Passos 0-2: a cor de partida (127, 127, 127, 128) = vf00 + 127, a conversão e o dano.
     struct Work {
@@ -269,6 +414,48 @@ void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVert
     // As luzes: o passo do SwitchData.
     if (b.layout && b.layout->kind == kCarSwitch)
         for (int i = 0; i < n; ++i) car_switch_colour(b.switch_data, b.switch_param, w[size_t(i)].col);
+
+    // O Gouraud: a cor dos passos 3-5 do microprograma, na aritmética da VU (car_gouraud_vertex); o STQ é zero (a área de
+    // luz lida como float: denormais).
+    if (gouraud) {
+        using ps2::fbits;
+        using ps2::ffloat;
+        const uint32_t one = 0x3f800000u, i1 = 0x3a7ffff7u, i2 = 0x3c008080u, m32 = fbits(-32.0f), m1 = fbits(-1.0f);
+        float Ag[3][3];
+        for (int i = 0; i < 3; ++i) {
+            const uint32_t x = fbits(b.world[i][0]), y = fbits(b.world[i][1]), z = fbits(b.world[i][2]);
+            const uint32_t p = ps2::rsqrt(one, ps2::add(ps2::add(ps2::mul(x, x), ps2::mul(y, y)), ps2::mul(z, z)));
+            const uint32_t rn[3] = {ps2::mul(x, p), ps2::mul(y, p), ps2::mul(z, p)};
+            for (int c = 0; c < 3; ++c) {
+                uint32_t a = ps2::mul(fbits(k.light_dir_t[0][c]), rn[0]);
+                a = ps2::madd(a, fbits(k.light_dir_t[1][c]), rn[1]);
+                Ag[i][c] = ffloat(ps2::madd(a, fbits(k.light_dir_t[2][c]), rn[2]));
+            }
+        }
+        for (int i = 0; i < n; ++i) {
+            const CarVertexIn& in = b.v[size_t(i)];
+            const float* z = k.damage[in.dmgnrm[3] & 15];
+            float nn[3], pos[3], pw[3];
+            for (int c = 0; c < 3; ++c) {
+                const uint32_t nr = ps2::madd(ps2::mul(ps2::from_int(int32_t(in.normal[c])), i2), m1, one);
+                const uint32_t dn = ps2::madd(ps2::mul(ps2::from_int(int32_t(in.dmgnrm[c])), i1), m32, one);
+                const uint32_t dv = ps2::madd(ps2::mul(ps2::from_int(int32_t(in.dmgvec[c])), i1), m32, one);
+                nn[c] = ffloat(ps2::madd(nr, dn, fbits(z[0])));
+                pos[c] = ffloat(ps2::madd(in.pos[c], dv, fbits(z[0])));
+            }
+            const uint32_t dvw = ps2::madd(ps2::mul(ps2::from_int(int32_t(in.dmgvec[3])), i1), m32, one);
+            const float s_rgb = ffloat(ps2::msub(one, dvw, fbits(z[1])));
+            for (int c = 0; c < 3; ++c) {
+                uint32_t a = ps2::mul(fbits(b.world[0][c]), fbits(pos[0]));
+                a = ps2::madd(a, fbits(b.world[1][c]), fbits(pos[1]));
+                a = ps2::madd(a, fbits(b.world[2][c]), fbits(pos[2]));
+                pw[c] = ffloat(ps2::madd(a, fbits(b.world[3][c]), one));
+            }
+            Work& o = w[size_t(i)];
+            car_gouraud_vertex(in.colour, s_rgb, Ag, nn, pw, b.props, k, o.col);
+            for (float& s : o.stq) s = 0.0f;
+        }
+    }
 
     // Passo 5: a transformação, a névoa e a primeira passada.
     std::vector<bool> adc(size_t(n) + 2, false);
@@ -360,8 +547,9 @@ void car_reference(const CarBatch& b, const CarConstants& k, std::vector<CarVert
 void car_triangles(const CarBatch& b, std::vector<uint16_t>& tris, bool closing_first) {
     const int n = b.count;
     std::vector<bool> adc(size_t(n) + 2, false);
+    const int per_vertex = b.layout && b.layout->out_qw > 0 ? b.layout->out_qw : 3;
     for (int s : b.split) {
-        const int v = s / 3;
+        const int v = s / per_vertex;
         if (v < n) adc[size_t(v)] = true;
         if (v + 1 < n) adc[size_t(v) + 1] = true;
     }

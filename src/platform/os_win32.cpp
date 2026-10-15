@@ -380,7 +380,16 @@ void show_error(const std::wstring& title, const std::wstring& text) {
     MessageBoxW(nullptr, text.c_str(), title.c_str(), MB_ICONERROR);
 }
 
-void show_error_narrow(const char* title, const char* text) { MessageBoxA(nullptr, text, title, MB_ICONERROR); }
+// O texto é UTF-8 (as fontes do port são UTF-8): MessageBoxA o mostrava na página ANSI ("nÃ£o", 2026-10-15). Sem
+// alocar: a arena chama isto de dentro do primeiro operator new quando não consegue a memória.
+void show_error_narrow(const char* title, const char* text) {
+    wchar_t wtitle[128], wtext[1024];
+    if (MultiByteToWideChar(CP_UTF8, 0, title, -1, wtitle, 128) == 0) wtitle[0] = 0;
+    if (MultiByteToWideChar(CP_UTF8, 0, text, -1, wtext, 1024) == 0) {
+        wtext[1023] = 0;  // longo demais: o que coube
+    }
+    MessageBoxW(nullptr, wtext, wtitle, MB_ICONERROR);
+}
 
 void exit_process(int code) { ExitProcess(UINT(code)); }
 

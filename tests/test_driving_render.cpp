@@ -712,7 +712,8 @@ TEST(driving_matcar_reference_by_hand) {
     CHECK(l && l->passes == (kPassBase | kPassSpec | kPassRefl) && l->packed && car_method_layout("MatCarChrome") &&
           car_method_layout("MatCarTextureDullPacked"));
     CHECK(car_method_layout("MatCarGlassPacked") && car_method_layout("MatCarTextureSwitchPacked") &&
-          !car_method_layout("MatCarGouraudDullPacked"));
+          car_method_layout("MatCarGouraudDullPacked") && car_method_layout("BondCarShadow") &&
+          !car_method_layout("MatCarGouraud"));
     CarBatch b = one_vertex_batch(l);
     CarConstants k;
     // Janela de vista: escala 1, deslocamento 0 (a tela = o clip / w). Névoa: perto 0, longe 10, escala 2.
@@ -972,6 +973,66 @@ TEST(driving_matcar_switch_lights) {
     b.switch_param[0] = 1.0f;
     car_reference(b, k, out);
     CHECK(out[0][0].rgba[0] == 255 && out[0][0].rgba[3] == 255);
+}
+
+// O Gouraud (MatCarGouraudDullPacked) e a sombra (BondCarShadow) à mão: a cor por vértice vezes a luz (o ambiente vezes
+// 127, mais a difusa), / 128, sem limite (o GS lê os 8 bits de baixo); a sombra: a posição pela MyMatrix, o FTOI4 da tela
+// e o w 2047 quando um dos três últimos vértices sai da janela de recorte.
+TEST(driving_matcar_gouraud_and_shadow_by_hand) {
+    CarConstants k;
+    for (int c = 0; c < 3; ++c) k.ambient[c] = 1.0f;
+    const float A[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    const float up[3] = {0, 1, 0}, pw[3] = {0, 0, 0}, props[4] = {1, 1, 0, 0};
+    const uint32_t col[4] = {200, 100, 50, 77};
+    int32_t rgba[4];
+    car_gouraud_vertex(col, 1.0f, A, up, pw, props, k, rgba);
+    // 127 (o ambiente 1) x 200 / 128 = 198,4 -> 198; o alfa é o w cru.
+    CHECK(rgba[0] == 198 && rgba[1] == 99 && rgba[2] == 49 && rgba[3] == 77);
+    // O dano escurece a cor antes (200 x 0,5 = 100 -> 99).
+    car_gouraud_vertex(col, 0.5f, A, up, pw, props, k, rgba);
+    CHECK(rgba[0] == 99);
+    // As cores além de 255 do ColourSet passam inteiras (297; o GS lê 41).
+    const uint32_t junk[4] = {300, 0, 0, 0x1ff};
+    car_gouraud_vertex(junk, 1.0f, A, up, pw, props, k, rgba);
+    CHECK(rgba[0] == 297 && rgba[3] == 0x1ff);
+    // A luz direcional 0 (0,5) de frente para a normal x: (0,5 + 1) x 127 = 190,5 -> 190; 190 x 200 / 128 = 296,9.
+    for (int c = 0; c < 3; ++c) k.light_col[0][c] = 0.5f;
+    const float nx[3] = {1, 0, 0};
+    car_gouraud_vertex(col, 1.0f, A, nx, pw, props, k, rgba);
+    CHECK(rgba[0] == 296);
+    // De costas para ela: só o ambiente.
+    const float mx[3] = {-1, 0, 0};
+    car_gouraud_vertex(col, 1.0f, A, mx, pw, props, k, rgba);
+    CHECK(rgba[0] == 198);
+
+    const CarMethodLayout* l = car_method_layout("BondCarShadow");
+    CHECK(l && l->kind == kCarShadow && l->passes == kPassBase && l->out_qw == 2);
+    CarBatch b;
+    b.layout = l;
+    b.count = 3;
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c) b.mvp[r][c] = r == c ? 1.0f : 0.0f;
+    for (int& s : b.split) s = 100;  // sem recomeço de faixa
+    const float pos[3][3] = {{0.5f, 0.25f, 0.5f}, {2.0f, 0.0f, 0.5f}, {0.2f, 0.1f, 0.3f}};
+    for (int i = 0; i < 3; ++i) {
+        CarVertexIn v{};
+        for (int c = 0; c < 3; ++c) v.pos[c] = ubits(pos[i][c]);
+        b.v.push_back(v);
+    }
+    const uint32_t shade[4] = {0x30, 0x30, 0x30, 0x80};
+    std::memcpy(b.shadow_colour, shade, sizeof shade);
+    CarConstants ks;
+    for (int c = 0; c < 4; ++c) {
+        ks.vp_scale[c] = 1.0f;
+        ks.vp_offset[c] = 0.0f;
+    }
+    std::vector<CarVertexOut> out[kCarMaxPasses];
+    car_reference(b, ks, out);
+    CHECK(out[0].size() == 3 && out[1].empty());
+    CHECK(out[0][0].xyzf[0] == 8 && out[0][0].xyzf[1] == 4 && out[0][0].xyzf[2] == 8 && out[0][0].xyzf[3] == 0);
+    // O vértice 1 sai da janela (x > w): ele e o seguinte levam w = 2047 x 16 (o triângulo é descartado no GS).
+    CHECK(out[0][1].xyzf[3] == 2047 * 16 && out[0][2].xyzf[3] == 2047 * 16);
+    CHECK(out[0][2].rgba[0] == 0x30 && out[0][2].rgba[3] == 0x80);
 }
 
 // As constantes globais vão para a memória da VU nos endereços do microprograma e voltam iguais (a conferência contra o

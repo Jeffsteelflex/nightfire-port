@@ -49,4 +49,11 @@ AudioOutStats audio_out_stats();
 // Testes: volta ao estado inicial (Off, contadores zerados).
 void audio_out_debug_power_on();
 
+// A fonte da mistura (só do port): nula é a SPU2 do jogo a pé (sfx_iop.h spu()); o nf_driving põe a do som das missões
+// de carro (driving/sound/snd_spu.h snd_render). stats: a SPU2 cujas saturações o fechamento do WAV mede (nula: a do
+// jogo a pé).
+class Spu2;
+using AudioSource = void (*)(int16_t* out, int frames);
+void audio_out_set_source(AudioSource render, const Spu2* stats);
+
 }  // namespace nf

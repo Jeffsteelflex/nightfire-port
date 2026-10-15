@@ -45,7 +45,7 @@ void Vif1::unpack(uint32_t code, const uint32_t* data, size_t avail, size_t& use
     const bool usn = (imm >> 14) & 1;
     const bool flg = (imm >> 15) & 1;
     uint32_t addr = (imm & 0x3FF) + (flg ? st.tops : 0);
-    unpack_log.push_back({cmd, addr & 1023, num});
+    unpack_log.push_back({cmd, addr & 1023, num, source_of(data)});
     const int comps = vn + 1;
     const int bits = (vn == 3 && vl == 3) ? 16 : element_bits(vl) * comps;  // V4-5 ocupa 16 bits
     // Quantos vetores vêm de dados: com escrita preenchida (CL < WL), só CL de cada WL.
@@ -185,13 +185,23 @@ void Vif1::process(const uint32_t* w, size_t n) {
     }
 }
 
+const uint32_t* Vif1::source_of(const uint32_t* p) const {
+    if (!stream_ || p < stream_ || p >= stream_ + stream_words_) return nullptr;
+    const size_t off = size_t(p - stream_);
+    for (const Segment& g : segments_)
+        if (off >= g.start && off < g.start + g.words) return nf::p32_ptr<const uint32_t>(g.addr) + (off - g.start);
+    return nullptr;
+}
+
 void Vif1::run_dma_chain(uint32_t tag_addr, int max_tags) {
     std::vector<uint32_t> stream;
     uint32_t stack[2];
     int sp = 0;
     uint32_t t = tag_addr;
+    segments_.clear();
     auto push_qw = [&](uint32_t a, uint32_t qwc) {
         const uint32_t* p = nf::p32_ptr<const uint32_t>(a);
+        if (qwc) segments_.push_back({stream.size(), size_t(qwc) * 4, a});
         stream.insert(stream.end(), p, p + size_t(qwc) * 4);
     };
     for (int guard = 0; guard < max_tags && t; ++guard) {
@@ -242,7 +252,11 @@ void Vif1::run_dma_chain(uint32_t tag_addr, int max_tags) {
         }
         if (end) break;
     }
+    stream_ = stream.data();
+    stream_words_ = stream.size();
     process(stream.data(), stream.size());
+    stream_ = nullptr;
+    stream_words_ = 0;
 }
 
 }  // namespace drv

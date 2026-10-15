@@ -56,6 +56,7 @@ public:
         int cmd = 0;          // o comando (0x60-0x7f)
         uint32_t addr = 0;    // o endereço absoluto do primeiro qword escrito
         int num = 0;          // qwords escritos
+        const uint32_t* src = nullptr;  // de onde vieram os dados (na memória que a cadeia de DMA lê; nulo fora dela)
     };
     std::vector<UnpackRecord> unpack_log;
 
@@ -71,6 +72,15 @@ private:
     void unpack(uint32_t code, const uint32_t* data, size_t avail_words, size_t& used_words);
     // Restos de um comando que atravessa o fim de um pedaço de DMA (UNPACK, STROW... partidos entre etiquetas).
     std::vector<uint32_t> pending_;
+    // Só do port: de onde veio cada pedaço das palavras que run_dma_chain junta (para UnpackRecord::src).
+    struct Segment {
+        size_t start = 0, words = 0;
+        uint32_t addr = 0;
+    };
+    std::vector<Segment> segments_;
+    const uint32_t* stream_ = nullptr;
+    size_t stream_words_ = 0;
+    const uint32_t* source_of(const uint32_t* p) const;
 };
 
 }  // namespace drv

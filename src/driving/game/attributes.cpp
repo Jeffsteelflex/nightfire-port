@@ -46,6 +46,20 @@ const CarField kCarFields[] = {
     {"NO_WORLD_COLLISIONS", 0xc4, true}, {"SUB_PHYSICS", 0xc0, true}, {"IS_BOAT", 0xcc, true},
 };
 
+// Os campos da "PhysicsData" da classe "smackable" (PhysicsNamespace::PhysicsNamespace 0x194e18): float (0x16c1d0),
+// bool (0x16be88: true/false/on/off, senão atoi != 0), vetor (0x16c328: até três floats separados por vírgulas). Os sons
+// (0x194d48, o nome no banco de sons) não são lidos (ficam -1).
+enum class SmackKind { Float, Bool, Vector };
+struct SmackField {
+    const char* key;
+    uint32_t offset;
+    SmackKind kind;
+};
+const SmackField kSmackFields[] = {
+    {"MASS", 0x04, SmackKind::Float}, {"HITPOINTS", 0x08, SmackKind::Float}, {"DESCRIPTION", 0x28, SmackKind::Float},
+    {"FORCE_DETACH", 0x0c, SmackKind::Bool}, {"MOMENT", 0x0c, SmackKind::Vector},
+};
+
 std::string trim(const std::string& s) {
     size_t a = 0, b = s.size();
     while (a < b && (s[a] == ' ' || s[a] == '\t' || s[a] == '\r')) ++a;
@@ -94,6 +108,8 @@ bool AttributeCollection::load(const Bigf& arc, const std::string& cls, const st
     values_.clear();
     has_physics_ = false;
     physics_ = CarPhysics{};
+    has_smackable_ = false;
+    smackable_ = SmackablePhysicsData{};
     parent_.reset();
     if (!same_ci(name, "default")) {
         parent_ = std::make_shared<AttributeCollection>();
@@ -122,6 +138,35 @@ bool AttributeCollection::load(const Bigf& arc, const std::string& cls, const st
             if (k.size() > 2 && k[k.size() - 2] == '.') k.resize(k.size() - 2);  // o sufixo de tipo
             if (k.empty()) continue;
             values_[k] = value;
+            if (cls == "smackable") {
+                for (const SmackField& f : kSmackFields) {
+                    if (k != f.key) continue;
+                    uint8_t* base = reinterpret_cast<uint8_t*>(&smackable_);
+                    if (f.kind == SmackKind::Float) {
+                        const float v = float(std::strtod(value.c_str(), nullptr));
+                        std::memcpy(base + f.offset, &v, 4);
+                    } else if (f.kind == SmackKind::Bool) {
+                        const std::string t = trim(value);
+                        int32_t v;
+                        if (same_ci(t, "true") || same_ci(t, "on")) v = 1;
+                        else if (same_ci(t, "false") || same_ci(t, "off")) v = 0;
+                        else v = std::atoi(t.c_str()) != 0 ? 1 : 0;
+                        std::memcpy(base + f.offset, &v, 4);
+                    } else {
+                        const char* c = value.c_str();
+                        for (int i = 0; i < 3 && *c; ++i) {
+                            char* end = nullptr;
+                            const float v = float(std::strtod(c, &end));
+                            if (end == c) break;
+                            std::memcpy(base + f.offset + 4 * i, &v, 4);
+                            c = end;
+                            while (*c == ',' || *c == ' ') ++c;
+                        }
+                    }
+                    has_smackable_ = true;
+                }
+                continue;
+            }
             if (cls != "pvehicle") continue;
             for (const CarField& f : kCarFields) {
                 if (k != f.key) continue;
@@ -170,6 +215,11 @@ bool AttributeCollection::lookup_bool(const std::string& key, bool* found) const
     if (!ok) return false;
     const std::string t = trim(v);
     return same_ci(t, "true") || t == "1";
+}
+
+const SmackablePhysicsData& AttributeCollection::physics_data() const {
+    if (has_smackable_ || !parent_) return smackable_;
+    return parent_->physics_data();
 }
 
 const CarPhysics& AttributeCollection::car_physics() const {

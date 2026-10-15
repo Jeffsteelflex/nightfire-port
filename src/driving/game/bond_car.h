@@ -21,15 +21,20 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <array>
 #include <string>
 #include <vector>
 
+#include "driving/game/feedback.h"
 #include "driving/physics/rigid_body.h"
 #include "driving/physics/world.h"
 #include "platform/ptr32.h"
 
 namespace drv {
+
+class Vehicle;
 
 // Os controles de um carro (0x20 bytes): o que o jogador ou a IA pede neste passo.
 struct BondCarControl {
@@ -219,11 +224,15 @@ struct alignas(16) PBondCarData {
     int32_t emp_active;               // +0x380
     int32_t emp_timer;                // +0x384
     uint32_t audio;                   // +0x388 o som do motor
-    uint8_t unknown38c[0x14];         // +0x38c
+    int32_t turn_signal_start;        // +0x38c o passo em que a seta começou a piscar
+    uint32_t turn_signal_period;      // +0x390 60 (o construtor)
+    float turn_signal_lit;            // +0x394 a parte acesa do período (0,4)
+    float turn_signal_cancel;         // +0x398 a direção que desliga a seta
+    int32_t turn_signal_mode;         // +0x39c 0 desligada, 1 a esquerda (brilho 3), 2 a direita (brilho 4)
     uint8_t laser_active;             // +0x3a0
     uint8_t unknown3a1[3];            // +0x3a1
     int32_t laser_timer;              // +0x3a4
-    uint8_t unknown3a8[0x40];         // +0x3a8
+    int32_t glare_on[16];             // +0x3a8 GlareOn/GlareOff: o brilho (a lâmpada) de cada SwitchData ligado
     int32_t reset_available;          // +0x3e8 passos de cabeça para baixo no chão (até 30)
     uint8_t unknown3ec[4];            // +0x3ec
     float reset_direction[3];         // +0x3f0 (lqc2: o w é locked_control.steering, que não muda)
@@ -260,12 +269,15 @@ static_assert(offsetof(PBondCarData, slot) == 0x46 && offsetof(PBondCarData, vta
               offsetof(PBondCarData, damage_zones) == 0x2f0 && offsetof(PBondCarData, audio) == 0x388 &&
               offsetof(PBondCarData, reset_available) == 0x3e8 && offsetof(PBondCarData, reset_direction) == 0x3f0 &&
               offsetof(PBondCarData, control_lock_timer) == 0x41c && offsetof(PBondCarData, oil_slick) == 0x43c &&
-              offsetof(PBondCarData, steer_vertical_target) == 0x444 && offsetof(PBondCarData, was_in_air) == 0x458);
+              offsetof(PBondCarData, steer_vertical_target) == 0x444 && offsetof(PBondCarData, was_in_air) == 0x458 &&
+              offsetof(PBondCarData, turn_signal_mode) == 0x39c && offsetof(PBondCarData, glare_on) == 0x3a8);
 
 // As constantes de ajuste do carro: os bancos "Physics:Physical" e "Physics:Friction" (o .data 0x331970..0x331a57,
 // registrados por PBondCar::InitializeBondCarGlobals 0x185668 com os valores iniciais do .data; o default.tun de cada
 // banco os sobrescreve pelo nome exato, como o banco "Physics:Rigid").
 struct BondCarTuning {
+    float far_distance_sq = 2500.0f;            // 0x331960 (sem registro) um carro do tráfego mais longe da câmera anda
+                                                // um passo em dois
     float enable_roll_stops_threshold = 0.2f;   // 0x331970 ENABLE_ROLL_STOPS_THRESHOLD
     float base_friction_mass = 8.0f;            // 0x331974 BASE_FRICTION_MASS
     float shred_drag = 2.0f;                    // 0x331980 SHRED_DRAG
@@ -336,6 +348,9 @@ float PBondCar_CalculateRPM(BondCar& car);
 void PBondCar_GetControllerInput(BondCar& car);
 // [driving] 0x00188200 PBondCar::Simulate (a parte que move o carro do jogador; ver o .cpp).
 void PBondCar_Simulate(BondCar& car);
+// O fim do PBondCar::Simulate que vai ao objeto de som (GetAudio()): quem tem o som liga (o nf_driving, com
+// driving/sound/audio.h PBondCar_AudioFeed); rpm é o PBondCar::CalculateRPM do passo.
+std::function<void(BondCar& car, float rpm)>& bond_car_audio_hook();
 // [driving] 0x001931f8 PBondCar::IsWheelOnGround
 bool PBondCar_IsWheelOnGround(const BondCar& car, int wheel);
 // [driving] 0x00210540 Util_GenerateMatrix(MATRIX4 &, COORD3 &): a orientação que olha para a direção (a linha 2), com
@@ -347,11 +362,87 @@ void PBondCar_InitializeCarVariables(BondCar& car, bool init_controls, uint32_t 
 void PBondCar_InitializeCarControls(BondCar& car);
 // [driving] 0x00187578 PBondCar::ResetDamage (sem o RSceneObj::Reset do render)
 void PBondCar_ResetDamage(BondCar& car);
+// [driving] 0x0018b730 PBondCar::ClearEMPState
+void PBondCar_ClearEMPState(BondCar& car);
+
+// ---- o dano (driving/game/bond_car_damage.cpp, docs/driving.md seção 21)
+// [driving] 0x00189598 PBondCar::ApplyDamage(COORD3 &de, COORD3 &para, float dano, float divisão, DamageT tipo,
+// Signature *): o ponto do segmento de -> para na caixa do carro (FindOBBIntersect), a zona de dano (CalcDamageZone), os
+// pneus (o EMP do tipo 2), a vida (LoseHitPoints, o escudo +0x434, a imunidade), as mortes da missão, a força de um tiro
+// (o tipo 2), as zonas +0x2f0 e o que vai ao render (estímulos, TriggerFX). Devolve as bandeiras do ECollision (0x10,
+// 0x70, 0x80; 0x90 se o escudo absorveu tudo; 0 se o segmento não toca a caixa). Os tipos: 0 a morte (EKillAIElement),
+// 1 um choque, 2 um tiro, 3 um evento.
+int32_t PBondCar_ApplyDamage(BondCar& car, const float from[3], const float to[3], float amount, float split,
+                             int32_t kind);
+// O Signature do PS2 (o t0 do ApplyDamage: quem causou o dano) reduzido ao que a função usa dele: se o
+// Simulation::FindPhysicsObjectSignature acha um objeto que o PhysicsObject::IsOwnedBy dá como do jogador (o projétil de
+// uma arma do carro do jogador). O port não tem as assinaturas: quem atira (as armas) liga antes de chamar
+// apply_damage e desliga depois; os choques e os eventos deixam desligado (o PS2 passa a assinatura do outro corpo, que
+// só conta no tipo 2).
+bool& damage_source_is_player();
+// [driving] 0x001876c8 PBondCar::SetVisualDamage(float, float, float, float): as zonas +0x2f0 sorteadas (o RRandom do
+// render) entre os limites do amassado e do rasgado, e os estímulos e efeitos dos níveis.
+void PBondCar_SetVisualDamage(BondCar& car, float a_lo, float a_hi, float b_lo, float b_hi);
+// [driving] 0x0018ac28 PBondCar::AttackWithEmp: o carro atingido pelo EMP (o Q-Pulse) fica parado (EMP_LIFETIME passos,
+// SetInShock(1)); a van da bomba de Paris ("paris_bombvan") dá o ProgrammerDefinedEvent(0) da missão (a vitória).
+void PBondCar_AttackWithEmp(BondCar& car);
+// [driving] 0x0018ad50 PBondCar::EnableTargetBeacon(bool criar) e 0x0018adc0 DisableTargetBeacon: o alvo da mira do
+// carro (a entrada +0x74 e a +0x7c da tabela virtual; o passageiro do teto troca o do carro pelo dele).
+void PBondCar_EnableTargetBeacon(BondCar& car, bool create);
+void PBondCar_DisableTargetBeacon(BondCar& car);
+// O que o dano chama fora do port (o RAnimEngine do render, o som, o HUD, o TriggerFX): a sequência das chamadas (a parte
+// 17 do nf_driving_check a compara com a do original) e os contadores.
+struct CarDamageCall {
+    uint32_t fn;          // o endereço do PS2 (0x1a27a0 ProcessStimuli(h, s, 3, t, 2), 0x1a2868, 0x1a2b50, 0x1d3c28...)
+    uint32_t a[4];        // os argumentos inteiros
+};
+struct CarDamageStats {
+    uint64_t calls = 0, hits = 0, misses = 0, shield = 0, tyres_hit = 0, blowouts = 0, deaths = 0, kills = 0;
+    uint64_t stimuli = 0, render_fx = 0, sounds = 0, hud = 0, forces = 0, emp = 0, guards = 0;
+    bool trace = false;                 // grava as chamadas em `calls_out`
+    std::vector<CarDamageCall> calls_out;
+};
+CarDamageStats& car_damage_stats();
+// As peças do ApplyDamage (conferidas uma a uma na parte 17):
+// [driving] 0x002d3950 FindOBBIntersect(COORD3 &meias, COORD3 &a, COORD3 &b, COORD3 &saída)
+bool FindOBBIntersect(const float half[4], const float a[4], const float b[4], float out[4]);
+// [driving] 0x002d0b08 BytesToCoord(uint, COORD3 *soma, COORD3 *escala, COORD3 *soma2, COORD3 *saída)
+void BytesToCoord(uint32_t bytes, const float* add, const float* scale, const float* add2, float out[4]);
+// [driving] 0x002db798 CARP::BaseDesc::CalcDamageZone(COORD3 &): a zona (0..15) do ponto pela caixa +0x40/+0x50
+int32_t CalcDamageZone(const float zone_min[3], const float zone_max[3], const float point[4]);
+// [driving] 0x002db930 (sem nome) as zonas vizinhas de uma zona (a tabela 0x3c1fe8)
+uint32_t DamageZoneNeighbours(int32_t zone);
+// [driving] 0x00195a58 PhysicsObject::LoseHitPoints(float) (a vida no +0x54, não abaixo de 0)
+void PhysicsObject_LoseHitPoints(BondCar& car, float amount);
+// [driving] 0x00187eb8 PBondCar::ResetCar(COORD3 &, COORD3 &): o carro parado em `pos` (o y é reescrito com a altura das
+// rodas assentadas no chão), de frente para `dir`.
+void PBondCar_ResetCar(BondCar& car, float pos[3], const float dir[3]);
+// [driving] 0x0018ecb8 PBondCar::ProcessSimplePhysics: o passo dos carros da IA (as classes 1-3).
+void PBondCar_ProcessSimplePhysics(BondCar& car);
+// [driving] 0x0018e548 PBondCar::AddSimpleWheelForces: devolve as rodas com a mola comprimida.
+int8_t PBondCar_AddSimpleWheelForces(BondCar& car, BondCarWheelInput* input, const float (*headings)[4],
+                                     float (*road_normals)[4], float (*wheel_pos)[4], float* slips);
+// [driving] 0x0018b328 PBondCar::GlareOn(CarGlare): a lâmpada (o SwitchData e o brilho) `glare` acesa: os efeitos da
+// zona 1 << (glare + 16) ligados e o TriggerFX 0xb do render (driving/render/vehicle.h), se ainda estava apagada.
+void PBondCar_GlareOn(BondCar& car, int32_t glare);
+// [driving] 0x0018b408 PBondCar::GlareOff(CarGlare): o inverso (o TriggerFX 2 e 0xc), se estava acesa.
+void PBondCar_GlareOff(BondCar& car, int32_t glare);
+// [driving] 0x0018b580 PBondCar::HandleTurnSignals: as setas (os brilhos 3 e 4) piscando pelo passo da simulação
+// (o resto sem sinal de (passo - início) pelo período contra o período x (1 - a parte acesa)), desligadas quando a
+// direção passa do limite (+0x398).
+void PBondCar_HandleTurnSignals(BondCar& car);
+// [driving] 0x00188510 PBondCar::Simulate, o trecho das luzes do carro do jogador (0x00188510..0x0018871c, depois do
+// GetControllerInput): a velocidade contra a frente do corpo (vmul.xyz, vaddy.x, vaddz.x); a ré (brilho 5) acesa com o
+// freio andando para trás, apagada andando para a frente; o freio (2) aceso com o freio andando para a frente ou com o
+// acelerador a mais de 2,5 m/s para trás; nos submarinos as bolhas (o TriggerFX 0/4 da zona 0x800000: contado); as
+// setas.
+void PBondCar_SimulateLights(BondCar& car);
 
 // O que o carro tira do seu modelo (o RVehicle): o BaseDesc ('Base') do artigo do carro no .crp.
 struct CarDesc {
     float bbox_min[3] = {}, bbox_max[3] = {};
     float desc38 = 0;                                // +0x38 (a altura do chão ao centro, pelo uso em GetRenderOffset)
+    float zone_min[3] = {}, zone_max[3] = {};        // +0x40, +0x50 a caixa das zonas de dano (CalcDamageZone)
     std::vector<std::array<float, 4>> collision;     // +0x60, BaseDesc +0x3c pontos
 };
 // Lê o BaseDesc do artigo do carro (o 'Arti' cujo 'Name' é o carro) do data\car\model\<car>.crp do arquivo.
@@ -382,6 +473,8 @@ struct CarAction {
 // virtuais da física (PhysicsObject).
 class BondCar : public PhysicsObject {
 public:
+    // PBondCar::~PBondCar (0x00186fb0; a parte da mira: o UnregisterTarget do +0x2e0; o resto é do port).
+    ~BondCar() override;
     PBondCarData d{};
     CarPhysics car_physics{};       // o da coleção de atributos ("CarPhysics")
     int32_t boost_time = 0;         // BOOST_TIME (AttributeSet::LookupInt)
@@ -397,6 +490,11 @@ public:
     float collision_y_offset = 0;
     // Os contadores do que o carro chamou e o port não tem (o som de +0x388, o render de +0x48).
     uint64_t audio_flags = 0;
+    // O objeto de render (+0x48 no PS2: o RVehicle; o port não o constrói, quem monta o carro o põe antes de
+    // PBondCar_Construct) e a vibração (+0x50: o IFeedback que o construtor dá ao carro do jogador).
+    Vehicle* vehicle = nullptr;
+    IFeedback feedback;
+    uint64_t render_fx = 0;   // TriggerFX do render que o port não tem (os efeitos, as bolhas)
 
     BondCar();
     CarPhysics* physics() { return nf::p32_ptr<CarPhysics>(d.physics); }
@@ -430,12 +528,38 @@ public:
     int32_t damage_by_player_timer() override { return d.damage_by_player_timer; }  // +0x1b4 (0x00193168)
     void set_against_wall(bool against) override { d.against_wall = against ? 1 : 0; }  // +0x1e0 (0x001931b8)
     bool in_two_wheel_mode() override { return d.two_wheel_mode != 0; }  // +0x22c GetIsInTwoWheelMode (0x00193248)
-    // AttributeSet::LookupBool(+0x5c, "IS_POLICE") (lido na construção).
+    void attack_with_emp() override { PBondCar_AttackWithEmp(*this); }   // +0x254 AttackWithEmp (0x0018ac28)
+    // AttributeSet::LookupBool(+0x5c, "IS_POLICE"), "IS_HELI" e "HAS_SIREN" (lidos na construção).
     bool is_police = false;
-    // Os ApplyDamage pedidos e não portados (PBondCar::ApplyDamage, 0x00189598: as zonas de dano, os pneus, a vida, os
-    // eventos da missão), e a soma do dano.
+    bool is_heli = false;
+    bool has_siren = false;
+    // AttributeSet::LookupBool das chaves que a IA dos elementos pergunta (lidas na construção; ausente: falso).
+    std::map<std::string, bool> ai_bools;
+    // AttributeSet::LookupVector("TURRET_RANGE") (o TurnTurret dos motoristas: os dois intervalos de ângulo da torre,
+    // em graus); lido na construção.
+    // AttributeSet::LookupVector dos assentos (AIC_EWIND_POS, AIC_ESUNR_POS, AIC_ESNOW_POS, AIC_BOND_POS, AIC_PASS_POS),
+    // lidos na construção (os quatro números do texto; ausente: o PS2 daria o vetor da coleção padrão).
+    std::map<std::string, std::array<float, 4>> attr_vectors;
+    bool turret_range_found = false;
+    float turret_range[4] = {};
+    bool attr_bool(const char* key) const {
+        auto it = ai_bools.find(key);
+        return it != ai_bools.end() && it->second;
+    }
+    // AttributeSet::LookupFloat/LookupUInt de TYRE_RADIUS, SPRING_REST_LENGTH e TYRE_DAMAGE_POINTS (ResetCar e
+    // ProcessSimplePhysics).
+    float tyre_radius = 0;
+    float spring_rest_length_attr = 0;
+    uint32_t tyre_damage_points_attr = 0;
+    // Os ApplyDamage pedidos (PBondCar::ApplyDamage, 0x00189598, driving/game/bond_car_damage.cpp) e a soma do dano.
     uint64_t damage_calls = 0;
     float damage_total = 0;
+    // O que o ApplyDamage lê do render (+0x48, o RVehicle; o port não o tem no carro): o RSceneObj::
+    // GetBoundingDimensions, o RVehicle::GetRenderOffset (a entrada +0x54) e a caixa das zonas do BaseDesc (+0x40,
+    // +0x50; CARP::BaseDesc::CalcDamageZone). Do CarDesc, no PBondCar_Construct.
+    float desc_half[4] = {};
+    float desc_render_offset = 0;
+    float desc_zone_min[3] = {}, desc_zone_max[3] = {};
     // SMissionManager::ProgrammerDefinedEvent(2) de AddDamageByPlayer (a polícia batida pelo jogador).
     uint64_t mission_events = 0;
 };

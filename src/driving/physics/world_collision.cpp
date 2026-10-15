@@ -66,21 +66,6 @@ void instance_up(const WCollisionMgr& mgr, const WCollisionInstance& ci, float o
     std::memcpy(out, d, 12);
 }
 
-// [driving] 0x002d19b0 OrthoInverse: a rotação transposta no lugar e a translação -t pelas linhas antigas.
-void ortho_inverse(float m[16]) {
-    const float o[16] = {m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]};
-    const float nx = ee::neg(o[12]);
-    m[4] = o[1];
-    m[8] = o[2];
-    m[1] = o[4];
-    m[2] = o[8];
-    m[6] = o[9];
-    m[9] = o[6];
-    m[12] = ee::sub(ee::sub(ee::mul(nx, o[0]), ee::mul(o[13], o[1])), ee::mul(o[14], o[2]));
-    m[13] = ee::sub(ee::sub(ee::mul(nx, o[4]), ee::mul(o[13], o[5])), ee::mul(o[14], o[6]));
-    m[14] = ee::sub(ee::sub(ee::mul(nx, o[8]), ee::mul(o[13], o[9])), ee::mul(o[14], o[10]));
-}
-
 // O teste 2D (xz) de ponto no triângulo do WWorldPos e das faixas: os três produtos vetoriais com o mesmo sinal; `le`
 // = os três <= 0 (sentido horário), senão >= 0. Na forma "qualquer sentido" o sinal vem do primeiro.
 float c_edge(float ax, float az, float bx, float bz, float px, float pz) {
@@ -112,6 +97,21 @@ uint8_t subtype_of(const StripVertex* t) { return reinterpret_cast<const uint8_t
 const float kNoFace = ps2::ffloat(0x7e967699u);
 
 }  // namespace
+
+// [driving] 0x002d19b0 OrthoInverse: a rotação transposta no lugar e a translação -t pelas linhas antigas.
+void OrthoInverse(float m[16]) {
+    const float o[16] = {m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]};
+    const float nx = ee::neg(o[12]);
+    m[4] = o[1];
+    m[8] = o[2];
+    m[1] = o[4];
+    m[2] = o[8];
+    m[6] = o[9];
+    m[9] = o[6];
+    m[12] = ee::sub(ee::sub(ee::mul(nx, o[0]), ee::mul(o[13], o[1])), ee::mul(o[14], o[2]));
+    m[13] = ee::sub(ee::sub(ee::mul(nx, o[4]), ee::mul(o[13], o[5])), ee::mul(o[14], o[6]));
+    m[14] = ee::sub(ee::sub(ee::mul(nx, o[8]), ee::mul(o[13], o[9])), ee::mul(o[14], o[10]));
+}
 
 void WCollisionInstance_MakeMatrix(const WCollisionMgr& mgr, const WCollisionInstance& ci, float m[16], bool translate) {
     m[0] = ci.right[0];
@@ -280,7 +280,7 @@ bool WCollisionMgr_FindFaceInCInst(const WCollisionMgr& mgr, const float point[3
         height = h;
     }
     if (!found) return false;
-    ortho_inverse(m);
+    OrthoInverse(m);
     face.surface[0] = reinterpret_cast<const uint8_t*>(&found[2].w)[0];
     face.surface[1] = reinterpret_cast<const uint8_t*>(&found[2].w)[1];
     std::memcpy(&face.surface[2], reinterpret_cast<const uint8_t*>(&found[2].w) + 2, 2);
@@ -598,10 +598,10 @@ bool WCollisionMgr_FindFaceInCInstSeg(const WCollisionMgr& mgr, const float seg[
     WCollisionInstance_MakeMatrix(mgr, ci, m, true);  // o mundo para a instância
     float to_world[16];
     std::memcpy(to_world, m, sizeof(m));
-    ortho_inverse(to_world);
+    OrthoInverse(to_world);
     float to_seg[16];
     std::memcpy(to_seg, seg, sizeof(to_seg));
-    ortho_inverse(to_seg);
+    OrthoInverse(to_seg);
     float local_to_seg[16];
     mat_mul(to_world, to_seg, local_to_seg);
     const uint8_t* art = at<uint8_t>(ci.article);

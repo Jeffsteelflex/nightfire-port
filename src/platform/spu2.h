@@ -28,6 +28,13 @@
 // PS2, que é acoplada por capacitor: uma voz congelada pelo driver (pausa = pitch 0) segura um valor constante, que no
 // PS2 vira um clique e silêncio, não um nível DC na caixa de som.
 //
+// O SNDDRV.IRX das missões de carro (driving/sound/snddrv_iop.h) usa mais do hardware, e só ele chama estas (o SFX.IRX
+// não: o som a pé sai igual): a soltura do ADSR pela taxa do registrador (ADSR2 0x0005: -0x200 por amostra), o endereço
+// de laço escrito pelo driver (LSAX, que fica no key on), o endereço atual (NAX), o volume atual (VOLX), a varredura de
+// volume (o bit 15 do registrador: linear ou exponencial, subindo ou descendo no módulo, a fase negativa, a taxa nos 7
+// bits de baixo, como o ADSR), as chaves do seco por voz (VMIXL/R), o MMIX de cada núcleo e os outros tipos de reverb
+// do LIBSD.IRX (a tabela de presets em 0x41c8, 0x44 bytes cada).
+//
 // Divergências: a SPU2 interpola com uma tabela gaussiana de 4 pontos; aqui é Hermite de 4 pontos (a mesma
 // janela, curva parecida). O reverb é o algoritmo da SPU com o preset "studio C" (o modo 4 que o driver escolhe),
 // a 24 kHz (uma amostra a cada duas de 48 kHz, por média simples; o hardware filtra com um FIR), um por núcleo, como
@@ -86,6 +93,17 @@ public:
     uint16_t volume_left(int v) const;
     uint16_t volume_right(int v) const;
     bool end_flag(int v) const;                  // ENDX: a voz passou por um bloco com o bit 0
+
+    // Só o SNDDRV.IRX (ver o cabeçalho).
+    void set_adsr(int v, uint16_t adsr1, uint16_t adsr2);  // SD_VP_ADSR1/2 (ataque e soltura lineares)
+    void set_volume_reg(int v, int side, uint16_t reg);    // SD_VP_VOLL/R inteiro (bit 15: varredura)
+    int16_t volume_current(int v, int side) const;         // SD_VP_VOLXL/R
+    void set_loop_start(int v, uint32_t addr);             // SD_VA_LSAX
+    uint32_t next_address(int v) const;                    // SD_VA_NAX
+    void set_dry(int v, int side, bool on);                // VMIXL/VMIXR
+    void set_mmix(int core, uint16_t mmix);                // SD_P_MMIX
+    void set_reverb_type(int core, int type);              // o tipo do sceSdSetEffectAttr (0..9)
+    uint64_t unsupported() const { return unsupported_; }  // taxas/modos do ADSR ou da varredura fora do portado
 
     static constexpr int kCores = 2;
     static constexpr int core_of(int v) { return v / 24; }
@@ -148,6 +166,15 @@ private:
         int block_pos = 28;      // próxima amostra de block
         int16_t hist[4] = {};    // as quatro últimas amostras (interpolação)
         uint32_t counter = 0;    // fração de 12 bits
+        // SNDDRV.IRX (os padrões dão o comportamento antigo)
+        int32_t attack_step = 7 << 11;
+        int32_t release_step = 8 << 11;
+        bool loop_fixed = false;   // LSAX escrito: o key on não o troca pelo SSA
+        bool dry[2] = {true, true};
+        bool sweep[2] = {false, false};
+        uint16_t sweep_reg[2] = {};
+        int32_t sweep_level[2] = {};   // o módulo (0..0x7fff)
+        uint32_t sweep_wait[2] = {};   // amostras até o próximo passo
     };
     // O reverb de um núcleo: buffer circular de 24 kHz (o hardware roda o reverb a cada 2 amostras).
     struct Reverb {
@@ -160,7 +187,8 @@ private:
     uint32_t voice_size(const Voice& vc) const;
     void start_voice(Voice& vc);
     int16_t next_sample(Voice& vc);
-    static void reverb_process(Reverb& rv, int32_t in_l, int32_t in_r);
+    void reverb_process(Reverb& rv, int core, int32_t in_l, int32_t in_r);
+    int32_t voice_gain(Voice& vc, int side);
 
     Voice voices_[kVoices];
     uint16_t mvol_[kCores] = {};
@@ -177,6 +205,8 @@ private:
     Reverb rev_[kCores];
     bool rev_phase_ = false;
     Saturation sat_;
+    int rev_type_[kCores] = {4, 4};  // o preset do reverb de cada núcleo (4: o "studio C" do SFX.IRX)
+    uint64_t unsupported_ = 0;
     float dc_x_[2] = {0.0f, 0.0f};  // bloqueio de DC: a entrada e a saída anteriores
     float dc_y_[2] = {0.0f, 0.0f};
 };

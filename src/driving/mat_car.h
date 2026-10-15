@@ -55,9 +55,40 @@
 // grava o w de cada um a cada quadro, a partir do RVehicle +0x268) e k = SwitchParam (TOP+0xf1),
 // alvo = (s.z, s.z, s.z, s.y) x 255 x k.x e cor = int(min(255, cor x (1 - s.w) + alvo x s.w)), nas quatro componentes
 // (o alfa de partida 128 também: com s.w = 0, a lâmpada apagada, nada muda).
+// MatCarGouraudDullPacked (as peças pintadas por vértice, sem textura: `vudis.py --eagl bondrm.o
+// MatCarGouraudDullPacked`, docs/driving.md seção 16): o MatCarTextureDullPacked sem o STQ, com a cor de cada vértice de
+// um ColourSet e a luz guardada à parte. O leiaute: Coordinates 0x0d, Normals 0x39, DmgVec 0x65, DmgNrm 0x91,
+// ColourSlot 0xbd (a palavra x), ColourSet 0xbe (8 qwords de inteiros u8, a V4-8 do VIF), State 0xc6, a área de luz
+// 0xce, as cores de trabalho 0xfa, a etiqueta GIF 0x126 e a saída 0x127 (STQ, RGBAQ, XYZF2, como na família). Passos:
+//  1. a conversão dos fluxos da família, com o STQ lido de 0xce (.xy: o método não tem STQ; o que estiver ali vira
+//     (x I1 - 32, y I1 - 32, 1, 0) e é gravado de volta em 0xce, para os `count` vértices);
+//  2. a cor: um LQI só de 0xbe + slot (o ColourSlot escolhe uma das 8 cores do ColourSet: as variações de cor do carro)
+//     e o laço 0x34-0x36 grava esse qword `count` vezes em 0xfa; o lote inteiro tem uma cor. Com um slot de 16 ou mais a
+//     leitura cairia na área de luz convertida no passo 1 (bits de float lidos como inteiros); os dados do disco têm
+//     slots de 0 a 7;
+//  3. o dano da família sobre a cor copiada: rgb = FTOI0(max(0, ITOF0(c.rgb) x s_rgb)), alfa_f = max(0, ITOF0(c.w) x
+//     s_a) gravado no w do DmgVec; o w da cor fica o cru;
+//  4. 0xce recebe FTOI0(vf00 + 127) = (127, 127, 127, 128) e a luz direcional da família é multiplicada por esse 127
+//     (não pela cor): luz = FTOI0(min(255, l x 127)) em 0xce (o w 128);
+//  5. as luzes pontuais somadas à luz: v = min(255, luz + C0 att.x + ... + C3 att.w); cor.rgb = FTOI0((v x
+//     ITOF0(cor.rgb)) x 1/128) em 0xfa;
+//  6. a transformação da família; o RGBAQ é a cor de 0xfa (o alfa, o w cru do ColourSet) e o STQ é (0xce) x Q: os
+//     inteiros da luz lidos como float são denormais, que a VU lê como zero (STQ = 0; o State não liga a textura).
+// O trecho 0x109..0x126 do microprograma (a cor sem as luzes pontuais) não é alcançado: nenhum desvio leva a ele.
+//
+// BondCarShadow (a sombra do carro: `vudis.py --eagl bondrm.o BondCarShadow`): posição x MyMatrix, a cor do
+// CarShadowColour (0xa8) em todos os vértices, XYZF2 = FTOI4(tela, w), w = 0 ou 2047 (quando algum dos três últimos
+// CLIP deu fora: o FCAND 0x3ffff), os SplitReg (vértice x 2: a saída tem dois qwords por vértice, RGBAQ e XYZF2) gravam
+// 0x8000 no w. Leiaute: SplitReg 5..7, Coordinates 8 (até 160), CarShadowColour 0xa8, State 0xac, etiqueta 0xb4, saída
+// 0xb5. O jogo nunca o desenha: o RVehicle::RenderShadowGeometry e o RenderShadowVolume (o modelo 'as' do tipo 3 e 4)
+// não têm quem os chame no DRIVING.ELF do PS2; a sombra que o PS2 desenha é o quadrado do RShadowMap::DrawSimpleShadow
+// (driving/render/shadow.h). A referência existe para a conferência.
+//
 // As constantes I são as do microcódigo (o I de uma instrução com o bit I é o carregado na anterior: a instrução de cima
 // executa antes do LOI do mesmo par). A referência abaixo faz as contas em float do IEEE na mesma ordem; a VU não tem
-// denormais nem infinitos e arredonda para zero (diferenças no último bit, que os testes evitam com valores exatos).
+// denormais nem infinitos e arredonda para zero (diferenças no último bit, que os testes evitam com valores exatos). A
+// cor do Gouraud usa a aritmética do PS2 (platform/ps2_float.h): os vértices de cor lixo levam inteiros enormes por ITOF0,
+// MUL e FTOI0, onde o arredondamento do PC mudaria os bits que o GS lê.
 
 #include <cstdint>
 #include <vector>
@@ -71,7 +102,7 @@ namespace drv {
 // reflexo. No vidro: 0 o DmgTexture, 1 o Texture, 2 o especular, 3 o reflexo.
 enum CarPass { kPassBase = 1, kPassSpec = 2, kPassRefl = 4, kPassGlassRefl = 8 };
 constexpr int kCarMaxPasses = 4;
-enum CarKind { kCarStd = 0, kCarGlass = 1, kCarSwitch = 2 };
+enum CarKind { kCarStd = 0, kCarGlass = 1, kCarSwitch = 2, kCarGouraud = 3, kCarShadow = 4 };
 
 struct CarMethodLayout {
     const char* name;
@@ -85,6 +116,8 @@ struct CarMethodLayout {
     int tar_dmg = 0;    // o vidro: o TAR do DmgTexture
     int modelview = 0;  // o vidro: a ModelView (a face de trás)
     int switch_data = 0, switch_param = 0;  // as luzes: SwitchData e SwitchParam
+    int colour_slot = 0, colour_set = 0;    // o Gouraud: ColourSlot e ColourSet (a área de luz fica no "stq")
+    int out_qw = 3;                         // qwords por vértice na saída (a sombra: 2)
 };
 // A família pelo nome do render method (nullptr se não é dela).
 const CarMethodLayout* car_method_layout(const char* method_name);
@@ -120,6 +153,7 @@ struct CarVertexIn {
     uint32_t normal[3];
     uint32_t dmgvec[4];
     uint32_t dmgnrm[4];  // w = índice da zona de dano (inteiro nos dois formatos)
+    uint32_t colour[4] = {0, 0, 0, 0};  // o Gouraud: a cor que a cópia do passo 2 lê (as palavras cruas)
 };
 
 // Um vértice depois do passo 1 (o que o vertex shader do PC recebe).
@@ -130,8 +164,9 @@ struct CarVertexWork {
     float dmgvec[4];
     float dmgnrm[3];
     uint32_t zone;
+    uint32_t colour[4];  // o Gouraud: a cor crua do ColourSet (inteiros; lixo nos vértices além do ColourSet)
 };
-static_assert(sizeof(CarVertexWork) == 68);
+static_assert(sizeof(CarVertexWork) == 84);
 
 // Um lote decodificado da memória da VU1 num MSCNT.
 struct CarBatch {
@@ -142,12 +177,20 @@ struct CarBatch {
     float props[4];       // LightingProperties: (ambiente, difusa, especular, reflexo)
     float modelview[4][4] = {};  // o vidro: a ModelView
     float switch_data[4] = {}, switch_param[4] = {};  // as luzes
+    uint32_t shadow_colour[4] = {};  // a sombra: o CarShadowColour (as palavras inteiras do qword 0xa8)
     eagl::GsRegs pass[kCarMaxPasses];  // o estado de cada passada (o GeoPrimState e o TAR que o microprograma chuta)
     bool strip = true;     // PRIM do State: 4 faixa, 3 lista
     int split[12];        // as entradas SplitReg (vértice x 3)
     std::vector<CarVertexIn> v;
 };
 bool car_decode_batch(const VuMemory& mem, uint32_t top, const CarMethodLayout& layout, CarBatch& out);
+// O Gouraud: as cores que a cópia do passo 2 lê (CarVertexIn::colour), com o passo 1 aplicado à área de luz.
+void car_gouraud_colours(const VuMemory& mem, uint32_t top, const CarMethodLayout& layout, CarBatch& b);
+// O Gouraud: a cor de um vértice (passos 3-5, na aritmética do PS2): `colour` cru, a escala do dano s_rgb, as linhas
+// A (a WorldMatrix normalizada vezes as direções), a normal com o dano, a posição no mundo; devolve RGBA como a VU grava
+// (o w cru).
+void car_gouraud_vertex(const uint32_t colour[4], float s_rgb, const float A[3][3], const float n[3], const float pw[3],
+                        const float props[4], const CarConstants& k, int32_t rgba[4]);
 
 // O passo 1 de um vértice (ou só a leitura dos floats, nos métodos sem "Packed").
 CarVertexWork car_convert(const CarMethodLayout& layout, const CarVertexIn& v);

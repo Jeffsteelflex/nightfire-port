@@ -5,7 +5,9 @@
 //   tratam canal de switch acima de 255 como desligado (para não sair das tabelas).
 // - Só no PC: o mouse gira a visão diretamente (Player_Update, entre Player_Aiming e
 //   Player_ViewClamping), somando ao giro do analógico, nos mesmos subestados em que o analógico
-//   gira (platform/psi_input.h); mirando, dividido pelo zoom do jogo vezes o da mira moderna.
+//   gira (platform/psi_input.h); mirando, dividido pelo zoom do jogo vezes o da mira moderna. Pilotando o
+//   míssil (subestado 10) o mouse não gira o corpo (o analógico também não gira, no PS2): o giro vai para o
+//   míssil (Bullet_PortGuidedMouse, engine/bullet.h).
 // - Só no PC: com a mira moderna numa arma sem luneta (engine/player_ads.h), Player_Aiming trata a arma como a de
 //   luneta (a mira fica no centro e o analógico gira a visão), e Player_Move deixa andar para a frente e para trás
 //   mirando (a 85%; o modo de mira do jogo só deixa andar de lado), em qualquer arma no estilo moderno.
@@ -963,9 +965,18 @@ void Player_Update(obj_tag* obj) {
                 }
             }
             Player_Aiming(obj);
-            // Só no PC: o mouse.
+            // Só no PC: o mouse. Pilotando o míssil (subestado 10) ele vira o míssil (Bullet_PortGuidedMouse), com a
+            // sensibilidade do olhar, e não o corpo: no PS2 nada gira o corpo nesse subestado.
             float yaw, pitch;
-            psiInput_TakeMouseLook(b->player, &yaw, &pitch, (anim_of(obj)->flags & 1) != 0, ads_effective_zoom(b));
+            const bool riding = obj->unknown_f6 == kPlrRide;
+            psiInput_TakeMouseLook(b->player, &yaw, &pitch, !riding && (anim_of(obj)->flags & 1) != 0,
+                                   riding ? 1.0f : ads_effective_zoom(b));
+            if (riding) {
+                // Nos ticks depois da explosão (BLData::ride_time) o mouse não vira nada.
+                if (b->ride != nullptr) Bullet_PortGuidedMouse(b->player, yaw, pitch);
+                yaw = 0.0f;
+                pitch = 0.0f;
+            }
             const float pitch_before = b->pitch;
             const bool yaw_used = yaw != 0.0f && moves_in(obj) && b->move_locked == 0;
             const bool pitch_used = pitch != 0.0f && aims_in(obj);

@@ -285,6 +285,78 @@ uint8_t* RStateManager_GetGeoPrimState(const char* spec) {
     return aligned;
 }
 
+// [driving] 0x0027fe80 o alocador de "RUNTIME_ALLOC::EAGL::GeoPrimState" (o analisador das especificações
+// "Chave=valor[,valor...];"): um GeoPrimState novo (o construtor 0x00283568) e cada par aplicado. Só do port: das
+// chaves do analisador (14 KB) estão as que os dados do disco usam (os 73 modelos de personagens: UID, SetPrimitiveType,
+// SetCullEnable, SetTextureEnable, SetAlphaBlendMode, SetAlphaTestMethod); as outras são contadas em `unknown` e não
+// mudam o estado. O jogo aloca um estado por símbolo; aqui os iguais são o mesmo bloco (o conteúdo não muda depois).
+uint8_t* GeoPrimState_FromRuntimeSpec(const char* spec, int* unknown) {
+    alignas(16) uint8_t s[kGeoPrimStateSize];
+    GeoPrimState_Init(s);
+    // Os pares (a vírgula separa valores; uma chave só vale com um valor, como o "piVar3[1] == 1" do original).
+    std::string text = spec ? spec : "";
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t end = text.find(';', pos);
+        if (end == std::string::npos) end = text.size();
+        const std::string pair = text.substr(pos, end - pos);
+        pos = end + 1;
+        const size_t eq = pair.find('=');
+        if (eq == std::string::npos) continue;
+        const std::string key = pair.substr(0, eq), value = pair.substr(eq + 1);
+        const bool one = value.find(',') == std::string::npos;
+        auto pick = [&](const char* const* names, int count) {
+            for (int i = 0; i < count; ++i)
+                if (value == names[i]) return i;
+            return -1;
+        };
+        if (key == "UID") continue;
+        if (one && key == "SetPrimitiveType") {
+            static const char* const kNames[] = {"EAGL::PT_POINTLIST",     "EAGL::PT_LINELIST",  "EAGL::PT_LINESTRIP",
+                                                 "EAGL::PT_LINELOOP",      "EAGL::PT_TRIANGLELIST",
+                                                 "EAGL::PT_TRIANGLESTRIP", "EAGL::PT_TRIANGLEFAN",
+                                                 "EAGL::PT_QUADLIST",      "EAGL::PT_QUADSTRIP", "EAGL::PT_POLYGON",
+                                                 "EAGL::PT_SPRITE"};
+            const int v = pick(kNames, 11);
+            GeoPrimState_SetPrimType(s, v < 0 ? 0 : v);  // um nome desconhecido: a mensagem e 0
+        } else if (one && key == "SetCullEnable") {
+            // nada: o GS não descarta faces
+        } else if (one && key == "SetTextureEnable") {
+            q(s, 0x10) = (q(s, 0x10) & ~PRIM_TME) | uint64_t(value == "true") << 4;
+        } else if (one && key == "SetAlphaBlendMode") {
+            static const char* const kNames[] = {"EAGL::ABM_OFF",      "EAGL::ABM_BLEND",    "EAGL::ABM_ADD",
+                                                 "EAGL::ABM_ATTENUATE", "EAGL::ABM_MODULATE", "EAGL::ABM_SUBTRACT",
+                                                 "EAGL::ABM_CUSTOM"};
+            static const uint64_t kAlpha[7] = {0, 0x8000000044ull, 0x8000000048ull, 0x8000000088ull, 0, 0x8000000062ull, 0};
+            const int v = pick(kNames, 7);
+            if (v == 0) {
+                q(s, 0x10) &= ~PRIM_ABE;
+            } else if (v > 0 && kAlpha[v]) {  // MODULATE e CUSTOM não mudam nada (o "default" do switch)
+                q(s, 0x40) = kAlpha[v];
+                q(s, 0x10) = (q(s, 0x10) & ~PRIM_ABE) | PRIM_ABE;
+            }
+        } else if (one && key == "SetAlphaTestMethod") {
+            static const char* const kNames[] = {"EAGL::ATM_NEVER", "EAGL::ATM_ALWAYS", "EAGL::ATM_LESS",
+                                                 "EAGL::ATM_LEQUAL", "EAGL::ATM_EQUAL", "EAGL::ATM_GEQUAL",
+                                                 "EAGL::ATM_GREATER", "EAGL::ATM_NOTEQUAL"};
+            const int v = pick(kNames, 8);
+            q(s, 0x30) = (q(s, 0x30) & ~0xEull) | uint64_t(v < 0 ? 0 : v) << 1;
+        } else if (unknown) {
+            ++*unknown;
+        }
+    }
+    const std::string key(reinterpret_cast<const char*>(s), sizeof s);
+    StateStore& st = store();
+    auto it = st.by_content.find(key);
+    if (it != st.by_content.end()) return it->second;
+    auto block = std::make_unique<uint8_t[]>(kGeoPrimStateSize + 15);
+    uint8_t* aligned = reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(block.get()) + 15) & ~uintptr_t(15));
+    std::memcpy(aligned, s, sizeof s);
+    st.blocks.push_back(std::move(block));
+    st.by_content[key] = aligned;
+    return aligned;
+}
+
 void RStateManager_Reset() {
     store().blocks.clear();
     store().by_content.clear();
@@ -342,7 +414,8 @@ void set_shape_lookup(ShapeLookup fn, void* user) {
 }
 
 // [driving] 0x0027c6a0 EAGL::TAR::TAR
-// Portados: a faixa de UV e os modos de repetição no CLAMP_1, o modo da textura (TFX). Só do port: a shape é achada
+// Portados: o começo do TAR (0x0027cc88: o filtro, o TCC), a faixa de UV e os modos de repetição no CLAMP_1, o modo
+// da textura (TFX). Só do port: a shape é achada
 // por `set_shape_lookup` (o jogo procura a variável "shape_<nome>" que o RegisterShapes registrou) e o "anexar a
 // imagem" (0x0027e1e8 / 0x0027cd68, a gerência de VRAM e dos mipmaps) só guarda o ponteiro para os dados da imagem.
 // As faixas diferentes de [0,1] com repetição (REGION_REPEAT, 0x0027eb30/0x0027eb98) não foram portadas.
@@ -366,6 +439,13 @@ void TAR_Construct(uint32_t tar) {
     uint32_t& flags = *reinterpret_cast<uint32_t*>(t + 0x10);
     uint32_t& minw = *reinterpret_cast<uint32_t*>(t + 0x14);
     uint32_t& maxw = *reinterpret_cast<uint32_t*>(t + 0x18);
+    // [driving] 0x0027cc88 (sem nome; o 0x0027e1e8 que anexa a imagem o chama antes do 0x0027cd68): o começo do TAR. Os
+    // bits de repetição e de filtro zerados, MMAG 1, MMIN 4, TCC 1 (o alfa vem da textura: RGBA), TFX 0, e L, K e LCM
+    // dos globais 0x358384, 0x358388 e 0x35838c (zero no .data); o resto da palavra fica (no PS2, o que o registro do
+    // TAR tinha em +0x10). Sem este começo o TCC ficava 0 em toda textura do carro e do mundo (o alfa só do vértice): os
+    // fachos de luz 'SpLite' de Paris (o 'spot', alfa até 0x1b) saíam opacos (docs/driving.md seção 23).
+    flags = ((((flags & ~0x3fu) | 0x10u) & ~0x1c0u) | 0x01000100u) & 0xf9ffffffu;
+    flags = ((flags & ~0xc00u) & 0xff000fffu) & ~0x200u;
     minw = (minw & 0xFFFFF800u) | (uint32_t(int(umin * w)) & 0x7FF);
     maxw = (maxw & 0xFFFFF800u) | (uint32_t(int(umax * w)) & 0x7FF);
     minw = (minw & 0xFFC007FFu) | (uint32_t(int(vmin * h)) & 0x7FF) << 11;

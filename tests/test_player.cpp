@@ -8,6 +8,7 @@
 #include "engine/anim.h"
 #include "platform/keys.h"
 #include "engine/build.h"
+#include "engine/bullet.h"
 #include "engine/collide.h"
 #include "engine/game.h"
 #include "engine/gameflow.h"
@@ -23,6 +24,7 @@
 #include "engine/object.h"
 #include "engine/parsemap.h"
 #include "engine/player.h"
+#include "engine/player_weapon.h"
 #include "engine/resetmap.h"
 #include "engine/vecmath.h"
 #include "engine/view.h"
@@ -361,6 +363,54 @@ TEST(player_walks_and_turns) {
     CHECK_NEAR(w.player->rot.y - yaw2, 0.1f, 1e-5f);
     CHECK_NEAR(w.b->pitch, 0.05f / 1.5707964f, 1e-5f);
     CHECK(w.b->look_state == 1);
+}
+
+// Só do port: pilotando o míssil (subestado 10, de Bullet_init com uma arma de flags2 4) o mouse não gira o corpo
+// (no PS2 nada o gira nesse subestado) e vira pedido ao míssil (Bullet_PortGuidedMouse), com a sensibilidade do olhar,
+// sem a da mira nem o zoom; depois da explosão (os 15 ticks de BLData::ride_time) o mouse não vira nada, e de volta a
+// andar ele gira o corpo de novo.
+TEST(player_mouse_steers_the_guided_missile_not_the_body) {
+    World w;
+    bullet_debug_power_on();
+    for (int i = 0; i < 3; ++i) w.tick();
+    weapon_definition_tag def{};
+    def.id = 0x2c;
+    def.klass = 0x2c;
+    def.speed = 0.25f;
+    def.range = 200.0f;
+    def.flags2 = 4;
+    _VECTOR pos = w.player->pos;
+    const _VECTOR dir{1, 0, 0, 0};
+    obj_tag* missile = Bullet_init(0, w.player, w.player, &def, &pos, &dir, 0xffff);
+    CHECK(missile != nullptr && w.player->unknown_f6 == kPlrRide && w.b->cam_mode == 0xc);
+    CHECK(w.b->ride == missile);
+    const float yaw = w.player->rot.y;
+    const float pitch = w.b->pitch;
+    psiMouseSensitivity = 0.001f;
+    g_psi_keyboard_mouse.active = true;
+    g_psi_keyboard_mouse.look_dx = -100.0f;  // para a esquerda
+    g_psi_keyboard_mouse.look_dy = -50.0f;   // para cima
+    w.tick();
+    CHECK(w.player->rot.y == yaw && w.b->pitch == pitch);
+    CHECK_NEAR(g_guided_mouse.yaw[0], 0.1f, 1e-5f);
+    CHECK_NEAR(g_guided_mouse.pitch[0], 0.05f, 1e-5f);
+    // O míssil some: o pedido se perde, e nos ticks de espera o mouse não vira nada.
+    Bullet_Delete(missile);
+    CHECK(g_guided_mouse.yaw[0] == 0.0f && w.b->ride == nullptr);
+    for (int i = 0; i < 14; ++i) {
+        g_psi_keyboard_mouse.look_dx = -100.0f;
+        w.tick();
+        CHECK(w.player->unknown_f6 == kPlrRide && w.player->rot.y == yaw && g_guided_mouse.yaw[0] == 0.0f);
+    }
+    g_psi_keyboard_mouse.look_dx = 0.0f;
+    g_psi_keyboard_mouse.look_dy = 0.0f;
+    w.tick();
+    CHECK(w.player->unknown_f6 != kPlrRide && w.b->cam_mode == 0);
+    // Andando de novo, o mouse gira o corpo como antes.
+    g_psi_keyboard_mouse.look_dx = -100.0f;
+    w.tick();
+    CHECK_NEAR(w.player->rot.y - yaw, 0.1f, 1e-5f);
+    g_psi_keyboard_mouse.look_dx = 0.0f;
 }
 
 TEST(player_pain_difficulty_armour_and_flash) {

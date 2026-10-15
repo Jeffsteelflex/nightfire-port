@@ -3,9 +3,15 @@
 
 #include "driving/physics/simulation.h"
 
+#include <algorithm>
 #include <cstring>
 #include <memory>
 
+#include "driving/ai/element_controller.h"
+#include "driving/anim/act_actor.h"
+#include "driving/game/mission.h"
+#include "driving/game/weapons.h"
+#include "driving/game/triggers.h"
 #include "driving/physics/collide.h"
 #include "driving/physics/vu0_physics.h"
 #include "driving/physics/world.h"
@@ -20,6 +26,19 @@ std::unique_ptr<Simulation> g_sim;
 BasicOwner g_basic_owners[kRigidBodySlots];
 WWorldPos g_basic_owner_pos[kRigidBodySlots];
 }  // namespace
+
+namespace {
+// O contador das assinaturas (0x339180, 1 no .data; volta a 0x100 depois de 0xffffff).
+uint32_t g_sig_counter = 1;
+}  // namespace
+
+uint32_t& simulation_signature_counter() { return g_sig_counter; }
+
+uint32_t simulation_next_signature(int slot) {
+    const uint32_t sig = uint32_t(slot) << 24 | g_sig_counter;
+    if (++g_sig_counter > 0xffffff) g_sig_counter = 0x100;
+    return sig;
+}
 
 Simulation& simulation() {
     if (!g_sim) simulation_reset();
@@ -38,6 +57,8 @@ void simulation_reset(int frame_rate) {
     Simulation& s = *g_sim;
     s.bodies = s.body_storage;
     s.scratchpad_bodies = s.scratchpad_storage;
+    s.simple_bodies = s.simple_storage;
+    s.scratchpad_simple = s.simple_scratch_storage;
     s.infos = s.info_storage;
     s.frame_rate = frame_rate;                                  // GetFoundationVideoModeRate(): 60 no NTSC
     s.dt = ee::div(1.0f, ee::cvt_s(frame_rate));                // 1 / 60 truncado: 0x3c888888
@@ -65,12 +86,15 @@ RigidBody* GetRigidBody(Simulation& sim, int slot) {
 void CopyRigidBodiesToScratchPad(Simulation& sim) {
     ResetRigidBodySP();
     std::memcpy(sim.scratchpad_bodies, sim.bodies, sim.scratchpad_bodies_size);  // DMA para o scratchpad
+    // Os corpos simples vêm logo depois na mesma cópia do PS2 (0x3000 bytes a partir do vetor dos rígidos).
+    std::memcpy(sim.scratchpad_simple, sim.simple_bodies, sizeof(SimpleRigidBody) * kSimpleBodySlots);
     sim.use_scratchpad = 1;
 }
 
 // [driving] 0x1ff358 Simulation::CopyRigidBodiesFromScratchPad
 void CopyRigidBodiesFromScratchPad(Simulation& sim) {
     std::memcpy(sim.bodies, sim.scratchpad_bodies, sim.scratchpad_bodies_size);
+    std::memcpy(sim.simple_bodies, sim.scratchpad_simple, sizeof(SimpleRigidBody) * kSimpleBodySlots);
     sim.use_scratchpad = 0;
 }
 
@@ -121,24 +145,59 @@ void SimulateGame(Simulation& sim) {
         if (rb->state != 3 && rb->state == 2) ApplyInitialForcesAndTorques(rb);
     }
     for (int slot = 0; slot < kSimpleBodySlots; ++slot)
-        if (sim.simple_owners[slot]) physics_pending("SimpleRigidBody::UpdatePosition");
-    physics_pending("Simulation::DetectCollisionsSRB");
-    // Os Simulate dos objetos (a entrada +0x2c da tabela virtual), pelo mapa da Simulation +0xe68. Port: os donos dos
-    // corpos rígidos na ordem das vagas (o mapa do PS2 é uma árvore; com um objeto só a ordem não importa).
+        if (sim.simple_owners[slot]) SimpleRigidBody_UpdatePosition(GetSimpleRigidBody(sim, slot));
+    DetectCollisionsSRB(sim);
+    // Os Simulate dos objetos (a entrada +0x2c da tabela virtual), pelo mapa da Simulation +0xe68: um multimapa pelo
+    // tipo do objeto (+0x40), os do mesmo tipo na ordem em que entraram. Port: os donos dos corpos rígidos (os carros,
+    // tipo 1, e os Smackable, tipo 2) na ordem das vagas, depois os de corpo simples (as explosões, tipo 3, e os
+    // mísseis, tipo 6) pelo tipo e pela ordem de chegada, como no mapa. Um objeto apagado durante o passo
+    // (DeletePhysicsObject) continua no mapa até o DeleteDeadObjects do próximo quadro; o port guarda a lista antes.
     if (w) w->set_vu0_path(1);
     for (int slot = 0; slot < kRigidBodySlots; ++slot)
         if (sim.owners[slot]) sim.owners[slot]->simulate();
+    PhysicsObject* order[kSimpleBodySlots];
+    int n = 0;
+    for (int slot = 0; slot < kSimpleBodySlots; ++slot)
+        if (sim.simple_owners[slot]) order[n++] = sim.simple_owners[slot];
+    if (n) {
+        auto seq = [&](PhysicsObject* o) {
+            for (int i = 0; i < kSimpleBodySlots; ++i)
+                if (sim.simple_owners[i] == o) return sim.simple_seq[i];
+            return 0u;
+        };
+        std::stable_sort(order, order + n, [&](PhysicsObject* a, PhysicsObject* b) {
+            if (a->kind() != b->kind()) return a->kind() < b->kind();
+            return seq(a) < seq(b);
+        });
+        for (int i = 0; i < n; ++i) order[i]->simulate();
+    }
     physics_pending("Simulation::UpdateTrackedInstanceVisibility");
 }
 
 // [driving] 0x159d10 ESimFrameUpdate::~ESimFrameUpdate
 void ESimFrameUpdate(Simulation& sim) {
-    physics_pending("Simulation::DeleteDeadObjects");
+    // [driving] 0x200600 Simulation::DeleteDeadObjects: os objetos tirados do mapa são apagados (o fim da câmera do míssil
+    // que ele também faz não foi portado: não há mísseis).
+    if (!sim.dead.empty()) {
+        std::vector<PhysicsObject*> dead;
+        dead.swap(sim.dead);
+        for (PhysicsObject* o : dead) delete o;
+    }
     CopyRigidBodiesToScratchPad(sim);
     AdvanceStep(sim);
     SimulateGame(sim);
-    // O resto do quadro do jogo (atores, missão, câmera, gatilhos, a grade dinâmica) não foi portado.
+    // Os elementos da IA (driving/ai/element_controller.h; nada sem o AIElementController::Construct) e os atores
+    // (ActActorDatabase::UpdateAll com o banco 0x326000, driving/anim/act_actor.h). O resto do quadro do jogo (a câmera do
+    // render, a grade dinâmica) não foi portado; a missão sim (driving/game/mission.h), depois da IA e antes dos
+    // gatilhos, como no PS2.
+    AIElementController_Update();
+    if (anim::act_globals().database) anim::ActActorDatabase_UpdateAll();
     physics_pending("ESimFrameUpdate: o resto do jogo");
+    if (mission_exists()) SMissionManager_Update(mission_manager());
+    // As armas do jogador (driving/game/weapons.h), logo depois da missão.
+    if (weapon_manager_exists()) SWeaponManager_Update(*weapon_manager());
+    // Os gatilhos da pista (driving/game/triggers.h; nada sem o WTriggerManager::Init).
+    if (sim.state != 3) WTriggerManager_Update();
     if (sim.state != 3) {
         sim.clock = ee::add(sim.clock, 0.016666668f);  // a constante do código (não o dt da Simulation)
         sim.frames += 1;
@@ -157,6 +216,9 @@ RigidBody* simulation_add_body(Simulation& sim, RigidBodyParams params, PhysicsO
     PhysicsObject* owner = owner_tag ? owner_tag : params.owner;
     if (!owner) owner = &g_basic_owners[slot];
     sim.owners[slot] = owner;
+    // A assinatura e a contagem do Simulation::AssignRigidBodySlot (0x001fef48).
+    sim.rigid_sig[slot] = simulation_next_signature(slot);
+    ++sim.rigid_count;
     params.owner = owner;
     params.slot = slot;
     RigidBody* rb = GetRigidBody(sim, slot);

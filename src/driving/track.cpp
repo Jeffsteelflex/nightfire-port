@@ -8,6 +8,7 @@
 #include <cstring>
 #include <map>
 
+#include "driving/bigf.h"
 #include "platform/fmath.h"
 
 namespace drv {
@@ -40,9 +41,42 @@ bool Track::load(const nf::DiscSource& disc, const std::string& track, const std
     name_ = track;
     viv_ = viv.empty() ? track_viv_name(track) : viv;
     model_.set_resolve_carp(true);
+    // O RLightManager (o construtor e o SetLightingModel do mundo) e o RTimeData do quadro 0: o que os lotes do mundo
+    // recebem na carga (GAME::LightSources, GAME::SimStep).
+    {
+        Bigf arc;
+        std::string tun;
+        if (arc.open(disc, "DRIVING/" + viv_)) {
+            const int idx = arc.find("data\\tuning\\Render\\Lighting\\" + track + ".tun");
+            std::vector<uint8_t> bytes;
+            if (idx >= 0 && arc.read(idx, bytes)) tun.assign(bytes.begin(), bytes.end());
+        }
+        RLightManager_Construct(lights_, tun);
+        RLightManager_SetLightingModel(lights_, 0);
+        float block[7][4];
+        std::memcpy(block, &lights_.light_sources, sizeof block);
+        model_.set_world_inputs(block, RTimeData().time_data);
+    }
+    // O espaço "PHYS" dos símbolos (o PhysicsNamespace, 0x194e18): "PHYS::<coleção>" é a "PhysicsData" da coleção da
+    // classe "smackable" (a seção da pista, a da coleção e a [default], como o resto dos atributos). Uma coleção que o
+    // .VIV não tem dá 0 (o Smackable usa então os seus padrões; a conferir no PS2).
+    physics_.clear();
+    Bigf phys_arc;
+    const bool have_phys_arc = phys_arc.open(disc, "DRIVING/" + viv_);
+    carp_global_namespaces()["PHYS"] = [&](const char* name, uint32_t& size) -> uint32_t {
+        size = 0;
+        if (!have_phys_arc) return 0;
+        AttributeCollection c;
+        if (!c.load(phys_arc, "smackable", name, track, nullptr)) return 0;
+        physics_.push_back(std::make_unique<SmackablePhysicsData>(c.physics_data()));
+        size = uint32_t(sizeof(SmackablePhysicsData));
+        return nf::p32_u(physics_.back().get());
+    };
     // [driving] 0x0022f898 WWorld::LoadTrackFile: data\track\<pista>.crp; as texturas do 'sn' (o <pista>.ssh).
-    if (!model_.load_carp(disc, viv_, "data\\track\\" + track + ".crp", {"data\\track\\" + track + ".ssh"}, track, error))
-        return false;
+    const bool carp_ok =
+        model_.load_carp(disc, viv_, "data\\track\\" + track + ".crp", {"data\\track\\" + track + ".ssh"}, track, error);
+    carp_global_namespaces().erase("PHYS");
+    if (!carp_ok) return false;
     UGroup* map = map_group();
     if (!map) {
         error = "a pista não tem o grupo 'Map '";
@@ -113,7 +147,111 @@ bool Track::load(const nf::DiscSource& disc, const std::string& track, const std
     }
     stats_.instances = int(instances_.size());
     stats_.articles = int(articles_.size());
+    // [driving] 0x0022faf8 WWorld::Open: o 'Wmap' (o WWorld + 0x1c) e o WTree::InitializeTree da raiz; o WRender
+    // (WRender::Init, 0x0021eef0) com as passadas e as cortinas.
+    UData* wmap = UGroup_DataLocateTag(map, 0x576d6170);  // 'Wmap'
+    wmap_ = 0;
+    if (wmap != UGroup_DataEnd(map)) {
+        wmap_ = nf::p32_u(UData_Data(wmap));
+        uint32_t tree;
+        std::memcpy(&tree, UData_Data(wmap), 4);
+        if (tree) WTree_InitializeTree(nf::p32_ptr<MapNode>(tree), 0, 0, 0);
+    }
+    WRender_Construct(render_, map, curtains_);
+    // Os objetos de cena do WWorld::Open (as instâncias com a bandeira 0x10: postes, placas...), na árvore pelo
+    // WTree::FindNode. As bandeiras que o Open muda (o bit 1) ficam no registro da instância; `instances_` guarda as do
+    // disco.
+    if (wmap_) {
+        const uint32_t saved = fgWorldMap();
+        fgWorldMap() = wmap_;
+        stats_.scene_objects = WWorld_CreateSceneObjects(render_, scene_objs_);
+        fgWorldMap() = saved;
+    }
     return true;
+}
+
+void Track::refresh_instance(int index) {
+    if (index < 0 || size_t(index) >= instances_.size() || !render_.instances) return;
+    const CarpInstanceRec& r = nf::p32_ptr<const CarpInstanceRec>(render_.instances)[index];
+    TrackInstance& t = instances_[size_t(index)];
+    const float* rows[4] = {r.axis_x, r.axis_y, r.axis_z, r.pos};
+    for (int row = 0; row < 4; ++row) {
+        for (int c = 0; c < 3; ++c) t.matrix[row * 4 + c] = rows[row][c];
+        t.matrix[row * 4 + 3] = row == 3 ? 1.0f : 0.0f;
+    }
+}
+
+int Track::instance_index(uint32_t address) const {
+    if (address < render_.instances) return -1;
+    const uint32_t off = address - render_.instances;
+    if (off % 0x40 != 0 || off / 0x40 >= instances_.size()) return -1;
+    return int(off / 0x40);
+}
+
+Track::Draw Track::make_draw(uint32_t address, float distance, float lod_multiplier) const {
+    Draw d;
+    d.instance = instance_index(address);
+    d.distance = distance;
+    if (d.instance < 0) return d;
+    const TrackInstance& inst = instances_[size_t(d.instance)];
+    d.pass = inst.pass;
+    // O LOD do QuickDrawInstance (GetInstanceViewDistance x o multiplicador da vista; ver visible()).
+    d.part = lod_part(inst, view_distance(inst, cull_eye_) * lod_multiplier);
+    return d;
+}
+
+void Track::cull(const float camera[16], float fov, bool widescreen, Culled& out, float lod_multiplier) {
+    out = Culled{};
+    if (!wmap_) return;
+    std::memcpy(cull_eye_, camera + 12, sizeof cull_eye_);
+    fgRender() = &render_;
+    fgWorldMap() = wmap_;
+    RPlayerViewCamera_ConfigureView(camera, fov, widescreen);
+    CachedDrawInfo* list = RRenderWorldCamera_PerformCulling(render_, camera);
+    out.nodes = list->node_count;
+    out.curtains = GetCurtainCount();
+    out.kept = list->draw_count;
+    // As distâncias do corte (as do IsInFrustum2d) ficam na lista; o LOD usa a do GetInstanceViewDistance.
+    std::vector<InstanceAndDistance> order;
+    auto emit = [&](std::vector<Draw>& v, const std::vector<InstanceAndDistance>& entries) {
+        for (const InstanceAndDistance& e : entries) {
+            Draw d = make_draw(e.instance, e.distance, lod_multiplier);
+            if (d.instance >= 0 && d.part >= 0) v.push_back(d);
+        }
+    };
+    // RRenderWorldCamera::DoRender (0x001c55d8): DrawStaticWorldGeometry -> DrawWorld(lista, por instância): o céu e as
+    // passadas 3 e 2; os objetos de cena (RSceneObj::RenderAllNormal); os carros; CopyDrawPasses das passadas 0 e 1 e
+    // DrawPass(1, por distância) e DrawFinalStaticWorldGeometry -> DrawPass(0, por distância).
+    order.clear();
+    RSky_order(render_, order);
+    emit(out.sky, order);
+    for (Draw& d : out.sky) d.pass = 4;
+    // O DrawWorld ordena a lista inteira pela instância, e as cópias das passadas 0 e 1 saem dessa lista ordenada.
+    order.clear();
+    DrawPass_order(render_, *list, 2, 3, 1, order);
+    emit(out.world, order);
+    // RSceneObj::RenderAllNormal e RenderAllDrawLast: os objetos de cena visíveis, na ordem do SetNowVisible (o port
+    // desenha a instância de origem; o Render do RSceneObj, com o modelo próprio, não foi portado).
+    const SceneObjCullState& sc = scene_obj_cull();
+    auto emit_objs = [&](std::vector<Draw>& v, const uint32_t* objs, int n) {
+        for (int i = 0; i < n; ++i) {
+            Draw d = make_draw(nf::p32_ptr<const RSceneObj>(objs[i])->instance, 0.0f, lod_multiplier);
+            if (d.instance >= 0 && d.part >= 0) v.push_back(d);
+        }
+    };
+    emit_objs(out.scene_objects, sc.visible, sc.num_visible);
+    emit_objs(out.scene_objects_last, sc.draw_last, sc.num_draw_last);
+    static CachedDrawInfo pass0, pass1;  // 0x3d1d88 e 0x3d4990
+    CopyDrawPasses(render_, *list, pass0, 0, 0);
+    CopyDrawPasses(render_, *list, pass1, 1, 1);
+    order.clear();
+    DrawPass_order(render_, pass1, 1, 1, 2, order);
+    emit(out.pass1, order);
+    order.clear();
+    DrawPass_order(render_, pass0, 0, 0, 2, order);
+    emit(out.pass0, order);
+    out.tested = 0;
+    for (int i = 0; i < list->node_count; ++i) out.tested += nf::p32_ptr<const MapNode>(list->nodes[i])->instance_count;
 }
 
 // [driving] 0x001ad128 GetInstanceViewDistance (pelo 0x001ad0b8 GetArticleViewDistance)

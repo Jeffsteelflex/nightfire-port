@@ -276,6 +276,19 @@ void ResolveTorque(RigidBody* rb, const float t[4]) {
     store(&rb->torque[0], v3);
 }
 
+// [driving] 0x1f86e8 RigidBody::ResolveForce
+void ResolveForce(RigidBody* rb, const float f[4]) {
+    if (rb->state == 3) return;
+    rb->radius_flags &= ~2u;
+    rb->state = 2;
+    Reg v1, v2, v3;
+    load(v1, f);
+    load(v2, &rb->force[0]);
+    load(v3, &rb->force[0]);
+    add(v3, v1, v2, XYZ);
+    store(&rb->force[0], v3);
+}
+
 // [driving] 0x1f8588 RigidBody::SetAngularMomentum
 void SetAngularMomentum(RigidBody* rb, const float l[4]) {
     const RigidBodyInfo* info = rb->info;
@@ -552,6 +565,56 @@ void RigidBody_Construct(RigidBody* rb, const RigidBodyParams& p) {
     else rb->radius_flags &= ~1u;
     if (p.flag2) rb->radius_flags |= 2u;
     else rb->radius_flags &= ~2u;
+    info->age = 0xffff;
+}
+
+// [driving] 0x1f7880 RigidBody::ResetObject(MATRIX4 &, COORD3 &): o corpo parado e acordado, na orientação e na posição
+// dadas (o tráfego que some e volta, o carro recolocado).
+// Divergência: a linha 3 do tensor inverso no mundo (RigidBodyInfo +0x070) é lixo da pilha no PS2 (o
+// VU0_MATRIX3x4_mult não a escreve); aqui zero, como no construtor do port.
+void RigidBody_ResetObject(RigidBody* rb, const float m[4][4], const float pos[3]) {
+    rb->state = 2;
+    SetOrientMat(rb, m);
+    rb->radius_flags &= ~2u;
+    std::memset(rb->vel, 0, 12);
+    std::memset(rb->ang_vel, 0, 12);
+    std::memset(rb->momentum, 0, 12);
+    std::memset(rb->ang_momentum, 0, 12);
+    std::memcpy(rb->pos, pos, 12);
+    rb->ground_levers = 0;
+    RigidBodyInfo* info = rb->info;
+    info->corner_buffer = 0;
+    info->flags[3] = 0;
+    // RigidBody::GetOrientMat (0x1fd408: VU0_quattom4), a transposta (pextlw/pcpyld) e o tensor como no construtor.
+    float rot[4][4], rt[4][4], d[4][4], drt[4][4] = {}, inv[4][4] = {};
+    VU0_quattom4(rb->quat, rot);
+    transpose4(rot, rt);
+    GetBodyTensorMatrix4(rb, d);
+    VU0_MATRIX3x4_mult(d, rt, drt);
+    VU0_MATRIX3x4_mult(rot, drt, inv);
+    StoreBodyMatrix(rb, rot);
+    StoreInvWorldTensor(rb, inv);
+    {
+        Reg r0, r1, r2, r3, l, acc, out;
+        load(r0, rot[0]);
+        load(r1, rot[1]);
+        load(r2, rot[2]);
+        load(r3, rot[3]);
+        int n = info->lever_count;
+        int i = 0;
+        do {
+            load(l, info->lever_local[i]);
+            mulabc(acc, r0, l, BX, XYZW);
+            maddabc(acc, r1, l, BY, XYZW);
+            maddabc(acc, r2, l, BZ, XYZW);
+            maddbc(out, acc, r3, l, BW, XYZW);
+            store(info->lever_world[i], out);
+            ++i;
+        } while (--n != 0 && i < 16);
+    }
+    UpdateZonalInfo(rb);
+    if (uint8_t(rb->type - 1) < 2) rb->radius_flags |= 1u;
+    else rb->radius_flags &= ~1u;
     info->age = 0xffff;
 }
 

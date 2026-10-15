@@ -178,6 +178,18 @@ public:
     virtual bool in_two_wheel_mode() { return false; }
     // +0x6c GetResetAvailable(): o carro pode ser reposto (capotado); a câmera do jogador troca para a de capotamento.
     virtual int32_t reset_available() { return 0; }
+    // +0x254 AttackWithEmp(): o Q-Pulse (o Missile da arma 0xe) num objeto de tipo 1, um carro (docs/driving.md seção
+    // 24). Só o PBondCar a tem; o padrão não faz nada.
+    virtual void attack_with_emp() {}
+
+    // Os objetos de corpo simples (driving/game/missile.h): PhysicsObject::GetCollisionBounds (0x00195b58, as
+    // meias-medidas do RSceneObj do dono; falso sem ele) e a palavra do objeto do PS2 num deslocamento (o
+    // SimpleRigidBody::CheckCollisions lê o +0x13c do dono). Os padrões: sem caixa, zero.
+    virtual bool collision_bounds(float /*half*/[4]) { return false; }
+    virtual uint32_t raw_word(uint32_t /*offset*/) { return 0; }
+    // Port: grava a palavra do PS2 num deslocamento (o contador dos rastros +0x64 que o EFireWeapon atualiza nos donos
+    // que não são carros nem corpos simples: o helicóptero, a sentinela); falso sem a imagem (o port não grava, conta).
+    virtual bool set_raw_word(uint32_t /*offset*/, uint32_t /*value*/) { return false; }
 
     // O PhysicsObject +0x60 do PS2: o WCollider do objeto (criado pela primeira colisão com os prédios).
     std::shared_ptr<WCollider> collider;
@@ -382,6 +394,8 @@ struct RigidBodyParams {
 };
 // [driving] 0x1f6e98 RigidBody::RigidBody(...): constrói rb (a vaga na Simulation) e o RigidBodyInfo da vaga.
 void RigidBody_Construct(RigidBody* rb, const RigidBodyParams& p);
+// [driving] 0x1f7880 RigidBody::ResetObject(MATRIX4 &, COORD3 &): parado e acordado na orientação e na posição dadas.
+void RigidBody_ResetObject(RigidBody* rb, const float m[4][4], const float pos[3]);
 // [driving] 0x1f77e0 RigidBody::~RigidBody(void)
 void RigidBody_Destruct(RigidBody* rb);
 
@@ -407,6 +421,9 @@ void ForceToSleep(RigidBody* rb);
 void ResolveMassScaledForce(RigidBody* rb, const float f[4]);
 // [driving] 0x1f8778 RigidBody::ResolveTorque(COORD3 &)
 void ResolveTorque(RigidBody* rb, const float t[4]);
+// [driving] 0x1f86e8 RigidBody::ResolveForce(COORD3 &): fora do estado 3, acorda o corpo (estado 2, o bit 1 de +0x7c
+// apagado) e soma a força.
+void ResolveForce(RigidBody* rb, const float f[4]);
 // [driving] 0x1f8588 RigidBody::SetAngularMomentum(COORD3 &): L = l girado pela orientação.
 void SetAngularMomentum(RigidBody* rb, const float l[4]);
 // [driving] 0x1f8168 RigidBody::ModifyAngularMomentum(COORD3 &): l (no referencial do corpo) girado para o mundo,

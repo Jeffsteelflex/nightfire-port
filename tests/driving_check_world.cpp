@@ -154,6 +154,15 @@ uint32_t article_extent(const uint8_t* art) {
         const auto* v = reinterpret_cast<const drv::StripVertex*>(art + 0x20 + st[i].vertex_offset);
         end = std::max(end, 0x20u + st[i].vertex_offset + 16u * v[0].w);
     }
+    // Os grupos de janelas depois das barreiras (WCollisionMgr::CheckHitWindow): cada um com o tamanho na palavra 1.
+    uint32_t w = 0x20u + a->barrier_offset + a->window_offset;
+    for (int g = 0; g < a->window_groups; ++g) {
+        uint32_t size;
+        std::memcpy(&size, art + w + 4, 4);
+        if (size > 0x7fff) break;
+        w += size;
+    }
+    if (a->window_groups) end = std::max(end, w);
     return end;
 }
 

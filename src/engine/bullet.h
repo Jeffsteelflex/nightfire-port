@@ -138,5 +138,28 @@ void Camera_Shake(_VECTOR* pos, float amount);
 void Player_SetGrapplePoint(BLData* b, _VECTOR* pos, obj_tag* obj);
 // Copter_GetBody e CopterList: engine/copter.h.
 
+// Só do port: o mouse pilota o míssil (flags2 4 da arma: o Sentinel 0x2c em modo "Guided"). No PS2 o
+// Bullet_update vira o míssil só pelo analógico direito (ações 0 e 5: no máximo pi/128 rad por tick a
+// 60 Hz) e o Player_Update não gira o corpo no subestado 10; o port soma o mouse ao míssil. Player_Update,
+// pilotando, passa o giro do mouse do tick (radianos, com a sensibilidade do olhar e mouse_invert_y;
+// positivo = esquerda e para cima, como no olhar) a Bullet_PortGuidedMouse, que o guarda como giro
+// pedido; o Bullet_update do míssil faz a cada tick o pedido somado ao do analógico, no máximo o mesmo
+// pi/128 rad x FRAME_RATE_MUL do analógico no fim (o míssil não vira mais rápido que no PS2), e o que
+// passa espera nos ticks seguintes, até kGuidedMouseBacklog (o resto se perde). Sem mouse (pedido zero)
+// o Bullet_update é o do PS2, bit a bit.
+constexpr float kGuidedTurn = 0.0245436933f;                 // pi/128: o giro do analógico no fim, por tick
+constexpr float kGuidedMouseBacklog = 15.0f * kGuidedTurn;  // 0,368 rad (21 graus): um quarto de segundo de giro
+struct GuidedMouse {
+    float yaw[4] = {};    // giro pedido e ainda não feito, por jogador (radianos; positivo: para a esquerda)
+    float pitch[4] = {};  // inclinação pedida (positivo: o nariz para cima)
+    float applied_yaw = 0.0f;    // relatório: giro do mouse feito no voo atual
+    float applied_pitch = 0.0f;  // relatório: inclinação do mouse feita no voo atual
+    uint32_t ticks = 0;          // relatório: ticks do voo atual com giro do mouse
+};
+extern GuidedMouse g_guided_mouse;
+void Bullet_PortGuidedMouse(int16_t player, float yaw, float pitch);
+// Zera o pedido do jogador (começo e fim de um voo).
+void Bullet_PortGuidedMouseReset(int16_t player);
+
 // Só para testes: estado inicial das globais do módulo.
 void bullet_debug_power_on();

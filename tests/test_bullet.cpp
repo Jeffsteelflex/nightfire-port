@@ -1,6 +1,7 @@
 // Testes dos projéteis (src/engine/bullet.cpp): voo, alcance, impacto no cenário e em objetos,
 // quique, grudar, gravidade, dispersão, teleguiado, pavio, satchel e cápsulas, com o tratador de
-// objetos do jogo (control_movement_object_handler) numa sala sintética.
+// objetos do jogo (control_movement_object_handler) numa sala sintética; o míssil pilotado pelo
+// analógico e pelo mouse (só do port).
 
 #include <cmath>
 #include <cstring>
@@ -15,6 +16,7 @@
 #include "engine/gameflow.h"
 #include "engine/gamestate.h"
 #include "engine/hashtable.h"
+#include "engine/input.h"
 #include "engine/memory.h"
 #include "engine/object.h"
 #include "engine/parsemap.h"
@@ -610,4 +612,112 @@ TEST(occlude_smoke_cloud_lives_its_ticks) {
     obj_tag* forever = Occlude_Create(&pos, -1, 1);
     for (int t = 0; t < 5; ++t) tick();
     CHECK(alive(forever) && int16_t(forever->state) == -1);
+}
+
+namespace {
+
+// Rumo (atan2(x, z), cresce virando à esquerda, como obj_tag::rot.y) e elevação (positiva: para cima) de uma direção.
+float heading_of(const _VECTOR& d) { return nf::fm::atan2(d.x, d.z); }
+float elevation_of(const _VECTOR& d) { return nf::fm::atan2(d.y, std::sqrt(d.x * d.x + d.z * d.z)); }
+
+void clear_actions() {
+    std::memset(PlayerSetting[0].actions, 0, sizeof(PlayerSetting[0].actions));
+    std::memset(PlayerSetting[0].state, 0, sizeof(PlayerSetting[0].state));
+}
+
+}  // namespace
+
+// O míssil pilotado (flags2 4, o Sentinel 0x2c "Guided"): com quem atirou no subestado 10, o analógico direito vira
+// (ação 0, para a direita) e inclina (ação 5, para cima) até pi/128 rad por tick; só do port, o mouse pede um giro
+// (Bullet_PortGuidedMouse: radianos, esquerda e para cima positivos) que o míssil faz no mesmo ritmo máximo, guardando
+// até 15 ticks de giro (0,368 rad), sem passar da vertical.
+TEST(guided_missile_turns_by_the_stick_and_the_mouse) {
+    fresh();
+    make_room(nullptr);
+    clear_actions();
+    const float max_turn = 3.14159265f / 128.0f;
+    _VECTOR at{0, 5, 0, 1}, rot{0, 0, 0, 0};
+    obj_tag* rider = control_create_object(0x970, &at, &rot, nullptr);
+    rider->type = 3;
+    rider->unknown_f6 = 10;  // já pilotando: o Bullet_init não refaz a montagem
+    bloke_of(rider)->player = 0;
+    Weapon w(0.001f, 1000.0f);  // devagar: fica na sala
+    w.def.flags2 = 4;
+    const _VECTOR east{1, 0, 0, 0};  // para +x, nivelado
+    obj_tag* o = Bullet_init(0, rider, nullptr, &w.def, &at, &east, 0xffff);  // sem dono: sem a dispersão do jogador
+    CHECK(o != nullptr);
+    if (o == nullptr) return;
+    BU_tag* b = bullet_of(o);
+    Bullet_update(o);  // estado 0: primeiro passo, sem pilotar
+    CHECK(o->state == 1);
+    float h = heading_of(b->dir);
+    CHECK_NEAR(h, 1.5707964f, 1e-4f);
+    Bullet_update(o);  // nada pedido: reto
+    CHECK_NEAR(heading_of(b->dir), h, 1e-6f);
+    // O analógico todo para a direita: pi/128 por tick para a direita (o rumo diminui).
+    PlayerSetting[0].actions[kActTurn] = 1.0f;
+    PlayerSetting[0].state[kActTurn] = kActionDown;
+    Bullet_update(o);
+    CHECK_NEAR(heading_of(b->dir) - h, -max_turn, 1e-5f);
+    CHECK(o->rot.z > 0.0f);  // a rolagem acompanha a curva
+    clear_actions();
+    // O mouse pede 0,1 rad para a esquerda: feito em ticks de no máximo pi/128, até completar 0,1.
+    for (int i = 0; i < 40; ++i) Bullet_update(o);  // a rolagem volta perto de zero
+    h = heading_of(b->dir);
+    Bullet_PortGuidedMouse(0, 0.1f, 0.0f);
+    float prev = h;
+    for (int i = 0; i < 8; ++i) {
+        Bullet_update(o);
+        const float now = heading_of(b->dir);
+        CHECK(now - prev <= max_turn + 1e-5f && now - prev >= -1e-6f);
+        prev = now;
+    }
+    CHECK_NEAR(heading_of(b->dir) - h, 0.1f, 1e-4f);
+    CHECK(g_guided_mouse.yaw[0] == 0.0f);
+    // Para cima: a elevação sobe o pedido.
+    const float e = elevation_of(b->dir);
+    Bullet_PortGuidedMouse(0, 0.0f, 0.05f);
+    for (int i = 0; i < 4; ++i) Bullet_update(o);
+    CHECK_NEAR(elevation_of(b->dir) - e, 0.05f, 1e-4f);
+    // Um giro grande demais: só 15 ticks de giro esperam (0,368 rad); o resto se perde.
+    h = heading_of(b->dir);
+    Bullet_PortGuidedMouse(0, -2.0f, 0.0f);
+    CHECK_NEAR(g_guided_mouse.yaw[0], -15.0f * max_turn, 1e-6f);
+    float roll_max = 0.0f;
+    for (int i = 0; i < 30; ++i) {
+        Bullet_update(o);
+        roll_max = std::fmax(roll_max, std::fabs(o->rot.z));
+    }
+    CHECK_NEAR(heading_of(b->dir) - h, -15.0f * max_turn, 1e-4f);
+    // A rolagem fica dentro da do analógico no fim (pi/128 / (1 - 0,965) = 0,70 rad).
+    CHECK(roll_max < 0.71f);
+    // O analógico para a direita e o mouse para a esquerda juntos: nunca mais que pi/128 num tick.
+    PlayerSetting[0].actions[kActTurn] = 1.0f;
+    PlayerSetting[0].state[kActTurn] = kActionDown;
+    Bullet_PortGuidedMouse(0, 0.3f, 0.0f);
+    prev = heading_of(b->dir);
+    for (int i = 0; i < 20; ++i) {
+        Bullet_update(o);
+        const float now = heading_of(b->dir);
+        CHECK(std::fabs(now - prev) <= max_turn + 1e-5f);
+        prev = now;
+    }
+    clear_actions();
+    // Para cima sem parar: o nariz para perto da vertical (o limite de 0,995 do PS2) e o pedido não fica preso.
+    for (int i = 0; i < 120; ++i) {
+        Bullet_PortGuidedMouse(0, 0.0f, 0.1f);
+        Bullet_update(o);
+    }
+    CHECK(b->dir.y > 0.99f && b->dir.y < 1.0f);
+    for (int i = 0; i < 20; ++i) Bullet_update(o);
+    CHECK(g_guided_mouse.pitch[0] == 0.0f && b->dir.y > 0.99f);
+    // O fim do voo (Bullet_Delete) solta o jogador e zera o pedido.
+    Bullet_PortGuidedMouse(0, 0.2f, -0.1f);
+    Bullet_Delete(o);
+    CHECK(g_guided_mouse.yaw[0] == 0.0f && g_guided_mouse.pitch[0] == 0.0f);
+    CHECK(bloke_of(rider)->ride == nullptr && bloke_of(rider)->ride_time == 0xf);
+    // Jogadores fora de 0..3 são ignorados.
+    Bullet_PortGuidedMouse(4, 1.0f, 1.0f);
+    Bullet_PortGuidedMouse(-1, 1.0f, 1.0f);
+    CHECK(g_guided_mouse.yaw[0] == 0.0f);
 }

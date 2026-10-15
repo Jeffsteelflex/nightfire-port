@@ -13,6 +13,9 @@
 //   nativo: quem preenche weapon_data precisa guardar ponteiros do port, não endereços do PS2.
 // - Bullet_init_casing_ex não copia obj->rot do atirador para a pilha: o original copia e ajusta
 //   pela inclinação do jogador, mas sobrescreve antes de ler.
+// - Só do port: o mouse pilota o míssil (bullet.h, GuidedMouse). Bullet_update soma ao giro do
+//   analógico o pedido do mouse (Bullet_PortGuidedMouse), limitado ao giro do analógico no fim; Bullet_init
+//   e Bullet_Delete zeram o pedido no começo e no fim do voo. Sem mouse o míssil é o do PS2, bit a bit.
 
 #include "engine/bullet.h"
 
@@ -208,6 +211,10 @@ obj_tag* Bullet_init(int16_t, obj_tag* from, obj_tag* owner, weapon_definition_t
             bl->prev_substate = prev;
             Player_SetCamMode(bl, 0xc);
             bl->ride_time = 0;
+            // Só do port: o voo começa sem giro do mouse pedido.
+            Bullet_PortGuidedMouseReset(bl->player);
+            g_guided_mouse.applied_yaw = g_guided_mouse.applied_pitch = 0.0f;
+            g_guided_mouse.ticks = 0;
         }
     }
     if ((b->weapon->flags2 & 0x4000) != 0 && b->from != nullptr && b->from->type == 3) {
@@ -608,6 +615,7 @@ void Bullet_DoTrails(obj_tag* obj, BU_tag* b, _VECTOR* old_pos, float) {
 // [decomp] 0x0012e660 Bullet_Delete
 // Ao apagar: para o som, devolve o controle de um míssil guiado ao jogador, solta o gancho (e,
 // parado num ponto de gancho, tipo 0x51, prende o jogador nele) e apaga o feixe do laser.
+// Só do port: zera o giro do mouse pedido ao míssil (GuidedMouse).
 void Bullet_Delete(obj_tag* obj) {
     BU_tag* b = bullet_of(obj);
     BLData* bl = nullptr;
@@ -619,6 +627,7 @@ void Bullet_Delete(obj_tag* obj) {
     if ((b->weapon->flags2 & 4) != 0 && bl != nullptr) {
         bl->ride = nullptr;
         bl->ride_time = 0xf;
+        Bullet_PortGuidedMouseReset(bl->player);  // só do port: o giro do mouse que sobrou se perde
     }
     if ((b->weapon->hit_flags & 0x40) != 0 && bl != nullptr) {
         bl->move_locked = 0;
@@ -633,6 +642,55 @@ void Bullet_Delete(obj_tag* obj) {
     if ((b->weapon->hit_flags & 0x80000) != 0 && b->trail != nullptr) b->trail->life |= 1;
 }
 
+// Só do port: o pedido do mouse ao míssil pilotado (bullet.h, GuidedMouse). Até kGuidedMouseBacklog de giro pedido
+// esperando; o que passa se perde.
+GuidedMouse g_guided_mouse;
+
+void Bullet_PortGuidedMouse(int16_t player, float yaw, float pitch) {
+    if (player < 0 || 3 < player) return;
+    const auto keep = [](float v) {
+        return v < -kGuidedMouseBacklog ? -kGuidedMouseBacklog : (kGuidedMouseBacklog < v ? kGuidedMouseBacklog : v);
+    };
+    g_guided_mouse.yaw[player] = keep(g_guided_mouse.yaw[player] + yaw);
+    g_guided_mouse.pitch[player] = keep(g_guided_mouse.pitch[player] + pitch);
+}
+
+void Bullet_PortGuidedMouseReset(int16_t player) {
+    if (player < 0 || 3 < player) return;
+    g_guided_mouse.yaw[player] = 0.0f;
+    g_guided_mouse.pitch[player] = 0.0f;
+}
+
+namespace {
+
+// Só do port: soma ao giro do analógico deste tick (yaw: positivo vira para a direita; pitch: positivo baixa o nariz,
+// as unidades do Bullet_update) o pedido do mouse, com o total limitado ao giro do analógico no fim (pi/128 rad x
+// FRAME_RATE_MUL), e tira do pedido o que foi feito. Sem pedido não mexe em nada: o analógico fica o do PS2.
+void guided_mouse_step(int16_t player, float* yaw, float* pitch) {
+    if (player < 0 || 3 < player) return;
+    float& want_yaw = g_guided_mouse.yaw[player];
+    float& want_pitch = g_guided_mouse.pitch[player];
+    if (want_yaw == 0.0f && want_pitch == 0.0f) return;
+    const float limit = kGuidedTurn * FRAME_RATE_MUL;
+    const auto clamp = [limit](float v) { return v < -limit ? -limit : (limit < v ? limit : v); };
+    // O mouse pede em "esquerda e para cima"; o míssil vira em "direita e para baixo".
+    const auto step = [&](float& want, float* turn) -> float {
+        if (want == 0.0f) return 0.0f;
+        const float stick = -*turn;
+        const float total = clamp(stick + want);
+        const float done = total - stick;
+        want -= done;
+        if (std::fabs(want) < 1e-7f) want = 0.0f;
+        *turn = -total;
+        return done;
+    };
+    g_guided_mouse.applied_yaw += step(want_yaw, yaw);
+    g_guided_mouse.applied_pitch += step(want_pitch, pitch);
+    ++g_guided_mouse.ticks;
+}
+
+}  // namespace
+
 // [decomp] 0x0012e7b0 Bullet_update
 // Um tick do projétil. Estado 0: primeiro passo (0,5 a 1 x speed) e o modelo; 1: voando (alcance,
 // giro, míssil guiado pelo stick do jogador, gravidade, luz); 2 e 4: apagar; 3: grudado (segue o
@@ -642,6 +700,7 @@ void Bullet_Delete(obj_tag* obj) {
 // andar ou, se o passo for menor que meio raio da bala (mínimo 0,25), uma esfera.
 // Peculiaridade mantida: com gravidade, o passo do tick usa a velocidade de antes da gravidade e a
 // direção de depois.
+// Só do port: o míssil pilotado soma ao analógico o giro pedido pelo mouse (guided_mouse_step, bullet.h).
 void Bullet_update(obj_tag* obj) {
     _VECTOR old_pos = obj->pos;
     BU_tag* b = bullet_of(obj);
@@ -705,8 +764,9 @@ void Bullet_update(obj_tag* obj) {
                 // acompanha a curva e decai; encostar em algo detona.
                 BLData* bl = bloke_of(b->from);
                 MATRIX* m = &obj->matrix;
-                const float yaw = Input_Actionf(bl->player, 0, 1) * 0.0245436933f * FRAME_RATE_MUL;
+                float yaw = Input_Actionf(bl->player, 0, 1) * 0.0245436933f * FRAME_RATE_MUL;
                 float pitch = -Input_Actionf(bl->player, 5, 1) * 0.0245436933f * FRAME_RATE_MUL;
+                guided_mouse_step(bl->player, &yaw, &pitch);  // só do port: o mouse
                 _VECTOR fwd;
                 Mat_GetDir(&fwd, m);
                 if (fwd.y < -0.995f && 0.0f < pitch) {
@@ -1229,4 +1289,5 @@ void bullet_debug_power_on() {
     std::memset(ShellCasings, 0, sizeof(ShellCasings));
     NextCasing = 0;
     g_bullet_guards = {};
+    g_guided_mouse = {};
 }

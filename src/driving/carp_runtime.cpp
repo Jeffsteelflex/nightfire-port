@@ -6,6 +6,8 @@
 
 #include "driving/carp_runtime.h"
 
+#include "driving/game/events.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -196,6 +198,11 @@ uint32_t CarpSymbols::carp_lookup(const char* name, uint32_t& size) const {
     return word(UData_Data(rec) + offset);
 }
 
+std::map<std::string, CarpSymbols::Lookup>& carp_global_namespaces() {
+    static std::map<std::string, CarpSymbols::Lookup> spaces;
+    return spaces;
+}
+
 uint32_t CarpSymbols::lookup(const char* name, uint32_t& size) {
     size = 0;
     const char* sep = std::strstr(name, "::");
@@ -209,7 +216,12 @@ uint32_t CarpSymbols::lookup(const char* name, uint32_t& size) {
         v = word(rest);
     } else {
         auto it = spaces_.find(space);
-        if (it != spaces_.end()) v = it->second(rest, size);
+        if (it != spaces_.end()) {
+            v = it->second(rest, size);
+        } else {
+            auto g = carp_global_namespaces().find(space);
+            if (g != carp_global_namespaces().end()) v = g->second(rest, size);
+        }
     }
     if (v) ++resolved;
     else misses[space]++;
@@ -268,11 +280,26 @@ void resolve_aq(UData* rec, UGroup* shared, UGroup* parent) {
     uint8_t* p = UData_Data(rec);
     for (uint32_t i = 0; i < rec->count; ++i) CARP_TagReference(W(p, size_t(i) * 0x20 + 0x1c), shared, parent);
 }
-// [driving] 0x002d9e78 (o 'el': cada evento pela função de RegisterEvent::ResolveEvent, FUN_001757d8). Os eventos não
-// foram portados: o port só conta (os dados dos eventos ficam como estão no arquivo).
-void resolve_el(UData* rec, UGroup*, UGroup*) {
-    (void)rec;
+// [driving] 0x002d9e78 (o 'el': cada evento pela função de RegisterEvent::ResolveEvent, FUN_001757d8, a tabela
+// 0x32bc20, com os dados do evento: o registro + o seu deslocamento). Port: as palavras que a função de cada número
+// passa ao CARP::TagReference vêm da tabela dos eventos (driving/game/events.h, EventInfo::refs, lidas das funções dos
+// 95 números das listas de Paris e do 172); um número que a tabela não conhece conta (os dados ficam como estão).
+void resolve_el(UData* rec, UGroup* shared, UGroup* parent) {
     ++g_stats.event_lists;
+    uint8_t* p = UData_Data(rec);
+    const int32_t count = *reinterpret_cast<const int32_t*>(p);
+    for (int32_t i = 0; i < count; ++i) {
+        uint8_t* e = p + 0x10 + size_t(i) * 0x10;
+        const int32_t type = *reinterpret_cast<const int32_t*>(e);
+        uint8_t* data = e + *reinterpret_cast<const int32_t*>(e + 8);
+        const EventInfo* info = event_info(type);
+        if (!info) {
+            ++g_stats.events_unresolved;
+            continue;
+        }
+        for (uint32_t k = 0; k < 32; ++k)
+            if (info->refs & (1u << k)) CARP_TagReference(W(data, size_t(k) * 4), shared, parent);
+    }
 }
 // [driving] 0x002d9f18 (o 'ef': elementos de 0x40, +0x18 só no tipo 6)
 void resolve_ef(UData* rec, UGroup* shared, UGroup* parent) {

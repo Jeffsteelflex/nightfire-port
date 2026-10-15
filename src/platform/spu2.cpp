@@ -16,8 +16,7 @@ constexpr int32_t kFilter1[5] = {0, 0, -52, -55, -60};
 
 // Envelope que o driver programa (ADSR1 0x000f, ADSR2 0x1fc0): ataque linear com taxa 0 (passo +7 << 11),
 // soltura linear com taxa 0 (passo -8 << 11). A sustentação (nível 0xf, taxa 0x7f) não muda o nível.
-constexpr int32_t kAttackStep = 7 << 11;
-constexpr int32_t kReleaseStep = 8 << 11;
+// (os passos agora ficam em cada voz: Voice::attack_step e release_step, com estes valores por padrão)
 constexpr int32_t kEnvMax = 0x7fff;
 
 // O preset "studio C" (modo 4 do sceSdSetEffectAttr), da tabela de presets do LIBSD.IRX (.data 0x4294): os 32
@@ -31,6 +30,32 @@ constexpr uint16_t kStudioC[32] = {
     0x0b59, 0x08da, 0x08d9, 0x05e9, 0x07ec, 0x04b0, 0x06ef, 0x03d2, 0x05ea, 0x031d, 0x031c, 0x0238, 0x0154, 0x00aa, 0x8000, 0x8000,
 };
 constexpr uint32_t kReverbSamples = 0xdfc * 4;
+
+// Os outros tipos (o SNDDRV.IRX das missões de carro): a tabela do LIBSD.IRX (0x41c8, 0x44 bytes por tipo de 1 a 9) e
+// os tamanhos das áreas (0x4158, em unidades de 8 bytes). O tipo 0 (desligado) não tem preset: o reverb fica calado.
+constexpr uint16_t kPresets[10][32] = {
+    {},
+    {0x007d, 0x005b, 0x6d80, 0x54b8, 0xbed0, 0x0000, 0x0000, 0xba80, 0x5800, 0x5300, 0x04d6, 0x0333, 0x03f0, 0x0227, 0x0374, 0x01ef,
+     0x0336, 0x01b7, 0x0335, 0x01b6, 0x0334, 0x01b5, 0x0334, 0x01b5, 0x0334, 0x01b5, 0x01b4, 0x0136, 0x00b8, 0x005c, 0x8000, 0x8000},
+    {0x0033, 0x0025, 0x70f0, 0x4fa8, 0xbce0, 0x4410, 0xc0f0, 0x9c00, 0x5280, 0x4ec0, 0x03e4, 0x031b, 0x03a4, 0x02af, 0x0372, 0x0266,
+     0x031c, 0x025d, 0x025c, 0x018e, 0x022f, 0x0135, 0x01d2, 0x00b7, 0x018f, 0x00b5, 0x00b4, 0x0080, 0x004c, 0x0026, 0x8000, 0x8000},
+    {0x00b1, 0x007f, 0x70f0, 0x4fa8, 0xbce0, 0x4510, 0xbef0, 0xb4c0, 0x5280, 0x4ec0, 0x0904, 0x076b, 0x0824, 0x065f, 0x07a2, 0x0616,
+     0x076c, 0x05ed, 0x05ec, 0x042e, 0x050f, 0x0305, 0x0462, 0x02b7, 0x042f, 0x0265, 0x0264, 0x01b2, 0x0100, 0x0080, 0x8000, 0x8000},
+    {0x00e3, 0x00a9, 0x6f60, 0x4fa8, 0xbce0, 0x4510, 0xbef0, 0xa680, 0x5680, 0x52c0, 0x0dfb, 0x0b58, 0x0d09, 0x0a3c, 0x0bd9, 0x0973,
+     0x0b59, 0x08da, 0x08d9, 0x05e9, 0x07ec, 0x04b0, 0x06ef, 0x03d2, 0x05ea, 0x031d, 0x031c, 0x0238, 0x0154, 0x00aa, 0x8000, 0x8000},
+    {0x01a5, 0x0139, 0x6000, 0x5000, 0x4c00, 0xb800, 0xbc00, 0xc000, 0x6000, 0x5c00, 0x15ba, 0x11bb, 0x14c2, 0x10bd, 0x11bc, 0x0dc1,
+     0x11c0, 0x0dc3, 0x0dc0, 0x09c1, 0x0bc4, 0x07c1, 0x0a00, 0x06cd, 0x09c2, 0x05c1, 0x05c0, 0x041a, 0x0274, 0x013a, 0x8000, 0x8000},
+    {0x033d, 0x0231, 0x7e00, 0x5000, 0xb400, 0xb000, 0x4c00, 0xb000, 0x6000, 0x5400, 0x1ed6, 0x1a31, 0x1d14, 0x183b, 0x1bc2, 0x16b2,
+     0x1a32, 0x15ef, 0x15ee, 0x1055, 0x1334, 0x0f2d, 0x11f6, 0x0c5d, 0x1056, 0x0ae1, 0x0ae0, 0x07a2, 0x0464, 0x0232, 0x8000, 0x8000},
+    {0x0003, 0x0003, 0x7fff, 0x7fff, 0x0000, 0x0000, 0x0000, 0x8100, 0x0000, 0x0000, 0x1ffd, 0x0ffd, 0x1009, 0x0009, 0x0000, 0x0000,
+     0x1009, 0x0009, 0x1fff, 0x1fff, 0x1ffe, 0x1ffe, 0x1ffe, 0x1ffe, 0x1ffe, 0x1ffe, 0x1008, 0x1004, 0x0008, 0x0004, 0x8000, 0x8000},
+    {0x0003, 0x0003, 0x7fff, 0x7fff, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x1ffd, 0x0ffd, 0x1009, 0x0009, 0x0000, 0x0000,
+     0x1009, 0x0009, 0x1fff, 0x1fff, 0x1ffe, 0x1ffe, 0x1ffe, 0x1ffe, 0x1ffe, 0x1ffe, 0x1008, 0x1004, 0x0008, 0x0004, 0x8000, 0x8000},
+    {0x0017, 0x0013, 0x70f0, 0x4fa8, 0xbce0, 0x4510, 0xbef0, 0x8500, 0x5f80, 0x54c0, 0x0371, 0x02af, 0x02e5, 0x01df, 0x02b0, 0x01d7,
+     0x0358, 0x026a, 0x01d6, 0x011e, 0x012d, 0x00b1, 0x011f, 0x0059, 0x01a0, 0x00e3, 0x0058, 0x0040, 0x0028, 0x0014, 0x8000, 0x8000},
+};
+constexpr uint32_t kPresetUnits[10] = {2, 0x4d8, 0x3e8, 0x908, 0xdfc, 0x15bc, 0x1ed8, 0x3008, 0x3008, 0x780};
+constexpr uint32_t kReverbMaxSamples = 0x3008 * 4;
 
 enum ReverbReg {
     dAPF1, dAPF2, vIIR, vCOMB1, vCOMB2, vCOMB3, vCOMB4, vWALL, vAPF1, vAPF2, mLSAME, mRSAME, mLCOMB1, mRCOMB1, mLCOMB2,
@@ -67,7 +92,7 @@ uint8_t adpcm_decode_block(const uint8_t* block, int16_t out[28], AdpcmState& st
 }
 
 Spu2::Spu2() : ram(kRamBytes, 0) {
-    for (Reverb& rv : rev_) rv.buf.assign(kReverbSamples, 0);
+    for (Reverb& rv : rev_) rv.buf.assign(kReverbMaxSamples, 0);
     reset();
 }
 
@@ -95,6 +120,8 @@ void Spu2::reset() {
     mmix_[0] = 0xff0;
     mmix_[1] = 0xffc;
     rev_phase_ = false;
+    rev_type_[0] = rev_type_[1] = 4;
+    unsupported_ = 0;
     sat_ = Saturation{};
     dc_x_[0] = dc_x_[1] = dc_y_[0] = dc_y_[1] = 0.0f;
 }
@@ -142,6 +169,84 @@ void Spu2::set_master_volume(int core, uint16_t reg) { mvol_[core & 1] = reg; }
 void Spu2::set_effect_volume(uint16_t reg) { evol_[0] = evol_[1] = reg; }
 void Spu2::set_effect_volume(int core, uint16_t reg) { evol_[core & 1] = reg; }
 void Spu2::set_input_volume(int core, uint16_t reg) { bvol_[core & 1] = reg; }
+
+void Spu2::set_adsr(int v, uint16_t adsr1, uint16_t adsr2) {
+    Voice& vc = voices_[v];
+    // Ataque: o modo no bit 15, a taxa nos bits 8..14; soltura: o modo no bit 5, a taxa nos bits 0..4. Só os lineares
+    // com o passo de pelo menos uma unidade por amostra (deslocamento até 11) estão portados.
+    const int arate = (adsr1 >> 8) & 0x7f, ashift = arate >> 2;
+    const int rrate = adsr2 & 0x1f;
+    if ((adsr1 & 0x8000) != 0 || ashift > 11 || (adsr2 & 0x20) != 0 || rrate > 11) ++unsupported_;
+    vc.attack_step = (7 - (arate & 3)) << std::max(0, 11 - ashift);
+    vc.release_step = 8 << std::max(0, 11 - rrate);
+}
+
+int32_t Spu2::voice_gain(Voice& vc, int side) {
+    // A varredura (como o ADSR): passo +7..+4 ou -8..-5 pelos 2 bits de baixo, deslocado por 11 - (bits 2..6); acima
+    // de 11 o passo espera 2^(deslocamento - 11) amostras; exponencial: o passo da descida escala com o nível e a
+    // subida espera 4x acima de 0x6000. O módulo vai de 0 a 0x7fff; a fase negativa inverte o sinal.
+    const uint16_t reg = vc.sweep_reg[side];
+    int32_t& level = vc.sweep_level[side];
+    if (vc.sweep_wait[side] > 0) {
+        --vc.sweep_wait[side];
+    } else {
+        const int rate = reg & 0x7f, shift = rate >> 2;
+        const bool expo = (reg & 0x4000) != 0, dec = (reg & 0x2000) != 0;
+        int32_t step = dec ? -8 + (rate & 3) : 7 - (rate & 3);
+        step = int32_t(uint32_t(step) << std::max(0, 11 - shift));
+        uint32_t cycles = 1u << std::max(0, shift - 11);
+        if (expo && !dec && level > 0x6000) cycles *= 4;
+        if (expo && dec) step = int32_t((int64_t(step) * level) >> 15);
+        level = std::clamp(level + step, 0, 0x7fff);
+        vc.sweep_wait[side] = cycles - 1;
+    }
+    return (reg & 0x1000) != 0 ? -level : level;
+}
+
+void Spu2::set_volume_reg(int v, int side, uint16_t reg) {
+    Voice& vc = voices_[v];
+    if ((reg & 0x8000) == 0) {
+        vc.sweep[side] = false;
+        if (side == 0) vc.vol_l = reg & 0x7fff;
+        else vc.vol_r = reg & 0x7fff;
+        return;
+    }
+    if (!vc.sweep[side]) {
+        vc.sweep_level[side] = std::abs(voice_volume(side == 0 ? vc.vol_l : vc.vol_r));
+        vc.sweep_wait[side] = 0;
+    }
+    vc.sweep[side] = true;
+    vc.sweep_reg[side] = reg;
+}
+
+int16_t Spu2::volume_current(int v, int side) const {
+    const Voice& vc = voices_[v];
+    if (vc.sweep[side])
+        return int16_t((vc.sweep_reg[side] & 0x1000) != 0 ? -vc.sweep_level[side] : vc.sweep_level[side]);
+    return int16_t(voice_volume(side == 0 ? vc.vol_l : vc.vol_r));
+}
+
+void Spu2::set_loop_start(int v, uint32_t addr) {
+    voices_[v].loop_addr = addr & ~15u;
+    voices_[v].loop_fixed = true;
+}
+
+uint32_t Spu2::next_address(int v) const { return voices_[v].addr; }
+void Spu2::set_dry(int v, int side, bool on) { voices_[v].dry[side & 1] = on; }
+void Spu2::set_mmix(int core, uint16_t mmix) { mmix_[core & 1] = mmix; }
+
+void Spu2::set_reverb_type(int core, int type) {
+    if (type < 0 || type > 9) {
+        ++unsupported_;
+        type = 0;
+    }
+    if (type == 7 || type == 8) ++unsupported_;  // o eco e o atraso usam o delay/feedback do sceSdSetEffectAttr
+    Reverb& rv = rev_[core & 1];
+    rev_type_[core & 1] = type;
+    std::fill(rv.buf.begin(), rv.buf.end(), int16_t(0));
+    rv.pos = 0;
+    rv.in_l = rv.in_r = rv.out_l = rv.out_r = 0;
+}
 
 void Spu2::input_push(const int16_t* stereo, size_t frames) {
     if (frames == 0) return;
@@ -201,7 +306,7 @@ void Spu2::start_voice(Voice& vc) {
     vc.key_delay = -1;
     vc.env = 0;
     vc.addr = vc.ssa;
-    vc.loop_addr = vc.ssa;
+    if (!vc.loop_fixed) vc.loop_addr = vc.ssa;
     vc.stop_after = false;
     vc.adpcm = AdpcmState{};
     vc.block_pos = 28;
@@ -245,9 +350,10 @@ int16_t Spu2::next_sample(Voice& vc) {
     return vc.block[vc.block_pos++];
 }
 
-void Spu2::reverb_process(Reverb& rv, int32_t in_l, int32_t in_r) {
-    const uint16_t* r = kStudioC;
-    const uint32_t size = kReverbSamples;
+void Spu2::reverb_process(Reverb& rv, int core, int32_t in_l, int32_t in_r) {
+    const int type = rev_type_[core];
+    const uint16_t* r = type == 4 ? kStudioC : kPresets[type];
+    const uint32_t size = type == 4 ? kReverbSamples : kPresetUnits[type] * 4;
     auto at = [&](uint32_t reg_units, int32_t delta) -> int16_t& {
         const uint32_t i = (rv.pos + reg_units * 4 + uint32_t(int32_t(size) + delta)) % size;
         return rv.buf[i];
@@ -301,13 +407,16 @@ void Spu2::render(int16_t* out, int frames) {
         for (int vi = 0; vi < kVoices; ++vi) {
             Voice& vc = voices_[vi];
             if (vc.key_delay >= 0 && --vc.key_delay < 0) start_voice(vc);
+            // A varredura de volume anda em toda amostra, soe a voz ou não (só o SNDDRV.IRX a liga).
+            const int32_t gain_l = vc.sweep[0] ? voice_gain(vc, 0) : 0;
+            const int32_t gain_r = vc.sweep[1] ? voice_gain(vc, 1) : 0;
             if (!vc.on && vc.env == 0) continue;
             // Envelope.
             if (vc.releasing) {
-                vc.env = std::max(0, vc.env - kReleaseStep);
+                vc.env = std::max(0, vc.env - vc.release_step);
                 if (vc.env == 0) vc.on = false;
             } else if (vc.on) {
-                vc.env = std::min(kEnvMax, vc.env + kAttackStep);
+                vc.env = std::min(kEnvMax, vc.env + vc.attack_step);
             }
             if (!vc.on && vc.env == 0) continue;
             // Interpolação de 4 pontos (Hermite) entre hist[1] e hist[2]; o contador de 12 bits anda pelo pitch.
@@ -326,11 +435,11 @@ void Spu2::render(int16_t* out, int frames) {
                 vc.hist[3] = vc.on ? next_sample(vc) : 0;
             }
             const int32_t v = mul15(s, vc.env);
-            const int32_t l = mul15(v, voice_volume(vc.vol_l));
-            const int32_t r = mul15(v, voice_volume(vc.vol_r));
+            const int32_t l = mul15(v, vc.sweep[0] ? gain_l : voice_volume(vc.vol_l));
+            const int32_t r = mul15(v, vc.sweep[1] ? gain_r : voice_volume(vc.vol_r));
             const int c = core_of(vi);
-            dry_l[c] += l;
-            dry_r[c] += r;
+            if (vc.dry[0]) dry_l[c] += l;
+            if (vc.dry[1]) dry_r[c] += r;
             if (vc.reverb) {
                 wet_l[c] += l;
                 wet_r[c] += r;
@@ -373,7 +482,7 @@ void Spu2::render(int16_t* out, int frames) {
         rev_[0].in_r += (mmix_[0] & 0x10) ? inp[1] : 0;
         if (rev_phase_) {
             for (Reverb& rv : rev_) {
-                reverb_process(rv, clamp16(rv.in_l / 2), clamp16(rv.in_r / 2));
+                reverb_process(rv, int(&rv - rev_), clamp16(rv.in_l / 2), clamp16(rv.in_r / 2));
                 rv.in_l = rv.in_r = 0;
             }
         }

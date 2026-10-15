@@ -14,6 +14,17 @@
 //    quadro.
 // 4. Roda as funções ORIGINAIS do EE (o código MIPS do DRIVING.ELF, no interpretador MIPS do port com a VU0 ligada)
 //    ao lado do porte em C++ e compara a memória (ver run_ee_checks).
+// 5-10. O chão, o carro, os choques, a câmera, o escalonador e a entrada (os arquivos driving_check_*.cpp).
+// 11. A visibilidade do mundo: o VU0_culling e as funções do frustum 2D, das cortinas, da árvore de cenas e do corte
+//    (tests/driving_check_vis.cpp; `--so visibilidade` roda só ela).
+// 14. O mundo vivo: a rede de estradas, o navegador, o tráfego e os objetos de cena que o carro derruba
+//    (tests/driving_check_traffic.cpp; `--so trafego` roda só ela).
+// 15. A missão: o SMissionManager de Paris, o Update das regras, a criação dos eventos e os destrutores portados
+//    (tests/driving_check_mission.cpp; `--so missao` roda só ela).
+// 16. Os personagens: a animação (a libeaglanima, o esqueleto e o ActPoser) com os bancos e os esqueletos do disco
+//    (tests/driving_check_chars.cpp; `--so personagens` roda só ela).
+// 17. A IA dos elementos de Paris e o dano do carro: o AIElementController, os agentes, os comandos, o ApplyDamage
+//    (tests/driving_check_ai.inc, incluído no driving_check_traffic.cpp; `--so ia` roda só ela).
 //
 // Tudo aqui lê dados do jogo: a saída é um relatório, nada é gravado.
 
@@ -35,6 +46,16 @@
 #include "driving/physics/simulation.h"
 #include "driving/physics/vu0_physics.h"
 #include "driving/physics/world.h"
+#include "driving_check_mission.h"
+#include "driving_check_chars.h"
+#include "driving_check_missile.h"
+#include "driving_check_weapons.h"
+#include "driving_check_fx.h"
+#include "driving_check_streams.h"
+#include "driving_check_heli.h"
+#include "driving_check_integ.h"
+#include "driving_check_passengers.h"
+#include "driving_check_traffic.h"
 #include "platform/crash_report.h"
 #include "platform/ps2_float.h"
 #include "platform/vu_interp.h"
@@ -42,7 +63,10 @@
 #include "driving_check_ee.h"
 #include "driving_check_camera.h"
 #include "driving_check_input.h"
+#include "driving_check_vehicle.h"
+#include "driving_check_sound.h"
 #include "driving_check_sched.h"
+#include "driving_check_vis.h"
 #include "driving_check_car.h"
 #include "driving_check_collide.h"
 #include "driving_check_world.h"
@@ -610,13 +634,18 @@ int main_body(int argc, char** argv) {
     nf::install_crash_report();
     if (argc < 2) {
         std::printf("uso: nf_driving_check <raiz dos dados> [--casos N] [--quadros N] [--semente N] [--consultas N] "
-                    "[--so camera|agenda|entrada]\n");
+                    "[--so camera|agenda|entrada|visibilidade|carro|som|trafego|missao|personagens|ia|helicoptero|"
+                    "integracao[.tiros|.atores|.ia]|efeitos|passageiros]\n");
         return 1;
     }
     const std::string root = argv[1];
     int cases = 4000, frames = 600, queries = 0;
     uint32_t seed = 20261011;
-    std::string only;  // --so camera: só a parte 8; --so agenda: só a parte 9; --so entrada: só a parte 10
+    std::string only;  // --so camera: só a parte 8; agenda: só a 9; entrada: só a 10; visibilidade: só a 11;
+                       // carro: só a 12; som: só a 13; trafego: só a 14; missao: só a 15;
+                       // personagens: só a 16; ia: só a 17; armas: só a 18 (misseis: o fim dela);
+                       // helicoptero: só a 19; integracao: só a 20 (integracao.<pedaço>: só um pedaço);
+                       // efeitos: só a 21; passageiros: só a 22
     for (int i = 2; i + 1 < argc; ++i) {
         if (std::strcmp(argv[i], "--casos") == 0) cases = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--quadros") == 0) frames = std::atoi(argv[++i]);
@@ -638,8 +667,91 @@ int main_body(int argc, char** argv) {
         std::printf("o .vutext tem %zu programas (esperados 3)\n", progs.size());
         return 1;
     }
+    if (only == "visibilidade") {
+        const int f = drvcheck::run_vis_checks(elf, *disc, progs[2].code.data(), uint32_t(progs[2].code.size()), cases,
+                                               frames / 2, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
     if (only == "entrada") {
         const int f = drvcheck::run_input_checks(elf, *disc, frames * 4, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "som") {
+        const int f = drvcheck::run_sound_checks(elf, *disc, cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "personagens") {
+        const int f = drvcheck::run_chars_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                 cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "trafego") {
+        const int f = drvcheck::run_traffic_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                   cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "misseis") {  // só o fim da parte 18: o corpo simples, as explosões, o míssil e o tiro
+        const int f = drvcheck::run_missile_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                   cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "armas") {
+        const int f = drvcheck::run_weapons_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                   cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "ia") {
+        const int f = drvcheck::run_ai_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()), cases,
+                                              seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only.rfind("integracao", 0) == 0) {
+        const std::string piece = only.size() > 11 ? only.substr(11) : std::string();
+        const int f = drvcheck::run_integ_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                 cases, seed, piece);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "fluxos") {  // só a parte 23: os fluxos (o mixador do EE, o SNDSTRM, o AStream, os eventos de som)
+        const int f = drvcheck::run_stream_checks(elf, *disc, cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "passageiros") {  // só a parte 22: os passageiros dos carros da IA
+        const int f = drvcheck::run_passenger_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                     cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "efeitos") {  // só a parte 21: os efeitos (as partículas, a galeria)
+        const int f = drvcheck::run_fx_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()), cases,
+                                              seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "helicoptero") {
+        const int f = drvcheck::run_heli_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "missao") {
+        const int f = drvcheck::run_mission_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                   cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "carro") {
+        const int f = drvcheck::run_vehicle_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                   cases, seed);
         std::printf("\nfim\n");
         return f ? 2 : 0;
     }
@@ -680,9 +792,47 @@ int main_body(int argc, char** argv) {
     const int sched_failures = drvcheck::run_sched_checks(elf, cases, seed);
     // A entrada: os .def do controle e `--quadros` x 4 quadros de controle por tabela.
     const int input_failures = drvcheck::run_input_checks(elf, *disc, frames * 4, seed);
+    // A visibilidade do mundo: `--casos` casos de cada tipo e `--quadros` / 2 câmeras por pista.
+    const int vis_failures = drvcheck::run_vis_checks(elf, *disc, progs[2].code.data(), uint32_t(progs[2].code.size()),
+                                                      cases, frames / 2, seed);
+    // Parte 12, o carro desenhado (as rodas, a sombra, as luzes, a vibração, as configurações do controle): `--casos`.
+    const int vehicle_failures = drvcheck::run_vehicle_checks(elf, *disc, progs[1].code.data(),
+                                                              uint32_t(progs[1].code.size()), cases, seed);
+    // Parte 13, o som (o SND da EA, o EA-XA, o jogo por cima): `--casos`.
+    const int sound_failures = drvcheck::run_sound_checks(elf, *disc, cases, seed);
+    // Parte 14, o mundo vivo (a rede de estradas, o navegador, o tráfego, os objetos de cena): `--casos`.
+    const int traffic_failures = drvcheck::run_traffic_checks(elf, *disc, progs[1].code.data(),
+                                                              uint32_t(progs[1].code.size()), cases, seed);
+    // Parte 15, a missão (o SMissionManager, as regras, os eventos, o HUD): `--casos`.
+    const int mission_failures = drvcheck::run_mission_checks(elf, *disc, progs[1].code.data(),
+                                                              uint32_t(progs[1].code.size()), cases, seed);
+    // Parte 16, os personagens (a animação: os canais, o esqueleto, o ActPoser): `--casos`.
+    const int chars_failures = drvcheck::run_chars_checks(elf, *disc, progs[1].code.data(),
+                                                          uint32_t(progs[1].code.size()), cases, seed);
+    // Parte 17, a IA dos elementos e o dano do carro (o AIElementController, os agentes, os comandos): `--casos`.
+    const int ai_failures = drvcheck::run_ai_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                    cases, seed);
+    // Parte 18, as armas e os efeitos (o SWeaponManager, os eventos das armas): `--casos`.
+    const int weapons_failures = drvcheck::run_weapons_checks(elf, *disc, progs[1].code.data(),
+                                                              uint32_t(progs[1].code.size()), cases, seed);
+    // Parte 19, a seção do helicóptero (os caminhos, o trilho, a câmera, o PHelicopter): `--casos`.
+    const int heli_failures = drvcheck::run_heli_checks(elf, *disc, progs[1].code.data(),
+                                                        uint32_t(progs[1].code.size()), cases, seed);
+    // Parte 20, as armas ligadas à IA (os tiros, os atores e os personagens, a IA): `--casos`.
+    const int integ_failures = drvcheck::run_integ_checks(elf, *disc, progs[1].code.data(),
+                                                          uint32_t(progs[1].code.size()), cases, seed, std::string());
+    // Parte 21, os efeitos (o sistema de partículas, a galeria): `--casos`.
+    const int fx_failures = drvcheck::run_fx_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                    cases, seed);
+    // Parte 23, os fluxos (o mixador do EE, o SNDSTRM e o tocador de pacotes, o AStream e o AFader): `--casos`.
+    const int stream_failures = drvcheck::run_stream_checks(elf, *disc, cases, seed);
+    // Parte 22, os passageiros dos carros da IA (a janela, o teto solar, o motorista): `--casos`.
+    const int passenger_failures = drvcheck::run_passenger_checks(elf, *disc, progs[1].code.data(),
+                                                                  uint32_t(progs[1].code.size()), cases, seed);
     std::printf("\nfim\n");
-    return ee_failures || world_failures || car_failures || collide_failures || camera_failures || sched_failures ||
-                   input_failures
+    return stream_failures || passenger_failures || integ_failures || fx_failures || ee_failures || world_failures || car_failures || collide_failures || camera_failures || sched_failures ||
+                   input_failures || vis_failures || vehicle_failures || sound_failures || traffic_failures ||
+                   mission_failures || chars_failures || ai_failures || weapons_failures || heli_failures
                ? 2
                : 0;
 }

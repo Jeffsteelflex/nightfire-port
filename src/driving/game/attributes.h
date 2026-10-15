@@ -23,6 +23,26 @@ namespace drv {
 
 class Bigf;
 
+// A estrutura "PhysicsData" da classe "smackable" (0x2c bytes; PhysicsNamespace::PhysicsNamespace 0x194e18 registra os
+// campos, o construtor 0x194cd0 põe os padrões): o que o Smackable (driving/game/smackable.h) lê pelo símbolo
+// "PHYS::<coleção>" do 'pD' de um objeto de cena. Peculiaridade mantida: MOMENT (um vetor de três floats) é registrado
+// no mesmo +0xc do FORCE_DETACH, então um MOMENT escreve +0xc..+0x14 (o FORCE_DETACH vira 1,0 e os dois primeiros sons
+// também).
+struct SmackablePhysicsData {
+    uint32_t attributes = 0;       // +0x00 o AttributeSet (port: 0, o Smackable não o consulta)
+    float mass = 100.0f;           // +0x04 MASS
+    float hit_points = 500.0f;     // +0x08 HITPOINTS
+    uint32_t force_detach = 0;     // +0x0c FORCE_DETACH (e o x do MOMENT)
+    int32_t default_sound = -1;    // +0x10 DEFAULTSOUND (os sons: o id do banco; o port deixa -1)
+    int32_t warning_sound = -1;    // +0x14 WARNINGSOUND
+    int32_t impact_lo = -1;        // +0x18 IMPACTSOUNDLO
+    int32_t impact_med = -1;       // +0x1c IMPACTSOUNDMED
+    int32_t impact_hi = -1;        // +0x20 IMPACTSOUNDHI
+    int32_t scrape = -1;           // +0x24 SCRAPESOUND
+    float description = 0.0f;      // +0x28 DESCRIPTION
+};
+static_assert(sizeof(SmackablePhysicsData) == 0x2c);
+
 class AttributeCollection {
 public:
     // Lê data\sim\attrib\<cls>\<name>.atr do arquivo (e a "default" da classe como mãe, se name não for ela).
@@ -38,6 +58,8 @@ public:
     bool lookup_bool(const std::string& key, bool* found = nullptr) const;
     // AttributeSet::LookupStruct("CarPhysics"): a estrutura da coleção (ou da mãe); zerada sem nenhum campo.
     const CarPhysics& car_physics() const;
+    // A "PhysicsData" de uma coleção da classe "smackable" (ou da mãe, sem nenhum campo dela); os padrões do construtor.
+    const SmackablePhysicsData& physics_data() const;
     int keys() const { return int(values_.size()); }
 
 private:
@@ -45,6 +67,8 @@ private:
     std::map<std::string, std::string> values_;
     CarPhysics physics_{};
     bool has_physics_ = false;
+    SmackablePhysicsData smackable_{};
+    bool has_smackable_ = false;
     std::shared_ptr<AttributeCollection> parent_;
     friend class AttributeLoader;
 };

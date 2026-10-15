@@ -1,6 +1,6 @@
 # 007: Nightfire — native PC port
 
-**Version 0.4 (October 2026) — work in progress.**
+**Version 0.5 (October 2026) — work in progress.**
 
 A native Windows rebuild of *007: Nightfire* for the PlayStation 2 (NTSC-U, SLUS-20579), with a first macOS version
 for testing. This is not an emulator.
@@ -18,42 +18,41 @@ The aim is to play the original game the way it was made, plus the PC features i
 
 ## Status
 
-| Area | State |
-|------|-------|
-| On-foot campaign (7 missions, 12 with the driving ones) | Every level loads and runs on the game's own code, and every objective has its mechanism. A complete playthrough of every mission has not been verified yet. |
-| Driving missions (Paris, Alpine Escape, Enemies Vanquished, Deep Descent, Island Infiltration) | Skipped for now in the game: they count as done without a medal. They run in a separate EA engine (`DRIVING.ELF`), which is being ported. In the port's test tool (`nf_driving`) the Vanquish already drives through Paris with the game's own physics, collisions, chase camera and controls, each checked against the original code. |
-| Multiplayer | Not yet; planned last. |
-| macOS | First version for testing, from 0.4: a universal app (`Nightfire PC.app`, Apple Silicon and Intel, macOS 11 or newer) with a Metal renderer, the Mac's own drawing of the menus and the HD text, sound, controllers and disc reading. CI builds and tests it on GitHub's Mac machines and compares what it draws with the Windows images. **It has not been played on a real Mac yet**: reports are welcome (see "On a Mac" below). |
-| Decompilation | 2,117 of 2,550 functions of `ACTION.ELF` (80% of its code). |
+### Works
 
-### What works
+- **On-foot campaign.** Every level loads and runs on the game's own code: the player, weapons and gadgets, AI with
+  vision, combat and cover, objectives, cutscenes, HUD, score and medals. A full playthrough of every mission has not
+  been verified yet.
+- **Rendering.** The PS2's lighting, fog and environment maps, skinned characters with talking faces, particles,
+  shattering glass, weather; any resolution and aspect ratio, above 60 fps (frames interpolated between the 60 Hz
+  ticks), MSAA, supersampling, PCSX2-format HD texture packs.
+- **Menus.** The game's own front end, codenames, saves, dossier and credits, in two styles: Original (as on the PS2)
+  and Modern (redesigned, native resolution). A launcher before the game picks the disc and the display settings.
+- **Audio and movies.** The game's sound driver and the SPU2 in software: effects, 3D sound, reverb, speech with
+  subtitles, interactive music. The PSS movies play where the game plays them.
+- **PC controls.** Raw mouse and keyboard, all rebindable; XInput pads through the game's own pad layer; mouse in every
+  menu; optional aim-down-sights and a weapon wheel. New in 0.5: the guided missile is steered by the mouse.
+- **Disc.** An `.iso`, a DVD drive or the extracted files; only the US version.
+- **Performance.** 60 fps on integrated GPUs is the target; a Radeon iGPU runs 144 fps or more at 1080p.
 
-- **Rendering.** Levels, characters, skinned animation, faces that move with speech, and the sky.
-  - Lighting and fog reproduce the PS2's VU1 microcode, including the environment maps.
-  - Also: particles, glass that shatters, weather (rain, snow, lightning), screen fades and the load screen.
-- **Display options.** Any resolution and aspect ratio (Hor+ field of view, 4K, ultrawide), and smooth frame rates above 60 fps: the logic runs at the PS2's 60 Hz and the frames are interpolated between ticks.
-  - Image quality: MSAA with alpha-to-coverage, supersampling, anisotropic filtering.
-  - Optional HD texture packs in the PCSX2 format.
-- **Gameplay.** The player, weapons and gadgets, AI enemies and allies with their vision, combat, cover and alarms, and pickups.
-  - Also: doors, ladders, the grapple, ziplines, locks, security cameras, turrets, helicopters, explosions and destruction.
-  - Scripted cutscenes, the HUD, mission objectives, statistics, score and medals.
-- **Menus.** The game's own menus, front end, codenames and saves, dossier and credits, all run by the game's code.
-  - Two styles: **Original**, exactly as on the PS2, and **Modern**, the default: a redesigned look at native resolution that still drives the game's own menu logic.
-  - A launcher before the game, in the Modern style: the disc, resolution, display mode, VSync, menu style and HD 2D layer.
-- **Audio.** The game's sound driver (`SFX.IRX`) and the SPU2 are reproduced in software: effects, 3D positioning, reverb, speech with subtitles, and the interactive music.
-- **Movies.** The PSS movies play at the points where the game plays them. Windows' own MPEG-2 decoder is used when it is installed; otherwise the port's own MPEG-2 decoder plays them.
-- **PC controls.**
-  - Raw mouse and keyboard with PC-standard defaults, all rebindable.
-  - XInput controllers through the game's own pad layer (its 8 button layouts, dead zone, curves and rumble).
-  - Mouse support in every menu.
-  - Optional modern aim-down-sights and a weapon wheel.
-- **Performance.** The target is 60 fps on integrated GPUs with the default settings. Measured at 1080p, a Radeon integrated GPU runs 144 fps or more.
+### In progress
 
-### Known gaps
+- **Driving missions** (Paris, Alpine Escape, Enemies Vanquished, Deep Descent, Island Infiltration). They run in a
+  separate EA engine (`DRIVING.ELF`), being ported function by function (about 1,700 so far, each checked against the
+  original code in an emulated CPU). The game still skips them: they count as done without a medal. In the port's test
+  tool (`nf_driving`, build only) **Paris, the first mission, plays from start to end**: the helicopter section, the car
+  chase, the enemy cars and their gunmen, weapons, explosions, the damage, speech and music, won or lost by play
+  (tested with scripted input). Left for Paris: the mission's movies and real HUD, some effects and sounds, a few
+  camera modes; then the other four missions, and running them inside the game.
+- **macOS.** A universal app (`Nightfire PC.app`, Apple Silicon and Intel, macOS 11+) built and tested by CI on GitHub's
+  Mac machines. **Not yet played on a real Mac**: reports are welcome (see "On a Mac" below).
+- **Decompilation of `ACTION.ELF`** (the on-foot game): 2,117 of 2,550 functions (80% of its code).
+- **To check on real hardware:** a physical controller (only scripted pad input is tested), and a few fog and tint
+  details against the PS2.
 
-- Driving missions and multiplayer (see above).
-- A few cosmetic rendering details still have to be checked against real hardware: fog edge cases and some tint values.
-- Only scripted controller input has been tested so far, not a physical pad. DualShock/DualSense pads work only through XInput wrappers.
+### Not started or parked
+
+- Multiplayer (planned last).
 - The RTX Remix path (`--renderer d3d9ff`) is an early prototype and is parked.
 
 ## Requirements

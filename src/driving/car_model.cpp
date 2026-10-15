@@ -11,9 +11,11 @@
 
 #include "driving/carp.h"
 #include "driving/eagl_model.h"
+#include "driving/light_manager.h"
 #include "driving/render_method.h"
 #include "driving/vif.h"
 #include "platform/fmath.h"
+#include "platform/ps2_float.h"
 
 namespace drv {
 
@@ -42,7 +44,7 @@ struct Vec4 {
 
 struct CarModel::Impl {
     Bigf misc, mission;
-    Blob eaglrm, bondrm, carp;
+    Blob eaglrm, bondrm, carp, dat, rel;
     Carp carp_dir;
     std::unique_ptr<DynamicLoader> eaglrm_loader, bondrm_loader, model_loader;
     std::vector<RenderMethodInfo> methods;
@@ -62,6 +64,17 @@ struct CarModel::Impl {
     Vec4 sim_step{}, camera_pos{}, refl_stretch{};
     Vec4 light_sources[16]{};  // GAME::LightSources: *(RLightManager + 0x7c) (o bloco das luzes, MatDynamicTexture)
     uint32_t environment_tar = 0;
+    // Os personagens (docs/driving.md seção 20): o EAGLAnimationBuffer (o ActSkeleton::fSkinnedTransforms: uma matriz por
+    // osso, a identidade na carga), o GAME::ActorLightSources (o bloco "Character" do RLightManager, +0xf0), o
+    // GAME::PositionalLights (*(RLightManager + 0x2a4): as luzes pontuais, apagadas), o GAME::CharacterOptions (o
+    // ActManager + 0x40 que o ActCharacter::Draw 0x0010d320 preenche: alfa / 2, escuridão da sombra x 128, sombra 0/1,
+    // o alfa do vértice) e as propriedades de luz da entrada "Characters" do RReflection.
+    Vec4 anim_buffer[kCarAnimBufferBones * 4]{};
+    Vec4 actor_lights[7]{};
+    Vec4 positional_lights[8]{};
+    uint32_t character_options[4] = {127, 19, 0, 127};
+    Vec4 char_lighting[7]{};
+    Vec4 specular_mat[4]{};
     std::vector<std::string>* messages = nullptr;
 };
 
@@ -96,7 +109,36 @@ void CarModel::bounds(unsigned view, float lo[3], float hi[3]) const {
         for (int c = 0; c < 3; ++c) lo[c] = hi[c] = 0.0f;
 }
 
+void CarModel::set_world_inputs(const float light_sources[7][4], const float sim_step[4]) {
+    for (int r = 0; r < 7; ++r) std::memcpy(impl_->light_sources[r].v, light_sources[r], 16);
+    std::memcpy(impl_->sim_step.v, sim_step, 16);
+}
+
 UGroup* CarModel::carp_root() const { return impl_->carp.data ? reinterpret_cast<UGroup*>(impl_->carp.data) : nullptr; }
+const uint8_t* CarModel::carp_data() const { return impl_->carp.data; }
+size_t CarModel::carp_size() const { return impl_->carp.size; }
+const Carp& CarModel::carp_dir() const { return impl_->carp_dir; }
+
+bool CarModel::vehicle_info(VehicleModelInfo& out) const {
+    const CarpGroup* arti = impl_->carp_dir.group(carp_tag("Arti"));
+    if (!arti || !vehicle_model_info(impl_->carp.data, impl_->carp.size, *arti, out)) return false;
+    // Os 'as' em ordem (UGroup::DataLocateFirst 'as  '): o byte +0x1e é o tipo (3 a sombra, 4 o volume), a palavra 9 a
+    // etiqueta 'sr' com o nome do __Model.
+    for (const CarpEntry& e : arti->data) {
+        if (!e.short_tag() || (e.tag >> 16) != 0x6173 || e.size() < 40 || e.data + 40 > impl_->carp.size) continue;
+        const uint8_t kind = impl_->carp.data[e.data + 0x1e];
+        if (kind != 3 && kind != 4) continue;
+        uint32_t sr_tag;
+        std::memcpy(&sr_tag, impl_->carp.data + e.data + 36, 4);
+        const CarpEntry* sr = arti->find(sr_tag);
+        if (!sr) continue;
+        std::string name = carp_string(impl_->carp.data, impl_->carp.size, *sr);
+        if (name.rfind("EAGL::", 0) == 0) name.erase(0, 6);
+        for (size_t k = 0; k < parts_.size(); ++k)
+            if (parts_[k].name == name) (kind == 3 ? out.shadow_part : out.shadow_volume_part) = int32_t(k);
+    }
+    return true;
+}
 
 int CarModel::part_of_model(uint32_t model) const {
     auto it = part_by_model_.find(model);
@@ -122,6 +164,11 @@ void car_lighting_from_tuning(const std::string& text, const std::string& car, f
     out[6][1] = 0.37f;
     out[6][2] = 1.5f;
     out[6][3] = 1.0f;
+    if (car == "Characters") {
+        // O RReflection (0x001c0930) põe 1,0 no ambiente e na difusa dos tipos 2 e 3 da entrada "Characters" (+0x20,
+        // +0x24, +0x30, +0x34) antes de ler o .tun.
+        out[2][0] = out[2][1] = out[3][0] = out[3][1] = 1.0f;
+    }
     struct Key {
         const char* name;
         int type, comp;
@@ -214,6 +261,17 @@ bool CarModel::load(const nf::DiscSource& disc, const std::string& viv, const st
     return load_carp(disc, viv, "data\\car\\model\\" + name + ".crp", {"data\\car\\model\\" + name + ".ssh"}, name, error);
 }
 
+bool CarModel::load_eagl(const nf::DiscSource& disc, const std::string& viv, const std::string& dat_key,
+                         const std::string& rel_key, const std::vector<std::string>& ssh_keys, const std::string& name,
+                         std::string& error) {
+    split_dat_ = dat_key;
+    split_rel_ = rel_key;
+    const bool ok = load_carp(disc, viv, std::string(), ssh_keys, name, error);
+    split_dat_.clear();
+    split_rel_.clear();
+    return ok;
+}
+
 bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, const std::string& crp_key,
                          const std::vector<std::string>& ssh_keys, const std::string& name, std::string& error) {
     Impl& I = *impl_;
@@ -275,6 +333,28 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
             textures_.push_back(std::move(t));
         }
     };
+    // As texturas do personagem no lugar das do Actors.ssh ('hhhh' a cabeça, 'tttt' o tronco, 'bbbb' o corpo): o que
+    // o ActCharacter::LoadCharacter (ActTextureDatabase::LoadTexture) e o ActModel::SetTexture fazem no desenho.
+    for (const auto& al : texture_aliases_) {
+        const int idx = I.mission.find(al.second);
+        std::vector<uint8_t> bytes;
+        ShpsFile f;
+        if (idx < 0 || !I.mission.read(idx, bytes) || !shps_parse(bytes.data(), bytes.size(), f) || f.images.empty() ||
+            f.images[0].rgba.empty() || I.shapes.count(al.first)) {
+            messages_.push_back("sem a textura " + al.second + " (" + al.first + ")");
+            continue;
+        }
+        ShpsImage& im = f.images[0];
+        CarTexture t;
+        t.name = al.first;
+        t.source = al.second;
+        t.width = im.width;
+        t.height = im.height;
+        t.rgba = std::move(im.rgba);
+        const uint16_t id = uint16_t(textures_.size());
+        I.shapes[t.name] = tar_image_create(id, t.width, t.height, im.gs_psm, im.palette_type != 0);
+        textures_.push_back(std::move(t));
+    }
     for (const std::string& key : ssh_keys) load_ssh(I.mission, key);
     load_ssh(I.mission, "data\\render\\common.ssh");
     load_ssh(I.mission, "data\\render\\ext.ssh");
@@ -308,6 +388,30 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
             messages_.push_back(b);
         }
         std::memcpy(constants_.refl_info2, props[6], 16);
+        // Os personagens: a entrada "Characters" do RReflection.
+        float cprops[7][4];
+        car_lighting_from_tuning(tun, "Characters", cprops);
+        for (int t = 0; t < 7; ++t) std::memcpy(I.char_lighting[t].v, cprops[t], 16);
+    }
+    // Os personagens: o EAGLAnimationBuffer na identidade (a pose de ligação; quem anima troca as matrizes no desenho)
+    // e as entradas do quadro que o port ainda não calcula (as luzes pontuais apagadas, a SpecularMat identidade).
+    for (int b = 0; b < kCarAnimBufferBones; ++b)
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c) I.anim_buffer[b * 4 + r].v[c] = r == c ? 1.0f : 0.0f;
+    std::memset(I.positional_lights, 0, sizeof I.positional_lights);
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c) I.specular_mat[r].v[c] = r == c ? 1.0f : 0.0f;
+    {
+        const int idx = I.mission.find("data\\tuning\\Render\\Lighting\\");
+        RLightManagerLights lm;
+        std::string text;
+        if (idx >= 0) {
+            std::vector<uint8_t> b;
+            I.mission.read(idx, b);
+            text.assign(b.begin(), b.end());
+        }
+        RLightManager_Construct(lm, text);
+        std::memcpy(I.actor_lights, &lm.blocks[1], sizeof I.actor_lights);  // RLightManager + 0xf0: o "Character"
     }
     {
         const int idx = I.mission.find("data\\tuning\\Render\\Lighting\\");
@@ -320,6 +424,9 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
         }
     }
     std::memset(I.switch_data, 0, sizeof I.switch_data);
+    // O x de cada GAME::SwitchData (o VScroll, que o MatCarTextureSwitchPacked não lê) leva 1000 + n na carga: o lote
+    // copia a entrada e o desenho guarda o n para trocar a entrada pela do quadro (driving/render/vehicle.h).
+    for (int n = 0; n < 16; ++n) I.switch_data[n].v[0] = 1000.0f + float(n);
     std::memset(I.damage_zones, 0, sizeof I.damage_zones);
     std::memset(I.reflection_info1.v, 0, 16);
     I.specular_tar = tar_create("carS", true, true);
@@ -355,6 +462,18 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
         if (!std::strcmp(sym, "EAGL::ReflStretch")) return addr_of(I.refl_stretch.v);
         if (!std::strcmp(sym, "GAME::LightSources")) return addr_of(I.light_sources[0].v);
         if (!std::strcmp(sym, "EAGL::EnvironmentMap")) return I.environment_tar;
+        // Os personagens (RCARPFile::RegisterSymbols 0x001a8930, ActSkeleton::ActSkeleton 0x00114760,
+        // ActManager::SymbolResolverInit 0x00110ee8).
+        if (!std::strcmp(sym, "EAGLAnimationBuffer")) return addr_of(I.anim_buffer[0].v);
+        if (!std::strcmp(sym, "GAME::ActorLightSources")) return addr_of(I.actor_lights[0].v);
+        if (!std::strcmp(sym, "GAME::PositionalLights")) return addr_of(I.positional_lights[0].v);
+        if (!std::strcmp(sym, "GAME::CharacterOptions")) return addr_of(I.character_options);
+        if (!std::strcmp(sym, "GAME::CharacterLightingDullProps")) return addr_of(I.char_lighting[3].v);
+        if (!std::strcmp(sym, "GAME::CharacterLightingGlossyProps")) return addr_of(I.char_lighting[2].v);
+        if (!std::strcmp(sym, "GAME::CharacterReflectionInfo")) return addr_of(I.char_lighting[6].v);
+        if (!std::strcmp(sym, "GAME::SpecularMat")) return addr_of(I.specular_mat[0].v);
+        if (!std::strcmp(sym, "GAME::WeaponReflectionMap")) return I.specular_tar;  // só do port: o 'carS'
+
         found = false;
         return 0;
     };
@@ -380,7 +499,26 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
 
     // O CARP do carro: 'ELFd' (cabeçalho e .data) e 'ELFr' (o resto), ligados pelo tamanho do 'ELFd' (o RCARPFile,
     // 0x001a9600: DynamicLoader(elf, tamanho, rel, adiar o Resolve, ResolveEAGLReferences) e depois o Resolve).
-    {
+    // Num objeto partido em arquivos (load_eagl), o .dat e o .rel fazem o mesmo papel, sem o CARP.
+    if (!split_dat_.empty()) {
+        auto read_any = [&](const std::string& key, Blob& blob) {
+            std::vector<uint8_t> b;
+            int idx = I.mission.find(key);
+            if (idx >= 0) I.mission.read(idx, b);
+            else if ((idx = I.misc.find(key)) >= 0) I.misc.read(idx, b);
+            if (b.empty()) return false;
+            blob.assign(b);
+            return true;
+        };
+        if (!read_any(split_dat_, I.dat) || !read_any(split_rel_, I.rel)) {
+            error = "sem " + split_dat_ + " ou " + split_rel_ + " em " + viv;
+            return false;
+        }
+        I.carp = Blob();
+        I.carp_dir = Carp();
+        I.model_loader = std::make_unique<DynamicLoader>(I.dat.data, uint32_t(I.dat.size), I.rel.data, true, resolver);
+        I.model_loader->Resolve();
+    } else {
         const int idx = I.mission.find(crp_key);
         if (idx < 0) {
             error = "sem " + crp_key + " em " + viv;
@@ -477,23 +615,32 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
                 const int id = int(b.pass[p].tex0 & 0x3FFF);
                 tex[p] = id < int(textures_.size()) ? id : -1;
             }
+        // As luzes: o n do GAME::SwitchData pelo x de 1000 + n da carga (o x volta a zero no desenho).
+        float sw[4];
+        std::memcpy(sw, b.switch_data, 16);
+        int sw_index = -1;
+        if (!fallback && b.layout->kind == kCarSwitch) {
+            const int n = int(sw[0]) - 1000;
+            sw_index = n >= 0 && n < 16 ? n : -1;
+            sw[0] = 0.0f;
+        }
         CarDraw* d = draws_.empty() ? nullptr : &draws_.back();
         const bool same = d && d->fallback == fallback && d->passes == passes && d->method == method &&
                           d->part == part_index &&
                           std::memcmp(d->props, b.props, 16) == 0 && std::memcmp(d->texture, tex, sizeof tex) == 0 &&
                           d->pass[0].prim == b.pass[0].prim && d->pass[0].alpha == b.pass[0].alpha &&
                           d->pass[0].test == b.pass[0].test && d->pass[1].alpha == b.pass[1].alpha &&
-                          d->pass[1].test == b.pass[1].test &&
-                          std::memcmp(d->switch_data, b.switch_data, 16) == 0 &&
-                          std::memcmp(d->switch_param, b.switch_param, 16) == 0;
+                          d->pass[1].test == b.pass[1].test && std::memcmp(d->switch_data, sw, 16) == 0 &&
+                          d->switch_index == sw_index && std::memcmp(d->switch_param, b.switch_param, 16) == 0;
         if (!same) {
             CarDraw nd;
             nd.method = method;
             nd.passes = passes;
             nd.fallback = fallback;
             nd.layout = fallback ? nullptr : b.layout;
-            std::memcpy(nd.switch_data, b.switch_data, 16);
+            std::memcpy(nd.switch_data, sw, 16);
             std::memcpy(nd.switch_param, b.switch_param, 16);
+            nd.switch_index = sw_index;
             nd.part = part_index;
             nd.first_index = uint32_t(indices_.size());
             std::memcpy(nd.props, b.props, 16);
@@ -541,7 +688,9 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
                           std::memcmp(d->texture, tex, sizeof tex) == 0 && d->pass[0].prim == b.pass[0].prim &&
                           d->pass[0].alpha == b.pass[0].alpha && d->pass[0].test == b.pass[0].test &&
                           d->pass[0].clamp == b.pass[0].clamp && d->pass[1].alpha == b.pass[1].alpha &&
-                          d->pass[1].prim == b.pass[1].prim;
+                          d->pass[1].prim == b.pass[1].prim && d->pass[1].clamp == b.pass[1].clamp &&
+                          std::memcmp(d->scroll, b.scroll, sizeof b.scroll) == 0 &&
+                          std::memcmp(d->frame_anim, b.frame_anim, sizeof b.frame_anim) == 0;
         if (!same) {
             CarDraw nd;
             nd.method = method;
@@ -552,6 +701,9 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
             nd.pass[0] = b.pass[0];
             nd.pass[1] = b.pass[1];
             std::memcpy(nd.texture, tex, sizeof tex);
+            nd.bond_kind = b.layout->kind;
+            std::memcpy(nd.scroll, b.scroll, sizeof nd.scroll);
+            std::memcpy(nd.frame_anim, b.frame_anim, sizeof nd.frame_anim);
             draws_.push_back(nd);
             d = &draws_.back();
         }
@@ -664,7 +816,92 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
         }
         add_batch(b, true, method_name);
     };
+    DrawContext ctx;
+    ctx.cmd_base = addr_of(I.model_loader->data());
+    ctx.gs_zbuf = 0x0000000A000000ull;  // PSMZ24 sem máscara: o Z é gravado (o valor não importa ao PC)
+    // A família de pele (mat_char.h): os ossos da paleta que está na VU (a última operação 0xb cujos dados uma UNPACK
+    // levou ao endereço da paleta) e os lotes decodificados para o desenho do PC.
+    const CharMethodLayout* char_layout = nullptr;
+    const std::vector<DrawStats::PaletteUpload>* palette_uploads = nullptr;
+    std::vector<int32_t> palette_bones;
+    auto note_palette = [&]() {
+        if (!palette_uploads) return;
+        for (const Vif1::UnpackRecord& r : vif.unpack_log) {
+            if (r.addr != 0x22u || !r.src) continue;
+            for (const DrawStats::PaletteUpload& u : *palette_uploads)
+                if (static_cast<const void*>(u.data) == static_cast<const void*>(r.src)) palette_bones = u.bones;
+        }
+    };
+    auto add_char_batch = [&](const CharBatch& b, const std::string& method) {
+        const uint32_t base = uint32_t(char_vertices_.size());
+        for (const CharVertex& v : b.v) {
+            CharGpuVertex g{};
+            // p x escala (a linha 3 da escala é a translação; o w da posição é 1).
+            for (int c = 0; c < 3; ++c) {
+                float t = 0.0f;
+                for (int k = 0; k < 3; ++k) t += v.pos[k] * ps2::ffloat(ctx.palette_scale[k * 4 + c]);
+                g.pos[c] = t + ps2::ffloat(ctx.palette_scale[12 + c]);
+            }
+            // A normal pelas três primeiras linhas da escala (o passo 2 do microprograma passa a normal pela paleta,
+            // escala x osso, sem a translação).
+            for (int c = 0; c < 3; ++c) {
+                float t = 0.0f;
+                for (int k = 0; k < 3; ++k) t += v.normal[k] * ps2::ffloat(ctx.palette_scale[k * 4 + c]);
+                g.normal[c] = t;
+            }
+            for (int c = 0; c < 2; ++c) g.st[c] = v.st[c];
+            for (int c = 0; c < 3; ++c) {
+                g.bone[c] = v.bone[c];
+                g.weight[c] = v.weight[c];
+                if (v.bone[c] >= 0) char_bones_ = std::max(char_bones_, v.bone[c] + 1);
+            }
+            g.bone[3] = -1;
+            char_vertices_.push_back(g);
+        }
+        std::vector<uint16_t> tris;
+        char_triangles(b, tris);
+        int tex[kCarMaxPasses] = {-1, -1, -1, -1};
+        for (int p = 0; p < kCharMaxPasses; ++p)
+            if (b.pass[p].has_tex0) {
+                const int id = int(b.pass[p].tex0 & 0x3FFF);
+                tex[p] = id < int(textures_.size()) ? id : -1;
+            }
+        const bool shadow = (b.options[2] & 0xFFFF) != 0;
+        const int passes = shadow ? int(kCharPassBase) : b.layout->passes;
+        CarDraw* d = draws_.empty() ? nullptr : &draws_.back();
+        const bool same = d && d->family == 2 && d->passes == passes && d->method == method && d->part == part_index &&
+                          std::memcmp(d->texture, tex, sizeof tex) == 0 && d->pass[0].prim == b.pass[0].prim &&
+                          d->pass[0].alpha == b.pass[0].alpha && d->pass[0].test == b.pass[0].test &&
+                          std::memcmp(d->props, b.props, 16) == 0 && std::memcmp(d->char_options, b.options, 16) == 0;
+        if (!same) {
+            CarDraw nd;
+            nd.method = method;
+            nd.family = 2;
+            nd.passes = passes;
+            nd.part = part_index;
+            nd.first_index = uint32_t(char_indices_.size());
+            for (int p = 0; p < kCharMaxPasses; ++p) nd.pass[p] = b.pass[p];
+            std::memcpy(nd.texture, tex, sizeof tex);
+            std::memcpy(nd.props, b.props, 16);
+            nd.char_layout = b.layout;
+            std::memcpy(nd.char_options, b.options, 16);
+            std::memcpy(nd.char_lights, b.lights, sizeof nd.char_lights);
+            std::memcpy(nd.char_refl, b.refl_info, 16);
+            draws_.push_back(nd);
+            d = &draws_.back();
+        }
+        for (uint16_t t : tris) char_indices_.push_back(base + t);
+        d->index_count += uint32_t(tris.size());
+        ++stats_.batches;
+        ++stats_.char_batches;
+        stats_.char_guards += b.guards;
+        stats_.vertices += b.count;
+        stats_.triangles += int(tris.size() / 3);
+        stats_.method_batches[method]++;
+        stats_.method_triangles[method] += int(tris.size() / 3);
+    };
     vif.on_kick = [&](Vif1::Kick kind, uint32_t addr, uint32_t top, uint32_t) {
+        note_palette();
         if (kind == Vif1::kMscal) {
             const RenderMethodInfo* m = mc_next < mc_queue.size() ? method_of_microcode(mc_queue[mc_next++]) : nullptr;
             method_name = m ? m->name : "?";
@@ -676,10 +913,15 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
             }
             layout = car_method_layout(method_name.c_str());
             bond_layout = layout ? nullptr : bond_method_layout(method_name.c_str());
+            char_layout = layout || bond_layout ? nullptr : char_method_layout(method_name.c_str());
             return;
         }
         if (kind != Vif1::kMscnt) return;
-        if (bond_layout) {
+        if (char_layout) {
+            if (verify_ && cur_method) char_verify_batch(cur_method->code, vif.mem, top, *char_layout, char_verify_stats_);
+            CharBatch b;
+            if (char_decode_batch(vif.mem, top, *char_layout, palette_bones, b)) add_char_batch(b, method_name);
+        } else if (bond_layout) {
             BondBatch b;
             if (bond_decode_batch(vif.mem, top, *bond_layout, b)) {
                 if (verify_ && cur_method) bond_verify_batch(cur_method->code, vif.mem, top, b, bond_verify_stats_);
@@ -697,9 +939,6 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
     };
 
     DmaBuffer dma(1 << 16);
-    DrawContext ctx;
-    ctx.cmd_base = addr_of(I.model_loader->data());
-    ctx.gs_zbuf = 0x0000000A000000ull;  // PSMZ24 sem máscara: o Z é gravado (o valor não importa ao PC)
     DrawStats ds;
     const int nsym = I.model_loader->GetCount();
     for (int si = 0; si < nsym; ++si) {
@@ -714,12 +953,18 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
         part_by_model_[s.addr] = part_index;
         const std::vector<ModelGroup> groups = Model_Groups(s.addr);
         part.groups = int(groups.size());
+        // O EAGL::Model::Draw (0x002843a0) antes das primitivas: a matriz de escala das paletas (modelo +0x4c, +0x5c).
+        Model_PaletteScaleMatrix(ptr_at<const float>(s.addr + 0x4c), ptr_at<const float>(s.addr + 0x5c),
+                                 ctx.palette_scale);
         for (const ModelGroup& g : groups) {
             if (!g.visible) continue;
             for (uint32_t gp : g.geoprims) {
                 dma.reset();
                 ds.microcode_sequence.clear();
+                ds.palette_uploads.clear();
                 GeoPrim_Draw(gp, dma, ctx, ds);
+                palette_uploads = &ds.palette_uploads;
+                palette_bones.clear();
                 mc_queue = ds.microcode_sequence;
                 mc_next = 0;
                 dma.put64(0x70000000ull);  // END
@@ -785,6 +1030,9 @@ bool CarModel::load_carp(const nf::DiscSource& disc, const std::string& viv, con
         for (bool u : used) stats_.parts_without_instance += u ? 0 : 1;
     }
     stats_.unported_ops = ds.unported_ops;
+    stats_.palette_matrices = ds.palette_matrices;
+    for (int op = 0; op < 32; ++op)
+        if (ds.unported_by_op[op]) stats_.unported_by_op[op] = ds.unported_by_op[op];
     stats_.microcode_switches = ds.microcode_switches;
     stats_.vif_errors = int(vif.errors.size());
     for (const std::string& e : vif.errors) messages_.push_back("vif: " + e);

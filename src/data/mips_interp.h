@@ -16,8 +16,13 @@
 // VU0 (COP2), opcional: com attach_vu0, lqc2/sqc2, qmfc2/qmtc2/cfc2/ctc2, as instruções em modo macro (vadd,
 // vmula, vdiv, vlqi...) e vcallms/vcallmsr vão para um ps2::VuMachine (platform/vu_interp.h); o microprograma roda
 // inteiro no vcallms (o EE do port não roda em paralelo com a VU0). Sem VU0 ligada, COP2 é instrução desconhecida.
-// Também: SYNC e CACHE (nada), as MMI que copiam e entrelaçam quadwords (PEXTLW, PEXTUW, PCPYLD, PCPYUD, POR, PNOR)
-// e SQRT.S, RSQRT.S, MAX.S e MIN.S.
+// O scratchpad do EE (16 KB em 0x70000000; o DRIVING.ELF guarda nele a lista de desenho do quadro) é uma memória à parte
+// que mem() e as leituras e escritas também alcançam.
+// Os espelhos da RAM sem cache (0x20000000 e 0x30000000 + o endereço físico) caem na mesma RAM.
+// Também: SYNC e CACHE (nada), DI, EI e MFC0 (o COP0 sem interrupções), MTLO/MTHI, MADD/MADDU, o pipeline 1 (MULT1,
+// MULTU1, DIV1, DIVU1, MADD1, MADDU1, MFLO1, MFHI1, MTLO1, MTHI1), as MMI que copiam e entrelaçam quadwords (PEXTLW, PEXTUW, PCPYLD, PCPYUD, PEXEW, PEXCW,
+// POR, PNOR e PADDW, que o GCC usa para zerar 128 bits) e SQRT.S, RSQRT.S, MAX.S, MIN.S e as do acumulador da FPU
+// (ADDA.S, SUBA.S, MULA.S, MADDA.S, MSUBA.S, MADD.S, MSUB.S).
 
 #include <cstdint>
 #include <functional>
@@ -47,6 +52,7 @@ public:
     static constexpr uint32_t kRamSize = 32u << 20;  // 32 MB do EE, endereços físicos 0..kRamSize
     static constexpr uint32_t kStackTop = 0x01ff0000;
     static constexpr uint32_t kReturnAddress = 0x7fff0000;  // ra de call(): voltar aqui termina
+    static constexpr uint32_t kScratchpad = 0x70000000, kScratchpadSize = 0x4000;  // o scratchpad do EE
 
     // Registradores pelo número da arquitetura.
     enum Reg : int {
@@ -86,10 +92,16 @@ public:
     void allow_code(uint32_t begin, uint32_t end);
     // Função nativa no lugar do código em addr: lê a0..a3/f12, escreve v0/f0; volta para ra.
     void hook(uint32_t addr, std::string name, Native fn);
+    // Tira o gancho de addr (o código original volta a rodar).
+    void unhook(uint32_t addr) { hooks_.erase(addr); }
 
-    // Chama a função em entry com a0..a3 = args e ra = kReturnAddress, até ela voltar.
+    // Chama a função em entry com a0..a3, t0..t3 = args (o EABI do PS2) e ra = kReturnAddress, até ela voltar.
     // MipsError se algo der errado ou se passar de max_steps instruções.
     void call(uint32_t entry, const std::vector<uint32_t>& args = {}, uint64_t max_steps = 50'000'000);
+
+    // De dentro de um gancho: chama outra função do código interpretado e volta ao gancho (os registradores, o PC e o
+    // HI/LO de fora voltam como estavam, menos v0/v1; a pilha da chamada fica 0x400 bytes abaixo do sp).
+    void call_nested(uint32_t entry, const std::vector<uint32_t>& args = {}, uint64_t max_steps = 50'000'000);
 
     uint64_t steps() const { return steps_; }
     uint64_t native_calls() const { return native_calls_; }
@@ -123,11 +135,19 @@ private:
     template <typename T>
     void store_mem(uint32_t addr, T value, uint32_t pc, uint32_t w);
 
+    static bool in_scratchpad(uint32_t addr, uint32_t size) {
+        return addr >= kScratchpad && size <= kScratchpadSize && addr - kScratchpad <= kScratchpadSize - size;
+    }
+
     std::vector<uint8_t> ram_;
+    std::vector<uint8_t> spr_;  // o scratchpad
     Gpr gpr_[32];
     uint32_t fpr_[32] = {};
     bool fcc_ = false;  // bit C do FCR31 (resultado do último c.cond.s)
+    uint32_t facc_ = 0;  // o acumulador da FPU do EE (MULA.S, MADDA.S, MADD.S...)
     uint64_t lo_ = 0, hi_ = 0;
+    uint64_t lo1_ = 0, hi1_ = 0;  // o pipeline 1 (os 64 bits de cima de LO e HI)
+    uint32_t sa_reg_ = 0;         // o registrador SA (MTSAB/MTSAH, em bits) do QFSRV
     uint32_t pc_ = 0, npc_ = 0;
     bool in_delay_ = false;  // a próxima instrução é o delay slot de um desvio
     uint64_t steps_ = 0, native_calls_ = 0;

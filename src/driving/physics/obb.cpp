@@ -39,6 +39,32 @@ void OBB_Reset(OBB& o, const float m[4][4], const float centre[4], const float h
     o.penetration = ps2::ffloat(0xc7c35000u);  // -100000
 }
 
+// [driving] 0x001f5eb0 OBB::CheckOBBOverlap: só o teste dos eixos separadores (nada é guardado). Os eixos de cada caixa
+// na ordem x, z, y; a distância entre os centros projetada, menos a meia-medida da caixa do eixo e as três meias-medidas
+// da outra projetadas: positiva, as caixas se separam.
+bool OBB_CheckOBBOverlap(const OBB& self, const OBB& other) {
+    for (int pass = 0; pass < 2; ++pass) {
+        const OBB& t0 = pass == 1 ? other : self;  // a caixa cujos eixos são testados
+        const OBB& t1 = pass == 1 ? self : other;
+        for (int k = 0; k < 3; ++k) {
+            const int a = k == 1 ? 2 : (k == 2 ? 1 : 0);
+            Reg axis, c0, c1, d{};
+            load(axis, t0.axis[a]);
+            load(c0, t0.centre);
+            load(c1, t1.centre);
+            sub(d, c0, c1, XYZ);
+            float s = ee::sub(ee::abs(dot3(d, axis)), t0.half[a]);
+            for (int j = 0; j < 3; ++j) {
+                Reg e;
+                load(e, t1.extent[j]);
+                s = ee::sub(s, ee::abs(dot3(axis, e)));
+            }
+            if (ee::lt(0.0f, s)) return false;
+        }
+    }
+    return true;
+}
+
 // [driving] 0x001f5ff8 OBB::CheckOBBOverlapAndFindIntersection
 bool OBB_CheckOBBOverlapAndFindIntersection(OBB& self, const OBB& other) {
     for (int pass = 0; pass < 2; ++pass) {

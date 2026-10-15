@@ -87,16 +87,48 @@ void clear_bit(uint64_t* bits, uint32_t i) { bits[i >> 6] &= ~(uint64_t(1) << (i
     os::exit_process(3);
 }
 
+constexpr size_t kMinArena = size_t(256) << 20;
+
+// A maior região livre da janela depois da imagem, reservada. Entre a consulta e a reserva outra linha do processo (o
+// carregador de DLLs, uma DLL que um overlay injeta, o driver de vídeo) pode tomar parte dela: antes a arena desistia na
+// primeira falha ("não consegui reservar a arena", relatado pelo usuário em 2026-10-15). Agora consulta de novo e tenta
+// outra vez (até 32 vezes) e, se a maior região não se deixa reservar, aceita a metade, e assim por diante até 256 MB.
+// Sem disputa (o normal) a primeira tentativa reserva a mesma região de antes.
+bool reserve_largest(uintptr_t at, uintptr_t window_end, uintptr_t* begin, uintptr_t* size, uintptr_t* largest_seen) {
+    *largest_seen = 0;
+    for (int attempt = 0; attempt < 32; ++attempt) {
+        uintptr_t best = 0, best_size = 0;
+        os::vm_largest_free(at, window_end, kChunk, &best, &best_size);
+        if (best_size > *largest_seen) *largest_seen = best_size;
+        if (best_size < kMinArena) return false;
+        for (uintptr_t s = best_size; s >= kMinArena; s = (s / 2) & ~uintptr_t(kChunk - 1)) {
+            if (os::vm_reserve_at(best, s)) {
+                *begin = best;
+                *size = s;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void init_locked() {
     if (g_ready) return;
     const uintptr_t base = reinterpret_cast<uintptr_t>(kP32Base);
     const uintptr_t window_end = base + 0x100000000ull;
     const uintptr_t at = (os::image_end() + kChunk - 1) & ~(kChunk - 1);
-    // A maior região livre da janela depois da imagem.
-    uintptr_t best = 0, best_size = 0;
-    os::vm_largest_free(at, window_end, kChunk, &best, &best_size);
-    if (best_size < (size_t(256) << 20)) fatal("não há 256 MB livres na janela de 4 GB depois da imagem do programa");
-    if (!os::vm_reserve_at(best, best_size)) fatal("não consegui reservar a arena");
+    uintptr_t best = 0, best_size = 0, largest = 0;
+    // As mensagens são do jogador (a caixa de erro do jogo): em inglês, como o texto do jogo.
+    if (!reserve_largest(at, window_end, &best, &best_size, &largest)) {
+        char msg[400];
+        std::snprintf(msg, sizeof(msg),
+                      "Could not reserve the game's memory: the 64-bit build needs 256 MB of free address space in "
+                      "the 4 GB after the program, and the largest free block was %llu MB.\n\nTry again, close "
+                      "overlays or tools that hook into games, or play with nightfire.exe (32-bit), which does not "
+                      "need it.",
+                      static_cast<unsigned long long>(largest >> 20));
+        fatal(msg);
+    }
     g_begin = best;
     g_end = best + best_size;
     g_chunks = uint32_t(best_size / kChunk);

@@ -34,6 +34,8 @@ static_assert(offsetof(OBB, contact) == 0x70 && offsetof(OBB, penetration) == 0x
 // (o mesmo código; o construtor devolve o this): as linhas 0-2 de `matrix` (16 bytes cada), o centro e as meias-medidas
 // (16 bytes cada) copiados inteiros.
 void OBB_Reset(OBB& o, const float matrix[4][4], const float centre[4], const float half[4]);
+// [driving] 0x001f5eb0 OBB::CheckOBBOverlap(OBB *): só o teste (os gatilhos em caixa).
+bool OBB_CheckOBBOverlap(const OBB& self, const OBB& other);
 // [driving] 0x001f5ff8 OBB::CheckOBBOverlapAndFindIntersection(OBB *)
 bool OBB_CheckOBBOverlapAndFindIntersection(OBB& self, const OBB& other);
 

@@ -14,6 +14,9 @@
 #include <vector>
 
 #include "driving/car_model.h"
+#include "driving/game/attributes.h"
+#include "driving/light_manager.h"
+#include "driving/world_vis.h"
 #include "platform/disc_source.h"
 
 namespace drv {
@@ -45,6 +48,7 @@ struct TrackInstance {
 struct TrackStats {
     int instances = 0, articles = 0, lods = 0, lods_without_model = 0, instances_without_article = 0;
     int pass_count[5] = {0, 0, 0, 0, 0};
+    int scene_objects = 0;  // os RSceneObj do WWorld::Open
 };
 
 class Track {
@@ -73,10 +77,10 @@ public:
     // (-1), salvo a bandeira 8 da instância (o primeiro LOD a qualquer distância).
     int lod_part(const TrackInstance& inst, float distance) const;
 
-    // O que uma câmera vê (o papel do WRender: as passadas, o LOD, o corte): para cada instância com modelo, a peça do
-    // LOD e a distância, sem as que ficam fora do volume de visão `view_proj` (p' = p x M, z de 0 a 1; a esfera da caixa
-    // da peça pela matriz da instância). O céu (passada 4) vai sempre. Só do port: o jogo corta pela árvore de cenas
-    // ('Wmap'/'wn') e pelas cortinas de visibilidade ('VisC'), que não foram portadas; aqui o corte é só o do volume.
+    // Só do port (o corte de antes da seção 15, para as pistas sem árvore de cenas e para comparar): para cada instância
+    // com modelo, a peça do LOD e a distância, sem as que ficam fora do volume de visão `view_proj` (p' = p x M, z de 0 a
+    // 1; a esfera da caixa da peça pela matriz da instância). O céu (passada 4) vai sempre. O jogo corta pela árvore de
+    // cenas ('Wmap'/'wn') e pelas cortinas ('VisC'): cull().
     struct Draw {
         int instance = 0, part = -1, pass = 0;
         float distance = 0;
@@ -89,8 +93,50 @@ public:
     // A caixa das instâncias do mundo sem o céu (para escolher uma câmera).
     void bounds(float lo[3], float hi[3]) const;
 
+    // O que o RRenderWorldCamera do jogo desenha de uma câmera (world_vis.h, docs/driving.md seção 15): o frustum 2D do
+    // RPlayerViewCamera::ConfigureView, a árvore de cenas e as cortinas (GenerateCurtainsAndNodes), o corte das
+    // instâncias (CullModule) e a ordem do DrawWorld/DoRender. `camera` é o RCamera (a matriz em linhas: direita, cima,
+    // frente, o olho), `fov` o do RCamera (+0xa4: metade do campo horizontal numa tela 4:3, em graus), `widescreen` o
+    // +0x5c do RRenderer (fov x 1,25). Em cada lista, a ordem do desenho.
+    struct Culled {
+        std::vector<Draw> sky;            // RSky::Draw (as instâncias do começo com a bandeira 4)
+        std::vector<Draw> world;          // DrawWorld: as passadas 3 e 2, pela instância (antes dos carros)
+        std::vector<Draw> scene_objects;       // RSceneObj::RenderAllNormal (depois do mundo, antes dos carros): os
+                                               // objetos de cena visíveis (a instância de origem, no lugar do modelo
+                                               // próprio do RSceneObj, não portado)
+        std::vector<Draw> scene_objects_last;  // RSceneObj::RenderAllDrawLast (com os carros)
+        std::vector<Draw> pass1, pass0;   // depois dos carros, do longe para o perto
+        int nodes = 0, curtains = 0, tested = 0, kept = 0;
+    };
+    void cull(const float camera[16], float fov, bool widescreen, Culled& out, float lod_multiplier = 0.0f);
+    bool has_scene_tree() const { return wmap_ != 0; }
+    const WRender& world_render() const { return render_; }
+    const std::vector<WVisCurtain>& curtains() const { return curtains_; }
+    // Os objetos de cena (RSceneObj) do WWorld::Open.
+    const std::vector<RSceneObj>& scene_objects() const { return scene_objs_; }
+    std::vector<RSceneObj>& scene_objects() { return scene_objs_; }
+    // Refaz a matriz em cache de uma instância a partir do registro do 'in  ' (um objeto de cena que a física moveu).
+    void refresh_instance(int index);
+    // As "PhysicsData" que o espaço "PHYS" deu na carga (port: as estruturas da classe "smackable" pelo nome).
+    int physics_symbols() const { return int(physics_.size()); }
+    // Os dados do 'Wmap' (p32): a raiz da árvore em +0, o canto em +0x1c, o lado em +0x2c.
+    uint32_t world_map() const { return wmap_; }
+    // O índice da instância pelo endereço (p32) de um registro do 'in  ' (-1 se não for um).
+    int instance_index(uint32_t address) const;
+    // As luzes da pista (o RLightManager com o .tun de Render\Lighting da pista; o LightSources do modelo 0, o World):
+    // o GAME::LightSources do MatDynamicTexturePacked.
+    const RLightManagerLights& lights() const { return lights_; }
+
 private:
+    Draw make_draw(uint32_t address, float distance, float lod_multiplier) const;
     CarModel model_;
+    RLightManagerLights lights_;
+    WRender render_{};
+    std::vector<WVisCurtain> curtains_;
+    std::vector<RSceneObj> scene_objs_;
+    std::vector<std::unique_ptr<SmackablePhysicsData>> physics_;
+    uint32_t wmap_ = 0;
+    float cull_eye_[3] = {0, 0, 0};
     std::vector<TrackInstance> instances_;
     std::vector<TrackArticle> articles_;
     TrackStats stats_;

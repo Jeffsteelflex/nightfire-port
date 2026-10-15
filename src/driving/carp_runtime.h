@@ -144,6 +144,10 @@ private:
     std::map<std::string, Lookup> spaces_;
 };
 
+// Port: os espaços de nomes que valem para toda tabela de símbolos enquanto registrados (o Track::load registra o "PHYS",
+// o PhysicsNamespace do PS2: as "PhysicsData" dos objetos de cena). Um espaço da própria tabela vem antes.
+std::map<std::string, CarpSymbols::Lookup>& carp_global_namespaces();
+
 // [driving] 0x002daa18 CARP::ResolveSymbolicReferences: InitResolvers, a passada simbólica (0x002dc1b0
 // CARP::SymbolicResolver::ProcessData: cada 'sr' tem o texto trocado pelo endereço, UData::AdoptData) e a das etiquetas
 // (CARP::ResolveData 0x002da798 pelo mapa de 0x002da838), em largura (UGroup::ProcessBreadthFirst 0x002d6070); devolve a
@@ -153,9 +157,10 @@ uint32_t CARP_ResolveSymbolicReferences(UGroup* root, CarpSymbols& symbols);
 // uma etiqueta vira os dados do registro dela no grupo local, ou no compartilhado, ou 0.
 void CARP_TagReference(uint32_t* ref, const UGroup* shared, const UGroup* local);
 
-// Os contadores da resolução (só do port): os 'el' cujos eventos não foram portados (RegisterEvent::ResolveEvent).
+// Os contadores da resolução (só do port): as listas 'el' e os eventos delas cuja função de RegisterEvent::ResolveEvent
+// não foi portada (os dados ficam como no arquivo).
 struct CarpResolveStats {
-    int symbolic = 0, symbolic_null = 0, tag_records = 0, event_lists = 0;
+    int symbolic = 0, symbolic_null = 0, tag_records = 0, event_lists = 0, events_unresolved = 0;
 };
 const CarpResolveStats& carp_resolve_stats();
 

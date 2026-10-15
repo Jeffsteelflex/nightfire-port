@@ -26,9 +26,14 @@
 #include "driving/carp_runtime.h"
 #include "driving/mat_bond.h"
 #include "driving/mat_car_verify.h"
+#include "driving/mat_char.h"
+#include "driving/render/vehicle.h"
 #include "driving/shps.h"
 
 namespace drv {
+
+// Os ossos do EAGLAnimationBuffer que o port reserva (o PS2 o aloca do tamanho do maior esqueleto carregado).
+constexpr int kCarAnimBufferBones = 128;
 
 // Uma textura como o renderizador do PC a recebe (o TBP0 do TEX0 aponta para ela pelo índice).
 struct CarTexture {
@@ -41,6 +46,18 @@ struct CarTexture {
 // Um vértice como o vertex shader o recebe: o lote depois do passo 1 do microprograma (car_convert); o shader refaz os
 // passos 2-7.
 using CarGpuVertex = CarVertexWork;
+
+// Um vértice da família de pele dos personagens (mat_char.h) como o vertex shader o recebe: a posição já pela matriz de
+// escala do modelo (o DAT_00348c20 do EAGL::Model::Draw: a paleta da VU é escala x osso, e p x (escala x osso) = (p x
+// escala) x osso), a normal pelas três primeiras linhas da escala, o ST, os três ossos do esqueleto e os três pesos.
+struct CharGpuVertex {
+    float pos[3];
+    float normal[3];
+    float st[2];
+    int32_t bone[4];   // -1: nenhum
+    float weight[4];
+};
+static_assert(sizeof(CharGpuVertex) == 64);
 
 // Um desenho: lotes seguidos com o mesmo método, estado e texturas.
 struct CarDraw {
@@ -57,6 +74,18 @@ struct CarDraw {
     const CarMethodLayout* layout = nullptr;  // o leiaute da família (nulo no substituto e na MatBond): o que cada
                                               // passada calcula (car_pass_stq, car_pass_alpha) e o vidro
     float switch_data[4] = {}, switch_param[4] = {};  // as luzes (MatCarTextureSwitchPacked)
+    // A MatBond (family 1): o tipo (BondKind) e o que o passo 3b do microprograma lê do lote (o renderizador calcula o
+    // deslocamento da STQ a cada quadro pelo SimStep): os ScrollUV dos Scroll2, o FrameAnim.
+    int bond_kind = 0;
+    float scroll[2][2] = {};
+    float frame_anim[4] = {};
+    int switch_index = -1;  // as luzes: o GAME::SwitchData[n] que o lote copia (o desenho troca pelo do quadro)
+    // A família de pele dos personagens (family 2: vértices em char_vertices(); passadas: bit 0 a base, 1 o especular, 2 o
+    // reflexo): o leiaute, o CharacterOptions (o alfa no w), o ActorLightSources e o ReflectionInfo2 do lote.
+    const CharMethodLayout* char_layout = nullptr;
+    uint32_t char_options[4] = {};
+    float char_lights[7][4] = {};
+    float char_refl[4] = {};
 };
 
 struct CarPart {
@@ -88,8 +117,10 @@ struct CarModelStats {
     std::map<std::string, int> method_batches;  // lotes por render method
     std::map<std::string, int> method_triangles;
     int loader_messages = 0, vif_errors = 0, unported_ops = 0, runtime_alloc_unported = 0;
+    std::map<int, int> unported_by_op;  // as operações do GeoPrim::Draw puladas, por número
     int dma_null_sources = 0, dma_overflows = 0;  // cópias de referências não resolvidas (zeros) e cadeias grandes demais
     int microcode_switches = 0;
+    int char_batches = 0, char_guards = 0, palette_matrices = 0;  // a família de pele (mat_char.h)
     float bbox_min[3] = {1e30f, 1e30f, 1e30f}, bbox_max[3] = {-1e30f, -1e30f, -1e30f};  // das peças nas instâncias
     int instances = 0, instances_without_model = 0, parts_without_instance = 0;
 };
@@ -106,11 +137,27 @@ public:
     // ext.ssh vêm sempre); `name` é o nome das propriedades de luz ("{vanquish}" do CarRender default.tun).
     bool load_carp(const nf::DiscSource& disc, const std::string& viv, const std::string& crp_key,
                    const std::vector<std::string>& ssh_keys, const std::string& name, std::string& error);
+    // Antes do load: o GAME::LightSources (o bloco do RLightManager, light_manager.h) e o GAME::SimStep (o RTimeData) que
+    // os lotes do mundo recebem na carga (o DMA os copia para a VU; o que se desenha os pega a cada quadro da cena).
+    void set_world_inputs(const float light_sources[7][4], const float sim_step[4]);
+    // Um objeto do EAGL partido em .dat e .rel (o arquivo da missão, ou o MISC.VIV), sem CARP: os personagens
+    // (data\actors\models\*.dat; docs/driving.md seção 16). Os __Model são desenhados como as peças do carro (os de pele
+    // pela família de pele, mat_char.h), sem instâncias.
+    bool load_eagl(const nf::DiscSource& disc, const std::string& viv, const std::string& dat_key,
+                   const std::string& rel_key, const std::vector<std::string>& ssh_keys, const std::string& name,
+                   std::string& error);
+    // Antes do load: as texturas de um personagem no lugar das do Actors.ssh (o nome de 4 letras, 'hhhh' 'tttt' 'bbbb',
+    // e o .ssh do personagem: a primeira imagem dele), como o ActModel::SetTexture as troca no desenho.
+    void set_texture_aliases(std::vector<std::pair<std::string, std::string>> aliases) {
+        texture_aliases_ = std::move(aliases);
+    }
     // Antes do load: cada lote da família também roda no interpretador da VU1 e é comparado (mat_car_verify.h).
     void set_verify(bool on) { verify_ = on; }
     const CarVerifyStats& verify_stats() const { return verify_stats_; }
     // A família MatBond (mat_bond.h) conferida à parte.
     const CarVerifyStats& bond_verify_stats() const { return bond_verify_stats_; }
+    // A família de pele dos personagens (mat_char.h) conferida à parte.
+    const CarVerifyStats& char_verify_stats() const { return char_verify_stats_; }
     // Antes do load: o CARP é desserializado e resolvido como o RCARPFile::Resolve faz (carp_runtime.h): os símbolos
     // "CARP", "EAGL" e "CHAR", depois as referências por etiqueta, antes do Resolve do modelo. As pistas precisam disso
     // (as instâncias do mundo apontam os artigos e os LODs); o carro do protótipo não (lê o CARP sem mexer).
@@ -121,12 +168,24 @@ public:
     const std::map<std::string, int>& carp_misses() const { return carp_misses_; }
     // A peça cujo __Model fica no endereço (p32) `model`; -1 se nenhuma.
     int part_of_model(uint32_t model) const;
+    // O CARP como foi lido (os bytes e a árvore de grupos), para quem lê o resto do objeto articulado.
+    const uint8_t* carp_data() const;
+    size_t carp_size() const;
+    const Carp& carp_dir() const;
+    // O que o RVehicle::PostLoad lê do modelo (driving/render/vehicle.h): o 'Skel', o BaseDesc, as instâncias e as peças
+    // dos 'as' de sombra (o byte +0x1e: 3 e 4) do primeiro 'Arti' do arquivo.
+    bool vehicle_info(VehicleModelInfo& out) const;
 
     const std::vector<CarGpuVertex>& vertices() const { return vertices_; }
     const std::vector<uint32_t>& indices() const { return indices_; }
     // Os vértices e índices da família MatBond (os desenhos com family = 1).
     const std::vector<BondVertexWork>& bond_vertices() const { return bond_vertices_; }
     const std::vector<uint32_t>& bond_indices() const { return bond_indices_; }
+    // Os vértices e índices da família de pele (os desenhos com family = 2).
+    const std::vector<CharGpuVertex>& char_vertices() const { return char_vertices_; }
+    const std::vector<uint32_t>& char_indices() const { return char_indices_; }
+    // O maior osso que os lotes de pele usam + 1 (o tamanho da paleta que o desenho precisa).
+    int char_bones() const { return char_bones_; }
     const std::vector<CarDraw>& draws() const { return draws_; }
     const std::vector<CarTexture>& textures() const { return textures_; }
     const std::vector<CarPart>& parts() const { return parts_; }
@@ -154,6 +213,9 @@ private:
     std::vector<uint32_t> indices_;
     std::vector<BondVertexWork> bond_vertices_;
     std::vector<uint32_t> bond_indices_;
+    std::vector<CharGpuVertex> char_vertices_;
+    std::vector<uint32_t> char_indices_;
+    int char_bones_ = 0;
     std::vector<CarDraw> draws_;
     std::vector<CarTexture> textures_;
     std::vector<CarPart> parts_;
@@ -163,9 +225,12 @@ private:
     std::vector<std::string> messages_;
     CarModelStats stats_;
     CarConstants constants_;
+    std::string split_dat_, split_rel_;  // load_eagl: o .dat e o .rel no lugar do CARP
+    std::vector<std::pair<std::string, std::string>> texture_aliases_;
     bool verify_ = false;
     CarVerifyStats verify_stats_;
     CarVerifyStats bond_verify_stats_;
+    CarVerifyStats char_verify_stats_;
     bool resolve_carp_ = false;
     std::map<std::string, int> carp_misses_;
     std::map<uint32_t, int> part_by_model_;

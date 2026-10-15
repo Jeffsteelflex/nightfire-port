@@ -211,6 +211,8 @@
 #include "engine/pickup.h"
 #include "engine/player.h"
 #include "engine/player_weapon.h"
+#include "engine/copter.h"
+#include "engine/bullet.h"
 #include "engine/player_ads.h"
 #include "engine/weapon_wheel.h"
 #include "engine/player_stats.h"
@@ -1163,6 +1165,36 @@ void write_frame_report(const std::wstring& png, const std::string& level, size_
                         }
                         std::fprintf(f, " %s %.3f %.3f %.3f", p == se->rear ? "alca" : "massa", v[0], v[1], v[2]);
                     }
+                }
+                std::fprintf(f, "\n");
+            }
+            // O míssil pilotado (Bullet_update, flags2 4 da arma: o Sentinel 0x2c): o subestado 10 do jogador, a câmera
+            // 0xc, o míssil montado (posição, direção, distância, velocidade, rolagem), os ticks até soltar e o primeiro
+            // helicóptero vivo (posição, distância ao míssil ou ao jogador, estado, dano).
+            {
+                const obj_tag* m = b->ride;
+                const bool guided = m != nullptr && m->type == 5;
+                const BU_tag* mb = guided ? static_cast<const BU_tag*>(nf::raw(m->data)) : nullptr;
+                std::fprintf(f, "missil subestado %u camera %u montado %d soltar %d", p->unknown_f6, b->cam_mode,
+                             guided ? 1 : 0, b->ride_time);
+                if (mb != nullptr) {
+                    std::fprintf(f, " pos %.2f %.2f %.2f dir %.3f %.3f %.3f dist %.2f veloc %.3f rolagem %.3f",
+                                 m->pos.x, m->pos.y, m->pos.z, mb->dir.x, mb->dir.y, mb->dir.z, mb->dist, mb->speed,
+                                 m->rot.z);
+                }
+                std::fprintf(f, " | mouse pedido %.4f %.4f feito %.4f %.4f ticks %u", g_guided_mouse.yaw[0],
+                             g_guided_mouse.pitch[0], g_guided_mouse.applied_yaw, g_guided_mouse.applied_pitch,
+                             g_guided_mouse.ticks);
+                for (LLNODE_tag* n = CopterList.first; n != nullptr; n = n->next) {
+                    const COPTER* c = reinterpret_cast<const COPTER*>(n);
+                    if (c->obj == nullptr || (c->obj->life & 1) != 0) continue;
+                    const float* r = c->obj->matrix.m[3];
+                    const _VECTOR at{r[0], r[1], r[2], 1.0f};
+                    const _VECTOR from = mb != nullptr ? m->pos : p->pos;
+                    std::fprintf(f, " | helicoptero %.2f %.2f %.2f dist %.1f estado %u dano %.0f/%.0f ligar %u", r[0],
+                                 r[1], r[2], Vec_Dist3D(const_cast<_VECTOR*>(&at), const_cast<_VECTOR*>(&from)),
+                                 c->obj->state, c->damage, c->max_damage, c->enable);
+                    break;
                 }
                 std::fprintf(f, "\n");
             }

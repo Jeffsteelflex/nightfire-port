@@ -192,19 +192,17 @@ bool scalar_centered(float t, float prev, float cur) {
 }
 
 // [driving] 0x001674d0 InputToAction::LoadParseDefFile
-// [driving] 0x00167498 AdvanceFilePtr
 // [driving] 0x00167120 InputTable::AddTableEntry
 void InputMap::LoadParseDefFile(const std::string& text) {
     std::string buf = text;  // o PS2 lê o arquivo carregado (e não o muda: copia cada linha)
     const char* p = buf.c_str();
     for (;;) {
-        // AdvanceFilePtr: depois do próximo '\n' (nulo se não há).
-        const char* nl = std::strchr(p, '\n');
+        const char* nl = AdvanceFilePtr(p);  // 0x00167498 (input_config.cpp)
         if (!nl) {
             ++g_guards;  // o PS2 seguiria com um ponteiro nulo
             return;
         }
-        p = nl + 1;
+        p = nl;
         const char* cr = std::strchr(p, '\r');
         if (!cr || cr - p > 255) {
             ++g_guards;  // sem '\r' o PS2 copia até um ponteiro nulo; mais de 255 estoura o buffer da pilha

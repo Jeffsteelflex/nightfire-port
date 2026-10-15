@@ -40,6 +40,10 @@ bool GeoPrimState_SetDepthTest(uint8_t* state, int test);
 // O RStateManager: o estado de uma especificação "chave=valor;..." (sem o "STATE::"), deduplicado.
 // RStateManager::GetGeoPrimState (0x001ce158)
 uint8_t* RStateManager_GetGeoPrimState(const char* spec);
+// O "RUNTIME_ALLOC::EAGL::GeoPrimState" (0x0027fe80): o estado de uma especificação "Chave=valor;..." no formato dos
+// métodos do GeoPrimState (SetPrimitiveType=EAGL::PT_TRIANGLESTRIP; ...), a partir do construtor padrão. Só as chaves
+// que os dados usam; as outras são contadas em `unknown`.
+uint8_t* GeoPrimState_FromRuntimeSpec(const char* spec, int* unknown);
 // Esvazia os estados guardados (troca de modelo, testes).
 void RStateManager_Reset();
 int RStateManager_Count();

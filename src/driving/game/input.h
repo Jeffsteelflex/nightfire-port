@@ -82,6 +82,10 @@ struct InputEntry {
 int32_t getActionID(const char* name);
 const char* action_name(int32_t id);
 
+// AdvanceFilePtr (0x00167498, definido em input_config.cpp): depois do próximo '\n' (nulo se não há); o
+// LoadParseDefFile e o InputConfigManager o usam.
+const char* AdvanceFilePtr(const char* p);
+
 // O InputToAction: uma tabela por escalar.
 struct InputMap {
     std::vector<InputEntry> table[kPadScalars];

@@ -42,7 +42,19 @@ struct DrawContext {
     int frame = 0;             // DAT_003483fc: o quadro das texturas e dos dados animados
     uint32_t instance_vars = 0;  // os parâmetros por instância (ops 0x15-0x19; 0 sem)
     uint64_t gs_frame = 0, gs_zbuf = 0, gs_fba = 0;  // DAT_00348398, DAT_003483a0, DAT_003483a8
+    // DAT_00348c20: a matriz de escala e deslocamento do modelo (Model_PaletteScaleMatrix, posta pelo EAGL::Model::Draw
+    // antes das primitivas), que as operações 0xb e 0xd multiplicam pela frente de cada matriz de paleta. As palavras
+    // dos floats; a identidade por padrão.
+    uint32_t palette_scale[16] = {0x3f800000u, 0, 0, 0, 0, 0x3f800000u, 0, 0, 0, 0, 0x3f800000u, 0, 0, 0, 0, 0x3f800000u};
 };
+
+// [driving] 0x002a6330 (o SYM sugere DMA_To_SIF1; quem chama é o EAGL::Model::Draw 0x002843a0 com o modelo +0x4c e
+// +0x5c): a matriz que as operações de paleta aplicam antes de cada osso, na aritmética da FPU do EE: a diagonal
+// escala x 128 e a linha 3 (-escala x 128) - deslocamento, w 1. As posições dos modelos de pele vêm como floats em
+// [1, 2) com 16 bits de mantissa (o VIF soma 0x3f800000 de linha), e esta matriz as leva ao espaço do modelo.
+void Model_PaletteScaleMatrix(const float scale[3], const float offset[3], uint32_t out[16]);
+// O produto das operações de paleta 0xb/0xd: out = s x m (as palavras dos floats, a aritmética da VU0 em macro).
+void Palette_Multiply(const uint32_t s[16], const uint32_t* m, uint32_t out[16]);
 
 // O buffer de DMA que o desenho enche (o DmaMgr do jogo), alinhado a 16 bytes.
 class DmaBuffer {
@@ -84,9 +96,19 @@ private:
 struct DrawStats {
     int geoprims = 0, microcode_switches = 0, microcode_uploads = 0, unported_ops = 0;
     int last_unported_op = 0;
+    int unported_by_op[32] = {};  // as operações puladas, por número
     // Só do port: os microprogramas na ordem dos pacotes de partida (um MSCAL cada), para quem executa a cadeia saber
     // qual método cada lote usa (o endereço na VU pode ser reaproveitado no meio de uma cadeia).
     std::vector<uint32_t> microcode_sequence;
+    // Só do port: as matrizes de paleta que as operações 0xa/0xb puseram na cadeia (onde os dados começam no buffer de
+    // DMA e os ossos do EAGLAnimationBuffer, na ordem), para quem decodifica os lotes de pele saber que osso cada
+    // posição da paleta da VU tem.
+    struct PaletteUpload {
+        const uint8_t* data = nullptr;
+        std::vector<int32_t> bones;
+    };
+    std::vector<PaletteUpload> palette_uploads;
+    int palette_matrices = 0;  // matrizes de paleta mandadas (as três operações)
 };
 
 // EAGL::GeoPrim::Draw (0x002a3290): põe a cadeia de DMA de uma primitiva no buffer (sem a etiqueta END).

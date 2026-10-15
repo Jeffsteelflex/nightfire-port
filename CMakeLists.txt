@@ -430,7 +430,9 @@ target_compile_options(nf_drv PRIVATE ${NF_OPTIONS})
 if(WIN32 AND NOT NF_HEADLESS)
 add_executable(nf_driving WIN32
     src/driving_app/nf_driving.cpp
+    src/driving_app/drive_actors.cpp
     src/driving_app/drv_renderer_d3d11.cpp
+    src/driving_app/drv_fx.cpp
     src/render/gpu_adapters_dxgi.cpp
     ${NF_APP_ENTRY}
     ${NF_EXE_SOURCES}
@@ -704,9 +706,19 @@ target_compile_options(nf_loader_check PRIVATE ${NF_OPTIONS})
 
 # A física das missões de carro conferida contra o DRIVING.ELF (docs/driving.md, seção 11): o microcódigo da VU0 no
 # interpretador contra o porte à mão, o passo inteiro dos dois jeitos, as funções do EE no interpretador MIPS.
+# A parte 20 (a ligação das armas com a IA, seção 24) tem um arquivo por pedaço: entram sozinhos.
+file(GLOB NF_DRV_INTEG_CHECKS CONFIGURE_DEPENDS tests/driving_check_integ*.cpp)
 add_executable(nf_driving_check tests/driving_check.cpp tests/driving_check_ee.cpp tests/driving_check_world.cpp
     tests/driving_check_car.cpp tests/driving_check_collide.cpp tests/driving_check_camera.cpp
-    tests/driving_check_sched.cpp tests/driving_check_input.cpp
+    tests/driving_check_sched.cpp tests/driving_check_input.cpp tests/driving_check_vis.cpp
+    tests/driving_check_vehicle.cpp tests/driving_check_traffic.cpp
+    tests/driving_check_sound.cpp tests/driving_check_mission.cpp tests/driving_check_chars.cpp
+    tests/driving_check_weapons.cpp tests/driving_check_anim.cpp tests/driving_check_missile.cpp
+    tests/driving_check_heli.cpp
+    tests/driving_check_heli_cam.cpp tests/driving_check_heli_rail.cpp tests/driving_check_fx.cpp
+    tests/driving_check_streams.cpp
+    tests/driving_check_passengers.cpp
+    ${NF_DRV_INTEG_CHECKS}
     ${NF_EXE_SOURCES})
 target_link_libraries(nf_driving_check PRIVATE nf_data nf_drv)
 target_compile_options(nf_driving_check PRIVATE ${NF_OPTIONS})
