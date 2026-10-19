@@ -60,6 +60,8 @@ The aim is to play the original game the way it was made, plus the PC features i
 - Windows 10 or 11.
 - A GPU with Direct3D 11. Integrated GPUs are fine.
 - Or, for the Mac build (first version, not yet tested on a real Mac): macOS 11 or newer, Apple Silicon or Intel.
+- Linux: no native build of the game yet; the Windows build may run under Wine or Proton (untested). See
+  [LINUX.md](LINUX.md).
 - Your own copy of the game: *007: Nightfire*, PS2, US version (SLUS-20579).
 - To build (not needed to play with the release zip):
   - Visual Studio Build Tools with the C++ workload (MSVC, x86 target), CMake and Ninja;
