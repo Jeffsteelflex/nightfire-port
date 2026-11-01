@@ -29,6 +29,9 @@
 #include "driving/ai/ground_vehicle.h"
 #include "driving/ai/sim_random.h"
 #include "driving/game/bond_car.h"
+#include "driving/fx/scene_fx.h"
+#include "driving/render/vehicle.h"
+#include "driving/game/hud.h"
 #include "driving/game/mission.h"
 #include "driving/physics/collision.h"
 #include "driving/physics/simulation.h"
@@ -80,6 +83,9 @@ void trigger_fx(BondCar& car, int32_t fx, uint32_t zones) {
     ++g_stats.render_fx;
     ++car.render_fx;
     note(0x1d3c28, uint32_t(fx), zones);
+    // Seção 32: o RVehicle::TriggerFX de verdade (os efeitos de dano das zonas pelo Handle do render; sem o render, só
+    // anotado, como na parte 17).
+    if (car.vehicle) SceneObj_TriggerFX(-1.0f, nf::p32_u(&car.vehicle->d), fx, zones, 0, nullptr, nullptr);
 }
 
 // __fixunssfsi (0x0024e340): o float sem sinal (o libgcc do EE: acima de 2^31, subtrai e liga o bit).
@@ -215,6 +221,7 @@ int32_t PBondCar_ApplyDamage(BondCar& car, const float from[3], const float to[3
         immunity == 0) {
         ++g_stats.hud;  // GHud::TriggerDamageFlash(GHud::TheApp(), dano)
         note(0x23e270, ps2::fbits(amount));
+        if (hud_live() && hud_exists()) GHud_TriggerDamageFlash(hud(), amount);
     }
     if (float* shield = nf::p32_ptr<float>(c.shield_point_loc)) {
         if (ee::lt(amount, *shield)) {

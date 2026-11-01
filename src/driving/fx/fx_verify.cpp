@@ -95,6 +95,99 @@ void fx_verify_sprite(const std::vector<uint64_t>& code, const FxVuGlobals& g, c
     }
 }
 
+void fx_verify_list(const std::vector<uint64_t>& code, bool textured, const FxVuGlobals& g, const float mvp[4][4],
+                    int prim, int n, const float (*pos)[4], const float (*stq)[4], const uint32_t (*colour)[4],
+                    FxVerifyStats& s) {
+    ps2::VuMachine vu(ps2::VuUnit::VU1);
+    vu.load_micro(0, code.data(), uint32_t(code.size() * 8));
+    std::memset(vu.data(), 0, vu.data_size());
+    put_floats(vu, 0, g.vp_offset);
+    put_floats(vu, 1, g.vp_scale);
+    const uint32_t count[4] = {uint32_t(n), 0, 0, 0};
+    put_qw(vu, kTop + 0, count);
+    for (int r = 0; r < 4; ++r) put_floats(vu, kTop + 1 + uint32_t(r), mvp[r]);
+    const uint32_t pr[4] = {uint32_t(prim), 0, 0, 0};
+    for (int v = 0; v < n; ++v) {
+        put_floats(vu, kTop + 5 + uint32_t(v), pos[v]);
+        if (textured) {
+            put_floats(vu, kTop + 0x51 + uint32_t(v), stq[v]);
+            put_qw(vu, kTop + 0x9d + uint32_t(v), colour[v]);
+        } else {
+            put_qw(vu, kTop + 0x79 + uint32_t(v), colour[v]);
+        }
+    }
+    if (textured) {
+        put_tag(vu, kTop + 0xe9, 0, true, 0, 0);
+        put_tag(vu, kTop + 0xf0, 1, false, 1, 0);
+        put_qw(vu, kTop + 0xf1, pr);
+    } else {
+        put_tag(vu, kTop + 0xed, 1, false, 1, 0);
+        put_qw(vu, kTop + 0xee, pr);
+    }
+    if (!run(vu, s)) return;
+    ++s.triangles;
+    for (int v = 0; v < n; ++v) {
+        GsVertexOut ref;
+        uint32_t got[12] = {};
+        if (textured) {
+            mat_debug_texture_reference(g, mvp, pos[v], stq[v], colour[v], ref);
+            std::memcpy(got, vu.qword(kTop + 0xf9 + uint32_t(v) * 3), 48);
+            compare_vertex(got, ref, 3, s, "MatDebugTexture (HUD)");
+        } else {
+            mat_debug_reference(g, mvp, pos[v], colour[v], ref);
+            std::memcpy(got + 4, vu.qword(kTop + 0xf6 + uint32_t(v) * 2), 32);
+            compare_vertex(got, ref, 0, s, "MatDebug");
+        }
+    }
+}
+
+void fx_verify_debris(const std::vector<uint64_t>& code, const FxVuGlobals& g, const float viewproj[4][4],
+                      const float simtick[4], const float offset[4], const float velocity[4], const float quat[4],
+                      const uint32_t colour[4], const float* coords, const float* uv, int count, FxVerifyStats& s) {
+    // Só os pedaços inteiros dentro do volume de recorte (o caminho sem o ADC).
+    float mvp[4][4];
+    bond_debris_mvp(viewproj, simtick, offset, velocity, quat, mvp);
+    for (int k = 0; k + 2 < count; ++k) {
+        float tri[3][4];
+        for (int v = 0; v < 3; ++v) std::memcpy(tri[v], coords + size_t(k + v) * 4, 16);
+        if (!fx_triangle_inside(mvp, tri)) return;
+    }
+    ps2::VuMachine vu(ps2::VuUnit::VU1);
+    vu.load_micro(0, code.data(), uint32_t(code.size() * 8));
+    std::memset(vu.data(), 0, vu.data_size());
+    put_floats(vu, 0, g.vp_offset);
+    put_floats(vu, 1, g.vp_scale);
+    const uint32_t params[4] = {uint32_t(count), 0, 0, 0};
+    put_qw(vu, kTop + 0, params);
+    for (int r = 0; r < 4; ++r) put_floats(vu, kTop + 1 + uint32_t(r), viewproj[r]);
+    put_tag(vu, kTop + 5, 0, true, 0, 0);       // a textura
+    const uint32_t control[4] = {0, 1, 0, 0};   // um pedaço
+    put_qw(vu, kTop + 0xc, control);
+    for (int k = 0; k < count; ++k) {
+        put_floats(vu, kTop + 0xd + uint32_t(k), coords + size_t(k) * 4);
+        const float st[4] = {uv[size_t(k) * 2], uv[size_t(k) * 2 + 1], 1.0f, 1.0f};  // a máscara 0x50 e a linha (0, 0, 1, 1)
+        put_floats(vu, kTop + 0x2b + uint32_t(k), st);
+    }
+    put_tag(vu, kTop + 0x67, 1, false, 1, 0);   // o State: o PRIM
+    const uint32_t prim[4] = {4, 0, 0, 0};      // a faixa de triângulos
+    put_qw(vu, kTop + 0x68, prim);
+    put_floats(vu, kTop + 0x6f, simtick);
+    put_floats(vu, kTop + 0x71, offset);
+    put_floats(vu, kTop + 0xb1, quat);
+    put_qw(vu, kTop + 0xf1, colour);
+    put_floats(vu, kTop + 0x131, velocity);
+    if (!run(vu, s)) return;
+    ++s.triangles;
+    for (int k = 0; k < count; ++k) {
+        GsVertexOut ref;
+        const float st[4] = {uv[size_t(k) * 2], uv[size_t(k) * 2 + 1], 1.0f, 1.0f};
+        mat_debug_texture_reference(g, mvp, coords + size_t(k) * 4, st, colour, ref);
+        uint32_t got[12];
+        std::memcpy(got, vu.qword(kTop + 0x177 + uint32_t(k) * 3), 48);
+        compare_vertex(got, ref, 3, s, "BondDebris");
+    }
+}
+
 bool fx_triangle_inside(const float mvp[4][4], const float pos[3][4]) {
     for (int v = 0; v < 3; ++v) {
         float c[4];

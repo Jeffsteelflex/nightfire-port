@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include "driving/fx/debris.h"
 #include "platform/fmath.h"
 #include "platform/ps2_float.h"
 #include "platform/vu0_macro.h"
@@ -38,43 +39,48 @@ void vu_xform(const float m[4][4], const uint32_t p[4], uint32_t out[4]) {
 
 float fx_sprites_control_y(float fov, float guard_band) { return ee::div(66.0f, ee::mul(fov, guard_band)); }
 
-void fx_particle_batches(const ParticleDrawLists& lists, const float view[16], const float proj[16], float control_y,
-                         float aspect, std::vector<FxBatch>& out) {
+void fx_sprite_batch(const ParticleDrawLists::Sprites& l, const float view[16], const float proj[16], float control_y,
+                     float aspect, uint64_t alpha, FxBatch& b) {
     float vp[16];
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
             vp[r * 4 + c] = view[r * 4] * proj[c] + view[r * 4 + 1] * proj[4 + c] + view[r * 4 + 2] * proj[8 + c] +
                             view[r * 4 + 3] * proj[12 + c];
     const float ax = aspect > 0.0f ? (4.0f / 3.0f) / aspect : 1.0f;
-    auto sprites = [&](const ParticleDrawLists::Sprites& l, uint64_t alpha, FxBatch& b) {
-        const size_t n = l.colours.size();
-        for (size_t i = 0; i < n; ++i) {
-            const float* co = &l.coords[i * 4];
-            const float* uv = &l.uvuv[i * 4];
-            const float p[4] = {co[0], co[1], co[2], 1.0f};
-            float c[4];
-            xform(p, vp, c);
-            const float r = control_y * co[3];  // o raio no recorte
-            const float s = nf::fm::sin(uv[3]), k = nf::fm::cos(uv[3]);
-            // v1 = (cos, sen) r, v2 = (-sen, cos) r em coordenadas normalizadas (y para cima), o x pela proporção 4:3.
-            const float v1[2] = {k * r * ax, s * r}, v2[2] = {-s * r * ax, k * r};
-            const float corner[4][2] = {{-v2[0], -v2[1]}, {v1[0], v1[1]}, {-v1[0], -v1[1]}, {v2[0], v2[1]}};
-            const float st[4][2] = {{uv[0], uv[1]}, {uv[0] + uv[2], uv[1]}, {uv[0], uv[1] + uv[2]},
-                                    {uv[0] + uv[2], uv[1] + uv[2]}};
-            FxVertex v[4];
-            for (int j = 0; j < 4; ++j) {
-                v[j].pos[0] = c[0] + corner[j][0];
-                v[j].pos[1] = c[1] + corner[j][1];
-                v[j].pos[2] = c[2];
-                v[j].pos[3] = c[3];
-                v[j].uv[0] = st[j][0];
-                v[j].uv[1] = st[j][1];
-                v[j].colour = l.colours[i];
-            }
-            if (c[3] <= 0.0f) continue;  // atrás do olho (o PS2: o CLIPw e o ADC)
-            for (int j : {0, 1, 2, 1, 2, 3}) b.verts.push_back(v[j]);
+    const size_t n = l.colours.size();
+    for (size_t i = 0; i < n; ++i) {
+        const float* co = &l.coords[i * 4];
+        const float* uv = &l.uvuv[i * 4];
+        const float p[4] = {co[0], co[1], co[2], 1.0f};
+        float c[4];
+        xform(p, vp, c);
+        const float r = control_y * co[3];  // o raio no recorte
+        const float s = nf::fm::sin(uv[3]), k = nf::fm::cos(uv[3]);
+        // v1 = (cos, sen) r, v2 = (-sen, cos) r em coordenadas normalizadas (y para cima), o x pela proporção 4:3.
+        const float v1[2] = {k * r * ax, s * r}, v2[2] = {-s * r * ax, k * r};
+        const float corner[4][2] = {{-v2[0], -v2[1]}, {v1[0], v1[1]}, {-v1[0], -v1[1]}, {v2[0], v2[1]}};
+        const float st[4][2] = {{uv[0], uv[1]}, {uv[0] + uv[2], uv[1]}, {uv[0], uv[1] + uv[2]},
+                                {uv[0] + uv[2], uv[1] + uv[2]}};
+        FxVertex v[4];
+        for (int j = 0; j < 4; ++j) {
+            v[j].pos[0] = c[0] + corner[j][0];
+            v[j].pos[1] = c[1] + corner[j][1];
+            v[j].pos[2] = c[2];
+            v[j].pos[3] = c[3];
+            v[j].uv[0] = st[j][0];
+            v[j].uv[1] = st[j][1];
+            v[j].colour = l.colours[i];
         }
-        b.alpha = alpha;
+        if (c[3] <= 0.0f) continue;  // atrás do olho (o PS2: o CLIPw e o ADC)
+        for (int j : {0, 1, 2, 1, 2, 3}) b.verts.push_back(v[j]);
+    }
+    b.alpha = alpha;
+}
+
+void fx_particle_batches(const ParticleDrawLists& lists, const float view[16], const float proj[16], float control_y,
+                         float aspect, std::vector<FxBatch>& out) {
+    auto sprites = [&](const ParticleDrawLists::Sprites& l, uint64_t alpha, FxBatch& b) {
+        fx_sprite_batch(l, view, proj, control_y, aspect, alpha, b);
     };
     for (int blk = 0; blk < 2; ++blk) {
         if (!lists.normal[blk].colours.empty()) {
@@ -217,6 +223,33 @@ void mat_debug_texture_reference(const FxVuGlobals& g, const float mvp[4][4], co
     std::memcpy(out.st, v11, 16);
     std::memcpy(out.rgba, colour, 16);
     for (int c = 0; c < 4; ++c) out.xyz[c] = uint32_t(ps2::to_int(v10[c], 4));
+}
+
+void mat_debug_reference(const FxVuGlobals& g, const float mvp[4][4], const float pos[4], const uint32_t colour[4],
+                         GsVertexOut& out) {
+    uint32_t v05[4], v06[4], p[4], v08[4], v09[4], v10[4] = {0, 0, 0, 0};
+    load(v05, g.vp_scale, XYZW);
+    load(v06, g.vp_offset, XYZW);
+    load(p, pos, XYZW);
+    vu_xform(mvp, p, v08);
+    mul(v09, v08, v05, XYZ);
+    const uint32_t q = ps2::div(bf(1.0f), v08[3]);
+    for (int c = 0; c < 3; ++c) v10[c] = ps2::add(v06[c], ps2::mul(v09[c], q));
+    std::memset(out.st, 0, sizeof out.st);
+    std::memcpy(out.rgba, colour, 16);
+    for (int c = 0; c < 4; ++c) out.xyz[c] = uint32_t(ps2::to_int(v10[c], 4));
+}
+
+void bond_debris_mvp(const float viewproj[4][4], const float simtick[4], const float offset[4], const float velocity[4],
+                     const float quat[4], float mvp[4][4]) {
+    float m[4][4];
+    bond_debris_instance_matrix(simtick, offset, velocity, quat, m);
+    for (int r = 0; r < 4; ++r) {
+        uint32_t row[4], out[4];
+        load(row, m[r], XYZW);
+        vu_xform(viewproj, row, out);
+        store(mvp[r], out, XYZW);
+    }
 }
 
 }  // namespace drv

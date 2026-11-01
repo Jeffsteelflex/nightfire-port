@@ -797,4 +797,34 @@ bool TrackWorld::world_height_at_point(const float pos[3], float& height) {
     return true;
 }
 
+// [driving] 0x00213720 WCollisionMgr::SetCollisionArticle(CARP::Instance *, int)
+uint32_t WCollisionMgr_SetCollisionArticle(WCollisionMgr& mgr, uint32_t render_base, uint32_t instance, int32_t article,
+                                           std::map<uint32_t, uint32_t>& saved) {
+    // (o FUN_0010c6c8 do começo é a mensagem de depuração)
+    const uint32_t index = (instance - render_base) >> 6;
+    WCollisionInstance* ci = nullptr;
+    WCollisionInstance* all = nf::p32_ptr<WCollisionInstance>(mgr.instances);
+    for (uint32_t i = 0; i < mgr.instance_count; ++i)
+        if (uint32_t(all[i].render_index) == index) {
+            ci = &all[i];
+            break;
+        }
+    if (!ci) return 0;
+    // O mapa: o artigo original da instância, na primeira troca.
+    saved.insert({nf::p32_u(ci), ci->article});
+    if (article == -1) {
+        ci->article = 0;
+        return 1;
+    }
+    // O artigo da instância (+0x1c), a primeira referência dele e o grupo que ela aponta: três leituras (0x00213810,
+    // 0x00213824, 0x00213828).
+    const uint32_t arti = nf::p32_ptr<const uint32_t>(instance)[0x1c / 4];
+    const uint32_t ref = *nf::p32_ptr<const uint32_t>(arti);
+    const UGroup* g = nf::p32_ptr<const UGroup>(*nf::p32_ptr<const uint32_t>(ref));
+    UData* d = UGroup_DataLocateTag(g, uint32_t(article) | 0x63610000u);
+    if (!(uint32_t(article) < UGroup_DataCountType(g, 0x63612020u))) return 0;  // ("...index %d out of range")
+    ci->article = nf::p32_u(UData_Data(d));
+    return 1;
+}
+
 }  // namespace drv

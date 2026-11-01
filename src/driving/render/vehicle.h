@@ -195,8 +195,9 @@ const Bone& GetProcAnimXForm(const ProcAnimContext& c, uint32_t index);
 // [driving] 0x001befc8 GetProcAnimParameter
 float GetProcAnimParameter(const ProcAnimContext& c, uint32_t index);
 // [driving] 0x001beee0 GetInstanceMatrix: a matriz da instância (os 64 bytes do CARP::Instance, com as bandeiras no w
-// de cada linha) pela função gProcAnimFunc[byte +0xd]; 0xff, 0xfe e 0xef portados; as outras (0x00-0x65 e 0xed-0xfd,
-// nenhuma num carro) devolvem falso e contam. O DrawInstance multiplica o resultado pela matriz do objeto.
+// de cada linha) pela função gProcAnimFunc[byte +0xd]; 0xff, 0xfe, 0xef, 0xf2 (o giro em y dos objetos de cena, seção
+// 34) e 0x00-0x63 (o RAnimEngine) portados; as outras (0x64, 0x65, 0xed-0xfd menos as portadas; nenhuma num carro nem
+// num objeto de cena de Paris) devolvem falso e contam. O DrawInstance multiplica o resultado pela matriz do objeto.
 bool GetInstanceMatrix(const uint32_t instance[16], const ProcAnimContext& c, float out[4][4]);
 // BuildRotate(MATRIX4 &, float graus, float x, float y, float z) (0x002d11c8, uma só definição em light_manager.cpp):
 // a rotação de um ângulo em graus em torno do eixo (normalizado com RSQRT.S); 0 dá a identidade.

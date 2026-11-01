@@ -33,6 +33,20 @@ void fx_verify_sprite(const std::vector<uint64_t>& code, const FxVuGlobals& g, c
 // Um triângulo do MatDebugTexture (dentro do volume de recorte).
 void fx_verify_triangle(const std::vector<uint64_t>& code, const FxVuGlobals& g, const float mvp[4][4],
                         const float pos[3][4], const float stq[3][4], const uint32_t colour[3][4], FxVerifyStats& s);
+// Os desenhos do HUD (docs/driving.md seção 28) nos dois métodos, com o tipo de primitiva do GS (3 a lista, 4 a faixa, 6
+// os SPRITE) e n vértices dentro do volume de recorte: o MatDebug (TOP: +0 a contagem, +1..+4 a matriz, +5 as
+// Coordinates, +0x79 as Colours, +0xed o State (o PRIM em +0xee), +0xf5 a etiqueta e +0xf6 os vértices, dois qwords
+// cada: a cor e o XYZ; n <= 0x74) e o MatDebugTexture (como acima; n <= 0x4c); stq nulo no MatDebug.
+void fx_verify_list(const std::vector<uint64_t>& code, bool textured, const FxVuGlobals& g, const float mvp[4][4],
+                    int prim, int n, const float (*pos)[4], const float (*stq)[4], const uint32_t (*colour)[4],
+                    FxVerifyStats& s);
+// Um pedaço do BondDebris (seção 29): o microprograma com um pedaço só (ControlData.y = 1; TOP: +0 o número de vértices,
+// +1..+4 a viewProj, +5 a textura, +0xc o ControlData, +0xd as posições, +0x2b o UV (u, v, 1, 1), +0x67 o State, +0x6f o
+// SimTick, +0x71 a posição, +0xb1 o quatérnio, +0xf1 a cor, +0x131 a velocidade; a saída em +0x177, três qwords por
+// vértice) contra bond_debris_mvp e o MatDebugTexture de cada vértice; só os pedaços inteiros dentro do recorte.
+void fx_verify_debris(const std::vector<uint64_t>& code, const FxVuGlobals& g, const float viewproj[4][4],
+                      const float simtick[4], const float offset[4], const float velocity[4], const float quat[4],
+                      const uint32_t colour[4], const float* coords, const float* uv, int count, FxVerifyStats& s);
 // O triângulo cabe no volume de recorte (|x|, |y|, |z| < w nos três vértices, com folga): o caminho sem recorte.
 bool fx_triangle_inside(const float mvp[4][4], const float pos[3][4]);
 

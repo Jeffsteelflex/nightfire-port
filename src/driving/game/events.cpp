@@ -13,6 +13,7 @@
 //    zera conta como guarda.
 
 #include "driving/game/events.h"
+#include "driving/sound/audio.h"
 #include "driving/sound/audio_stream.h"
 
 #include <cstring>
@@ -24,8 +25,10 @@
 #include "driving/game/camera_events.h"
 #include "driving/game/heli_section.h"
 #include "driving/game/hud.h"
+#include "driving/game/hud_pause.h"
 #include "driving/game/mission.h"
 #include "driving/game/rail.h"
+#include "driving/render/play_mpc.h"
 #include "driving/game/scheduler.h"
 #include "driving/game/smackable.h"
 #include "driving/game/target_picker.h"
@@ -73,6 +76,8 @@ const EventInfo kEventTable[] = {
       {0x2c, kY, 0x3c}, {0x30, kD, 0x4},  {0x34, kD, 0x8},  {0x38, kD, 0xc},  {0x3c, kD, 0x10},
       {0x40, kD, 0x14}, {0x44, kD, 0x18}, {0x48, kD, 0x1c}, {0x4c, kD, 0x20}}},
     {36, "EPlaySystemAnim", 0x20, 0x370af8, 0x154bd0, 0x154c28, 0x018, {{0x4, kD, 0x4}, {0x8, kD, 0x8}, {0xc, kD, 0xc}, {0x10, kD, 0x10}, {0x14, kY, 0x38}, {0x18, kY, 0x3c}, {0x1c, kY, 0x8}}},
+    // Seção 32: o EActorMuzzleFlash (as chaves "Fire" das animações das armas dos atores: o ActWeapon no +0x34).
+    {39, "EActorMuzzleFlash", 0x10, 0x371620, 0x147a60, 0x147aa8, 0x002, {{0x4, kD, 0x4}, {0x8, kY, 0x34}, {0xc, kY, 0x8}}},
     {40, "ECallStage", 0x8, 0x3713f8, 0x148db8, 0x148df0, 0x000, {{0x4, kD, 0x4}}},
     {41, "EChangeStage", 0x8, 0x371350, 0x1498a0, 0x1498d8, 0x000, {{0x4, kD, 0x4}}},
     {42, "EControlToCPU", 0x4, 0x3712d8, 0x14acd0, 0x14acf8, 0x000, {}},
@@ -283,6 +288,7 @@ void player_win(const PendingEvent& e) {
         camera_events_lock_off();
     } else if (e.obj[1] == 0) {
         call(0x1bb9e8);  // RPlayerCamera::SetPauseCamera
+        camera_events_pause();
     }
     if (hud_exists()) GHud_SetMissionPassed(hud());
     uber_bond().word(0x978) = 0;
@@ -327,11 +333,14 @@ void player_lose(const PendingEvent& e) {
         camera_events_lock_off();
     } else if (e.obj[1] == 0) {
         call(0x1bb9e8);  // RPlayerCamera::SetPauseCamera
+        camera_events_pause();
     }
     if (hud_exists()) {
         if (e.obj[4] != 0 || (m.auto_drive != 0 && ee::le(SMissionManager_GetPlayerHealth(m, false), 0.0f))) {
             call(0x2f2dc8);  // AMix::Get("0:Fader0"): o volume a 0,5
+            audio_mix_force("0:Fader0", 0.5f);
             call(0x2f4b10, 7, 0x36f8c0, 0x36f8d0, 2);  // AMenuSound::Trigger(7, "SFX_BondDeath", "Speech", 2)
+            AMenuSound_TriggerCategory(7, "SFX_BondDeath", "Speech", 2);
             GHud_TriggerBloodCurtain(hud());
         }
         GHud_SetMissionFailed(hud(), e.obj[3] != 0);
@@ -432,6 +441,10 @@ void event_create_simple(int32_t type) {
 }
 
 void event_execute(const PendingEvent& e) {
+    if (hud_pause_event_execute(e)) {  // o EPause e o EResume do GHud (driving/game/hud_pause.h)
+        ++g_stats.run[e.type];
+        return;
+    }
     SMissionManagerData& m = mission_manager();
     const bool mission = mission_exists();
     bool ran = true;
@@ -589,9 +602,10 @@ void event_execute(const PendingEvent& e) {
             case kEventTwoWheelsOff:
                 if (car) {
                     PBondCar_DisableTwoWheelStunt(*car);
-                    // O PBondCar::DisableTwoWheelStunt (0x18bb00) termina com o AMenuSound::Trigger(1, ...) do fim da
-                    // manobra, que o porte do carro não toca: anotado aqui.
+                    // O PBondCar::DisableTwoWheelStunt (0x18bb00) termina com o AMenuSound::Trigger(1, "SFX_TiresHeavy",
+                    // "Landings", 0) do fim da manobra (anotado e tocado aqui).
                     call(0x2f4b10, 1, 0x379e08, 0x379e18, 0);
+                    AMenuSound_TriggerCategory(1, "SFX_TiresHeavy", "Landings", 0);
                 } else {
                     ++g_stats.guards;
                 }
@@ -637,6 +651,7 @@ void event_execute(const PendingEvent& e) {
     }
     // As armas e os power-ups (driving/game/weapons.h), as explosões e os efeitos (driving/game/explosion.h).
     if (!ran) ran = audio_event_execute(e);  // os de som (driving/sound/audio_stream.h)
+    if (!ran) ran = movie_event_execute(e);  // o ESetVideo (78: driving/render/play_mpc.h, seção 28)
     if (!ran) ran = weapons_event_execute(e);
     if (!ran) ran = effects_event_execute(e);
     // O trilho, a troca de carro e a câmera (seção 23).

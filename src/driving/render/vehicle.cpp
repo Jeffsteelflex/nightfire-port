@@ -18,6 +18,7 @@
 #include <cstring>
 
 #include "driving/game/bond_car.h"
+#include "driving/light_manager.h"
 #include "driving/physics/rigid_body.h"
 #include "driving/real/vu0_math.h"
 #include "driving/render/anim_engine.h"
@@ -106,6 +107,7 @@ bool vehicle_model_info(const uint8_t* carp, size_t size, const CarpGroup& arti,
 void RVehicle_Construct(Vehicle& v) {
     RVehicleData& d = v.d;
     d = RVehicleData{};
+    d.vtable = 0x003885d8;  // seção 32: a tabela virtual do RVehicle (a +0x84, o TriggerFX, despacha por ela)
     // RSkeletalObj::RSkeletalObj (0x001cc568): +0x70 e o esqueleto zerados, a mola em (0, 0, 0, -1), os parâmetros zero.
     d.spring_cur[3] = -1.0f;
     std::memcpy(d.spring_prev, d.spring_cur, 16);
@@ -473,6 +475,28 @@ bool GetInstanceMatrix(const uint32_t inst[16], const ProcAnimContext& c, float 
         copy();
         float rot[4][4];
         BuildRotate(rot, p, 0.0f, 0.0f, 1.0f);
+        VU0_MATRIX4_mult(rot, out, out);
+        return true;
+    }
+    if (fn == 0xf2) {
+        // [driving] 0x001c0380 (o gProcAnimFunc 0xf2; seção 34: o 007 que gira dos objetos de cena de Paris): o giro em y
+        // de (velocidade / 256) x RTimeData::fTimeData.x graus; a velocidade é o s16 +0xe da instância, ou, com a
+        // bandeira 0x10, o s16 +2 do ProcAnimState dela.
+        int16_t speed;
+        if ((b[0xc] >> 4) & 1) {
+            if (c.states) {
+                std::memcpy(&speed, c.states + size_t(index) * 0x20 + 2, 2);
+            } else {
+                speed = 0;
+                ++g_pending.guards;  // o PS2 leria o estado a partir do endereço 0
+            }
+        } else {
+            std::memcpy(&speed, b + 0xe, 2);
+        }
+        copy();
+        const float deg = ee::mul(ee::mul(ee::cvt_s(int32_t(speed)), ps2::ffloat(0x3b800000u)), rtime_data().time_data[0]);
+        float rot[4][4];
+        BuildRotate(rot, deg, 0.0f, 1.0f, 0.0f);
         VU0_MATRIX4_mult(rot, out, out);
         return true;
     }

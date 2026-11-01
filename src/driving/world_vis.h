@@ -209,9 +209,10 @@ CachedDrawInfo* RRenderWorldCamera_PerformCulling(WRender& r, const float* camer
 
 // ------------------------------------------------------------------------------------------------ os objetos de cena
 
-// O RSceneObj (0x40 bytes no WWorld::Open): só os campos que o construtor (0x001c7098) escreve e que o corte lê. O resto
-// do RSceneObj (o modelo próprio do UseArticle, a física, os efeitos, o desenho do Render) não foi portado: o port
-// desenha a instância de origem no lugar dele.
+// O RSceneObj (0x40 bytes no WWorld::Open): os campos que o construtor (0x001c7098) escreve e o corte lê, e os do
+// UseArticle (seção 34, driving/scene_article.h: o 'pD' +0xc, a variante +0x19, as bandeiras 25-27, o RAnimEngine::Handle
+// das instâncias do modelo próprio +0x28, o nome +0x38), que o Render desenha. A física é a dos objetos derrubáveis
+// (driving/game/smackable.h); os efeitos, driving/fx/scene_fx.h.
 struct RSceneObj {
     uint32_t next;        // +0x00 (p32) o próximo na lista do nó (MapNode +4)
     uint32_t prev;        // +0x04 (p32)
@@ -224,7 +225,7 @@ struct RSceneObj {
     uint16_t unknown1c, unknown1e;
     uint32_t unknown20;
     uint32_t physics;     // +0x24 (p32) o PhysicsObject (SetPhysics), ou 0
-    uint32_t article;     // +0x28 (UseArticle)
+    uint32_t article;     // +0x28 o RAnimEngine::Handle (p32) das instâncias (UseInstanceList), ou 0
     uint32_t path;        // +0x2c RPathEngine::GetPathHandle
     uint32_t unknown30[3];
     uint32_t vtable;      // +0x3c
@@ -243,9 +244,10 @@ void RSceneObj_Construct(RSceneObj& o, uint32_t instance);
 // A parte do WWorld::Open (0x0022faf8) que cria os objetos de cena: cada instância com a bandeira 0x10 cujo registro do
 // 'ps  ' (`r.proc_anims`, 0x20 bytes pelo u16 da instância em +0xe) tem o byte +7 diferente de 0xff ganha a bandeira 1
 // (o DrawPass não a desenha mais) e, com artigo (+0x1c), um RSceneObj, guardado no registro (+8). `objs` recebe os
-// objetos (reservado antes: os ponteiros p32 apontam para ele). O UseArticle, o SetTransform, o EnableTarget e os
-// ProcAnimInstanceAndPointer não foram portados; as instâncias sem a bandeira 0x10 (os efeitos do GFX::Trigger) também
-// não. Devolve quantos objetos criou; sem o 'ps  ' (memória inválida no PS2) conta em world_vis_guards().
+// objetos (reservado antes: os ponteiros p32 apontam para ele), cada um com o UseArticle (o grupo do modelo do 'pD' do
+// artigo, a variante do byte +7; seção 34, driving/scene_article.h). O EnableTarget e os ProcAnimInstanceAndPointer não
+// foram portados; as instâncias sem a bandeira 0x10 (os efeitos do GFX::Trigger) também não. Devolve quantos objetos
+// criou; sem o 'ps  ' ou sem o grupo (memória inválida no PS2) conta em world_vis_guards().
 int WWorld_CreateSceneObjects(WRender& r, std::vector<RSceneObj>& objs);
 
 // Os globais do RSceneObj para o corte: fgCachedDrawInfo (0x333f34, o nó), kIdentityInstance (0x333f30, a lista),

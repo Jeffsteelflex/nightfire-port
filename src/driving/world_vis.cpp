@@ -12,6 +12,7 @@
 #include "driving/carp_runtime.h"
 #include "driving/physics/vu0_physics.h"
 #include "driving/real/vu0_math.h"
+#include "driving/scene_article.h"
 #include "driving/vu0_culling.h"
 #include "platform/fmath.h"
 #include "platform/ps2_float.h"
@@ -693,6 +694,15 @@ int WWorld_CreateSceneObjects(WRender& r, std::vector<RSceneObj>& objs) {
         RSceneObj_Construct(objs.back(), nf::p32_u(inst));
         const uint32_t o = nf::p32_u(&objs.back());
         std::memcpy(rec + 8, &o, 4);
+        // RSceneObj::UseArticle(o grupo do modelo do 'pD' do artigo, a variante do 'ps  '; driving/scene_article.h).
+        uint32_t desc = 0, group = 0;
+        std::memcpy(&desc, nf::p32_ptr<const uint8_t>(article), 4);
+        if (desc != 0) std::memcpy(&group, nf::p32_ptr<const uint8_t>(desc), 4);
+        if (group == 0) {
+            ++g_guards;  // o PS2 leria o grupo a partir do endereço 0
+            continue;
+        }
+        RSceneObj_UseArticle(objs.back(), nf::p32_ptr<const UGroup>(group), rec[7]);
     }
     return int(objs.size());
 }

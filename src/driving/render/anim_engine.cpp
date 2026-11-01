@@ -11,6 +11,7 @@
 #include <memory>
 
 #include "driving/carp_runtime.h"
+#include "driving/drv.h"
 #include "driving/game/events.h"
 #include "driving/game/triggers.h"
 #include "driving/anim/act_actor.h"
@@ -55,20 +56,7 @@ uint32_t instance_of(const AnimHandleData& h, uint32_t index) {
     return nf::p32_u(&h) + 0x40 + index * 0x40;
 }
 
-// fptoui (0x24e340, o __unpack_f do libgcc): o float positivo truncado para sem sinal; negativo, zero ou NaN 0, infinito
-// ou acima de 2^32 0xffffffff.
-uint32_t fptoui(float f) {
-    const uint32_t b = ps2::fbits(f);
-    if (b & 0x80000000u) return 0;
-    const uint32_t e = (b >> 23) & 0xff, frac = b & 0x7fffff;
-    if (e == 0) return 0;
-    if (e == 255) return frac ? 0 : 0xffffffffu;
-    const int32_t x = int32_t(e) - 127;
-    if (x < 0) return 0;
-    if (x >= 32) return 0xffffffffu;
-    const uint32_t m = frac | 0x800000u;
-    return x >= 23 ? m << (x - 23) : m >> (23 - x);
-}
+// O fptoui (0x24e340) é o do drv.h (uma definição só, em game/hud_draw.cpp).
 
 // O float sem sinal do MIPS (cvt.s.w de um inteiro com o bit 31: a metade arredondada, somada a si mesma).
 float u2f(uint32_t v) {
@@ -395,6 +383,18 @@ void AnimHandle_SetFrame(uint32_t handle, uint32_t system, uint32_t stimulus, ui
 bool AnimHandle_IsSystemPlaying(uint32_t handle, uint32_t system) {
     const uint32_t s = AnimHandle_FindSystem(handle, system);
     return s != 0 && S(s).playing != 0;
+}
+
+// [driving] 0x001a2f00 RAnimEngine::Handle::GetFirstSystemInstanceIndex (seção 30: a câmera animada)
+uint32_t AnimHandle_GetFirstSystemInstanceIndex(uint32_t handle, uint32_t system) {
+    const uint32_t s = AnimHandle_FindSystem(handle, system);
+    return s ? uint32_t(S(s).instances[0]) : 0xffffffffu;
+}
+
+// [driving] 0x001a3040 RAnimEngine::Handle::GetFirstSystemInstance: a cópia da primeira instância do sistema (0 sem).
+uint32_t AnimHandle_GetFirstSystemInstance(uint32_t handle, uint32_t system) {
+    const uint32_t i = AnimHandle_GetFirstSystemInstanceIndex(handle, system);
+    return i == 0xffffffffu ? 0 : handle + 0x40 + (i << 6);
 }
 
 uint32_t AnimHandle_GetSystemStartTick(uint32_t handle, uint32_t system) {

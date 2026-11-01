@@ -20,8 +20,8 @@
 // para a parte 20 do nf_driving_check (`--so integracao.atores`).
 //
 // Divergências (contadas em ai_character_stats(), cada uma também na função):
-//  - o som do personagem (AICharacter::GetACharacter, o ACharacter de BondAudioPS2: +0x94) não foi portado (o Execute
-//    lê o +0x94, sempre nulo no port);
+//  - o som do personagem (AICharacter::GetACharacter, o ACharacter de BondAudioPS2: +0x94) é o objeto do port
+//    (driving/sound/audio.h: o P32 de um ACharacter; seção 29);
 //  - a câmera: as mãos chamam o RPlayerCamera::UpdateCamera, o AimZoom e o AimRelease pelos ganchos de
 //    ai_character_env() (o nf_driving liga à câmera do port; sem eles, contados), e o fgZoomButton é o
 //    CameraStatics::zoom_button da câmera do port (o mesmo global 0x3276e0 no PS2);

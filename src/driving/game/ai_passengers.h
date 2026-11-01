@@ -35,7 +35,8 @@
 // conferência troca pelos ganchos que o original também vê).
 //
 // Divergências (contadas em passenger_stats(), cada uma também na função):
-//  - o ACharacter::Say ("HDeath", "HGrunt": o som do personagem, AICharacter::GetACharacter) não foi portado;
+//  - o ACharacter::Say ("HDeath", "HGrunt": o som do personagem, AICharacter::GetACharacter) vai pelo gancho `say` (o
+//    padrão chama o port: driving/sound/audio.h);
 //  - o crossfade (ActActor::SetNewCrossFadeAnimation, CrossFadeAnimationController::StartNewCrossFade): o padrão do
 //    port toca a animação nova sem a mistura de 0,25 s (o ActPoser do port não tem o modo 2) e devolve 0 (o +0xa0 fica
 //    nulo, e o próximo ferimento também chama o SetNewCrossFadeAnimation);
@@ -131,7 +132,7 @@ struct PassengerApi {
     uint32_t (*lookup_fx)(uint32_t scene, const char* name) = nullptr;                         // 0x001cad58
     void (*locate_fx)(uint32_t scene, uint32_t fx, float m[16]) = nullptr;                     // 0x001cae00
     void (*process_stimuli)(uint32_t handle, uint32_t system, uint32_t stimulus, uint32_t steps, uint32_t mode) = nullptr;  // 0x001a27a0
-    void (*say)(uint32_t self, const char* what) = nullptr;                                    // ACharacter::Say (0x0013..)
+    void (*say)(uint32_t self, const char* what) = nullptr;                                    // ACharacter::Say (0x002fbe00)
     void (*inc_kills)(int32_t n) = nullptr;                                                    // SMissionManager::IncKills
     void (*register_target)(uint32_t target) = nullptr;                                       // 0x0022afa8
     void (*unregister_target)(uint32_t target) = nullptr;                                     // 0x0022b098
@@ -160,7 +161,7 @@ struct PassengerStats {
     uint64_t windows = 0, sunroofs = 0, drivers = 0;  // construídos
     uint64_t fires = 0;          // os DoArmed que passaram ao estado 0xb (um tiro pedido à animação)
     uint64_t reloads = 0, aims = 0, deaths = 0, leans = 0;
-    uint64_t says = 0;           // ACharacter::Say (não portado)
+    uint64_t says = 0;           // ACharacter::Say
     uint64_t crossfades = 0;     // o crossfade tocado sem mistura (o padrão do port)
     uint64_t iks = 0;            // o IK guardado sem o Solve
     uint64_t guards = 0;

@@ -207,6 +207,7 @@ int32_t SMissionTimer_GetValue(SMissionTimer& t) {
         const int32_t s = v / sim.frame_rate;
         if (s != t.last_second && s > 0) {
             call(kFnMenuSound, 0, 0x3979f8, 0x397a08, 2);
+            AMenuSound_TriggerCategory(0, "SFX_ReverseBeep", "Gadgets", 2);
             t.last_second = s;
         }
     }
@@ -838,6 +839,7 @@ void SMissionManager_SetAutoDrive(SMissionManagerData& m, int32_t on, bool reset
         else WTargetPicker_DeactivateTargeting();
     }
     if (reset_input) call(0x241040, uint32_t(on));  // GHud::SetAutoDrive
+    if (reset_input && hud_live() && hud_exists()) GHud_SetAutoDrive(hud(), on);
     m.auto_drive = on;
 }
 
@@ -933,6 +935,7 @@ void SMissionManager_AddScore(SMissionManagerData& m, int32_t kind, int32_t poin
     m.scores[kind] += points;
     if (points <= 0 || kind != 1) return;
     if (hud_exists()) call(kFnStylin);
+    if (hud_exists() && hud_live()) GHud_Stylin(hud());
     m.stylin += 1;
 }
 

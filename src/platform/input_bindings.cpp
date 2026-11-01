@@ -9,11 +9,9 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "platform/game_options.h"
 #include "platform/gamepad.h"
 #include "platform/keys.h"
 #include "platform/os.h"
-#include "platform/psi_input.h"
 #include "platform/settings.h"
 
 namespace nf {
@@ -727,14 +725,7 @@ void save_controls(Settings& s, const ControlsConfig& c, float mouse_sensitivity
     save_bindings(s, c.bindings);
 }
 
-void persist_controls() {
-    // Uma opção do jogo mudada junto (a vibração ou a inversão da página de controles) passa a ser do .ini antes (sem
-    // g_controls_persist só a referência das mudanças anda, como no game_options_sync de cada tick).
-    game_options_note_changes();
-    if (!g_controls_persist) return;
-    save_controls(settings(), controls(), psiMouseSensitivity);
-    save_game_options(settings(), game_options_ini());  // [controls] do jogo, [ui] subtitles e [game] (game_options.h)
-    settings().save();
-}
+// persist_controls está em game_options.cpp (precisa das opções do jogo e do psi_input): este arquivo fica neutro, sem
+// nada do jogo a pé (os controles das missões de carro, platform/drive_controls.cpp, usam os nomes das entradas daqui).
 
 }  // namespace nf

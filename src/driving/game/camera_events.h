@@ -11,28 +11,35 @@
 // o CameraLockOn(0) da vitória e da derrota).
 //
 // Quem tem a câmera (o nf_driving) a liga em camera_events_env(); sem ela (o nf_driving_check, parte 15) os eventos só
-// convertem os números como o PS2 e contam. O 97 EPlayCarCameraAnim (TriggerCarAnimationCamera: as animações 'Cams' do
-// modelo do carro-alvo, nenhum em Paris; o carro de um elemento da IA) não foi portado: conta como sem porte.
+// convertem os números como o PS2 e contam. Desde a seção 30, o 97 EPlayCarCameraAnim (0x153c48:
+// TriggerCarAnimationCamera com a âncora no carro do elemento da IA acordado, no carro do jogador sem elemento, ou no dono
+// da vaga do registro; a animação da lista 'Cams' do modelo da âncora: só o vanquish de Paris tem) e a câmera da pausa
+// da vitória e da derrota (SetPauseCamera).
 // Divergência: o ECameraLockOn num elemento da IA (o PS2 pergunta ao AIElementController, não portado, pela posição viva
 // do veículo ou do personagem) prende a câmera no ponto de partida do registro 'AIEl' (as três primeiras palavras).
 
 #include <cstdint>
+#include <functional>
 
 namespace drv {
 
+class PhysicsObject;
 class PlayerCamera;
+struct CameraAnchor;
 struct CameraContext;
 struct PendingEvent;
 
 struct CameraEventsEnv {
     PlayerCamera* camera = nullptr;
     CameraContext* ctx = nullptr;
+    // A âncora da câmera de um dono de corpo (o PhysicsObject do PS2, que a câmera lê direto; nulo: nenhuma).
+    std::function<CameraAnchor*(PhysicsObject*)> anchor_for;
     // Contadores do port.
-    uint64_t executed = 0, without_camera = 0, car_anims = 0;
+    uint64_t executed = 0, without_camera = 0, car_anims = 0, pause_cams = 0, no_anchor = 0;
 };
 CameraEventsEnv& camera_events_env();
 
-// Os destrutores 63, 204, 242, 246, 251, 207 (e o 97, contado): devolve se o número é um destes.
+// Os destrutores 63, 204, 242, 246, 251, 207 e 97: devolve se o número é um destes.
 bool camera_event_execute(const PendingEvent& e);
 
 // O que os eventos do events.cpp pedem (nada sem a câmera): [driving] 0x1bb7c0 SetAutoDriveCamera(rumo, inclinação, 1)
@@ -43,5 +50,7 @@ void camera_events_last_selectable(uint16_t delay, uint32_t transition, uint32_t
 void camera_events_end_anim(uint16_t delay, uint32_t transition, uint32_t arg4, int16_t cam_id);
 void camera_events_lock_off();
 void camera_events_control_to_cpu(uint32_t on);
+// [driving] 0x1bb9e8 RPlayerCamera::SetPauseCamera (o EPlayerWin e o EPlayerLose fora do AutoDrive)
+void camera_events_pause();
 
 }  // namespace drv

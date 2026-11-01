@@ -9,6 +9,8 @@
 #include <map>
 
 #include "driving/bigf.h"
+#include "driving/render/anim_engine.h"
+#include "driving/scene_article.h"
 #include "platform/fmath.h"
 
 namespace drv {
@@ -167,7 +169,80 @@ bool Track::load(const nf::DiscSource& disc, const std::string& track, const std
         stats_.scene_objects = WWorld_CreateSceneObjects(render_, scene_objs_);
         fgWorldMap() = saved;
     }
+    // Seção 34: os artigos das cópias dos Handles dos objetos de cena (o UseArticle), com os LODs e os nomes.
+    object_articles_.clear();
+    for (const RSceneObj& o : scene_objs_) {
+        if (o.article == 0) continue;
+        const AnimHandleData& h = *nf::p32_ptr<const AnimHandleData>(o.article);
+        for (uint32_t i = 0; i < h.n_instances; ++i) {
+            uint32_t art;
+            std::memcpy(&art, nf::p32_ptr<const uint8_t>(o.article + 0x40 + i * 0x40) + 0x1c, 4);
+            if (art == 0 || object_articles_.count(art)) continue;
+            const CarpArticle* a = nf::p32_ptr<const CarpArticle>(art);
+            TrackArticle ta;
+            ta.address = art;
+            ta.draw_pass = a->draw_pass;
+            ta.render_type = a->render_type;
+            ta.render_flags = a->render_flags;
+            for (int l = 0; l < a->lod_count; ++l) {
+                TrackArticle::Lod lod;
+                lod.distance = a->lods[l].distance;
+                lod.part = a->lods[l].model ? model_.part_of_model(a->lods[l].model) : -1;
+                ta.lods.push_back(lod);
+            }
+            object_articles_.emplace(art, ta);
+        }
+    }
+    if (!object_articles_.empty()) {
+        for (uint32_t g = 0; g < UGroup_GroupCount(root); ++g) {
+            if (UData_MatchTag(groups + g) != 0x41727469) continue;  // 'Arti'
+            UData* name = UGroup_DataLocateTag(groups + g, 0x4e616d65);
+            if (name == UGroup_DataEnd(groups + g)) continue;
+            UData* d = UGroup_GroupEnd(groups + g);
+            for (uint32_t i = 0; i < groups[g].count; ++i) {
+                auto it = object_articles_.find(nf::p32_u(UData_Data(d + i)));
+                if (it != object_articles_.end()) it->second.name = reinterpret_cast<const char*>(UData_Data(name));
+            }
+        }
+    }
     return true;
+}
+
+void Track::object_draws(const RSceneObj& o, float lod_multiplier, std::vector<Draw>& out) const {
+    if (o.article == 0) return;
+    const int src = instance_index(o.instance);
+    if (src < 0) return;
+    // O LOD (DrawArticleModel pela distância do Render: a da instância de origem x o multiplicador; a bandeira 8 da cópia).
+    const float distance = view_distance(instances_[size_t(src)], cull_eye_) * lod_multiplier;
+    std::vector<SceneObjDraw> draws;
+    RSceneObj_Render(o, draws);
+    for (const SceneObjDraw& sd : draws) {
+        auto it = object_articles_.find(sd.article);
+        if (it == object_articles_.end()) continue;
+        const TrackArticle& a = it->second;
+        size_t lod = 0;
+        if (!(nf::p32_ptr<const uint8_t>(sd.copy)[0xc] & 8))
+            while (lod < a.lods.size() && distance > a.lods[lod].distance) ++lod;
+        if (lod >= a.lods.size() || a.lods[lod].part < 0) continue;
+        Draw d;
+        d.instance = src;
+        d.part = a.lods[lod].part;
+        d.pass = sd.pass;
+        d.distance = distance;
+        d.own = true;
+        d.render_flags = a.render_flags;
+        d.article = sd.article;
+        std::memcpy(d.world, sd.world, sizeof d.world);
+        out.push_back(d);
+    }
+}
+
+std::string Track::article_name(uint32_t address) const {
+    auto it = object_articles_.find(address);
+    if (it != object_articles_.end()) return it->second.name;
+    for (const TrackArticle& a : articles_)
+        if (a.address == address) return a.name;
+    return std::string();
 }
 
 void Track::refresh_instance(int index) {
@@ -233,9 +308,20 @@ void Track::cull(const float camera[16], float fov, bool widescreen, Culled& out
     // RSceneObj::RenderAllNormal e RenderAllDrawLast: os objetos de cena visíveis, na ordem do SetNowVisible (o port
     // desenha a instância de origem; o Render do RSceneObj, com o modelo próprio, não foi portado).
     const SceneObjCullState& sc = scene_obj_cull();
+    // Seção 34: um objeto com Handle desenha as cópias dele (RSceneObj::Render, driving/scene_article.h); as de um artigo
+    // de outra passada vão para a lista dela (a fila do DrawInstance, 0x001ab050), as das passadas 2 e 3 ficam aqui.
+    std::vector<Draw> late1, late0;
     auto emit_objs = [&](std::vector<Draw>& v, const uint32_t* objs, int n) {
         for (int i = 0; i < n; ++i) {
-            Draw d = make_draw(nf::p32_ptr<const RSceneObj>(objs[i])->instance, 0.0f, lod_multiplier);
+            const RSceneObj& o = *nf::p32_ptr<const RSceneObj>(objs[i]);
+            if (o.article != 0) {
+                out.own_objects.push_back(objs[i]);
+                std::vector<Draw> own;
+                object_draws(o, lod_multiplier, own);
+                for (const Draw& d : own) (d.pass == 1 ? late1 : d.pass == 0 ? late0 : v).push_back(d);
+                continue;
+            }
+            Draw d = make_draw(o.instance, 0.0f, lod_multiplier);
             if (d.instance >= 0 && d.part >= 0) v.push_back(d);
         }
     };
@@ -250,6 +336,9 @@ void Track::cull(const float camera[16], float fov, bool widescreen, Culled& out
     order.clear();
     DrawPass_order(render_, pass0, 0, 0, 2, order);
     emit(out.pass0, order);
+    // As cópias dos objetos de cena das passadas 1 e 0 (port: no fim da lista da passada; ver scene_article.h).
+    out.pass1.insert(out.pass1.end(), late1.begin(), late1.end());
+    out.pass0.insert(out.pass0.end(), late0.begin(), late0.end());
     out.tested = 0;
     for (int i = 0; i < list->node_count; ++i) out.tested += nf::p32_ptr<const MapNode>(list->nodes[i])->instance_count;
 }

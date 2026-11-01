@@ -19,6 +19,8 @@ namespace drv {
 
 // [driving] 0x1b2440 (sem nome): o seno de um ângulo em voltas (negativo: mais uma volta; VU0_Sin).
 float cam_sin_turns(float turns);
+// [driving] 0x1b2480 (sem nome): o cosseno (negativo: mais uma volta; VU0_Cos; seção 30, o Ellipse).
+float cam_cos_turns(float turns);
 // [driving] 0x1b24c0 (sem nome): a tangente (negativo: mais uma volta; tanf(x * 2 pi)).
 float cam_tan_turns(float turns);
 // [driving] 0x1b2510 (sem nome): atan2f(y, x) em voltas, 0..1.

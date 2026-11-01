@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "driving/bigf.h"
+#include "driving/sound/audio.h"
 
 namespace drv {
 
@@ -47,17 +48,23 @@ const CarField kCarFields[] = {
 };
 
 // Os campos da "PhysicsData" da classe "smackable" (PhysicsNamespace::PhysicsNamespace 0x194e18): float (0x16c1d0),
-// bool (0x16be88: true/false/on/off, senão atoi != 0), vetor (0x16c328: até três floats separados por vírgulas). Os sons
-// (0x194d48, o nome no banco de sons) não são lidos (ficam -1).
-enum class SmackKind { Float, Bool, Vector };
+// bool (0x16be88: true/false/on/off, senão atoi != 0), vetor (0x16c328: até três floats separados por vírgulas) e os
+// sons (0x194d48: o nome no índice do banco da categoria `a` ou no da `b`, banco << 7 | timbre, -1 sem ele;
+// driving/sound/audio.h audio_patch_id). As chaves do .atr não diferenciam maiúsculas (o AttributeSystem as compara com
+// strcasecmp: o "Mass=900" do Paris_Bench vale).
+enum class SmackKind { Float, Bool, Vector, Sound };
 struct SmackField {
     const char* key;
     uint32_t offset;
     SmackKind kind;
+    int32_t a = 0, b = 0;
 };
 const SmackField kSmackFields[] = {
     {"MASS", 0x04, SmackKind::Float}, {"HITPOINTS", 0x08, SmackKind::Float}, {"DESCRIPTION", 0x28, SmackKind::Float},
     {"FORCE_DETACH", 0x0c, SmackKind::Bool}, {"MOMENT", 0x0c, SmackKind::Vector},
+    {"DEFAULTSOUND", 0x10, SmackKind::Sound, 5, 0}, {"WARNINGSOUND", 0x14, SmackKind::Sound, 5, 0},
+    {"IMPACTSOUNDLO", 0x18, SmackKind::Sound, 2, 1}, {"IMPACTSOUNDMED", 0x1c, SmackKind::Sound, 2, 1},
+    {"IMPACTSOUNDHI", 0x20, SmackKind::Sound, 2, 1}, {"SCRAPESOUND", 0x24, SmackKind::Sound, 2, 1},
 };
 
 std::string trim(const std::string& s) {
@@ -140,9 +147,12 @@ bool AttributeCollection::load(const Bigf& arc, const std::string& cls, const st
             values_[k] = value;
             if (cls == "smackable") {
                 for (const SmackField& f : kSmackFields) {
-                    if (k != f.key) continue;
+                    if (!same_ci(k, f.key)) continue;
                     uint8_t* base = reinterpret_cast<uint8_t*>(&smackable_);
-                    if (f.kind == SmackKind::Float) {
+                    if (f.kind == SmackKind::Sound) {
+                        const int32_t id = audio_patch_id(trim(value).c_str(), f.a, f.b);
+                        std::memcpy(base + f.offset, &id, 4);
+                    } else if (f.kind == SmackKind::Float) {
                         const float v = float(std::strtod(value.c_str(), nullptr));
                         std::memcpy(base + f.offset, &v, 4);
                     } else if (f.kind == SmackKind::Bool) {

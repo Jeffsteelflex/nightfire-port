@@ -24,24 +24,7 @@ namespace drv {
 using namespace ps2::vu;
 namespace ee = ps2::ee;
 
-// ASound (0x120 bytes; 0x002ed3d0 o construtor, 0x002ed518 Play, 0x002ed5a0 o destrutor): um timbre em laço que segue a
-// posição que o dono escreve (o voo do míssil).
-class ASound : public ABaseSound {
-public:
-    AVoice voice;  // +0xb0
-    // [driving] 0x002ed3d0 ASound::ASound(int banco, int timbre, char *mistura)
-    ASound(const char* mix_name, int32_t bank, int32_t patch) : ABaseSound(mix_name, 4), voice(mix, bank, patch) {
-        volume = 1.0f;
-        pitch = 1.0f;
-    }
-    // [driving] 0x002ed518 ASound::Play(APath &)
-    void Play(APath& path) override {
-        const int32_t view = path.listener->view;
-        const float mv = AMix_GetVolume(mix);
-        AVoice_Play(ee::mul(ee::mul(volume, mv), path.volume), ee::mul(pitch, path.pitch), path.azimuth, path.delay,
-                    0.0f, &voice, view);
-    }
-};
+// O ASound do voo está em driving/sound/audio_internal.h (audio_sound.cpp).
 
 namespace {
 
@@ -760,7 +743,8 @@ void Missile_SteerMissile(Missile& m) {
         (void)player;
         if (d.target == locked_target && d.beep_time < sim.steps) {
             ++g_stats.lock_beeps;
-            effects_note(0x002f4b10);  // AMenuSound::Trigger("SFX_Htargetlock", "Tracking System", 2)
+            effects_note(0x002f4b10);  // AMenuSound::Trigger(0, "SFX_Htargetlock", "Tracking System", 2)
+            AMenuSound_TriggerCategory(0, "SFX_Htargetlock", "Tracking System", 2);
             const float add = ee::mul(ee::mul(dist2, ee::cvt_s(sim.frame_rate)), ps2::ffloat(0x38d1b717));
             d.beep_time += ee::cvt_w(add);
         }

@@ -13,9 +13,16 @@
 //  - o PS2 roda o DRIVING.ELF num processo novo a cada missão; aqui o código vive numa biblioteca à parte, e a escolha
 //    entre DLL e segundo processo fica para a fase 4 (docs/driving.md seção 6).
 
+#include <cstdint>
+
 namespace drv {
 
 // O nome do módulo (para relatórios e testes).
 const char* module_name();
+
+// O fptoui do DRIVING.ELF (0x0024e340, o __fixunssfsi do fp-bit do libgcc), usado por vários módulos: o float positivo
+// truncado para sem sinal; negativo, zero, os denormais e os NaN dão 0, o infinito e de 2^32 em diante 0xffffffff.
+// Definido em game/hud_draw.cpp (uma definição só).
+uint32_t fptoui(float v);
 
 }  // namespace drv

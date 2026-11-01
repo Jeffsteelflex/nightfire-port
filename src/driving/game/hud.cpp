@@ -1,10 +1,11 @@
 // O HUD da missão (driving/game/hud.h), portado do MIPS do DRIVING.ELF (GHud.obj; GSystem.obj e o LOCALE da EA). As
 // desmontagens ficam em out/agent_drv_mission/ do checkout principal (fora do git).
 //
-// Divergências (port): o desenho é do port (hud_view: os textos na tela do PS2 com a fonte de depuração do disco, as
-// faixas, o escurecer); o passar do tempo das mensagens (GHud_Tick) segue os Draw* do PS2 com o tempo do quadro (as
-// durações e a ordem: a mensagem some depois de meio segundo de esmaecer, o objetivo seguinte entra quando o atual
-// acaba, as tarjas andam 30 quadros) sem as galerias; os sons do menu e o GSubtitles só anotados (mission_trace).
+// O GHud::Reset é o do PS2 (sem zerar o objeto: os campos que ele não escreve ficam). O desenho de verdade é o de
+// driving/game/hud_draw.cpp (seção 28); o hud_view e o GHud_Tick daqui são o HUD mínimo da seção 19 (o passar do tempo
+// das mensagens como os Draw* do PS2, sem as galerias), usados só sem a galeria ou com --debug-hud.
+//
+// Divergências (port): os sons do menu só anotados (mission_trace); os setters dos outros módulos só com hud_live().
 
 #include "driving/game/hud.h"
 
@@ -12,8 +13,13 @@
 #include <cstring>
 
 #include "driving/game/mission.h"
+#include "driving/render/ggallery.h"
+#include "driving/render/subtitles.h"
 #include "driving/physics/simulation.h"
+#include "driving/sound/audio.h"
+#include "platform/crt_compat.h"
 #include "platform/ps2_float.h"
+#include "platform/ptr32.h"
 
 namespace drv {
 
@@ -33,49 +39,105 @@ uint16_t le16(const uint8_t* p) { return uint16_t(p[0] | p[1] << 8); }
 GHudData& hud() { return g_hud; }
 bool& hud_exists() { return g_hud_exists; }
 
-// [driving] 0x0023c858 GHud::Reset
+// [driving] 0x0023c858 GHud::Reset: os campos um a um (o resto do GHud, os ponteiros da galeria do GHud::GHud
+// incluídos, fica). O ATargeting das pistas junglea_mis13a/snow2a_mis4/uw_mis11 (+0x39c) e o ActionQueue::Flush do
+// "HUDQ" ficam anotados (o port não tem a fila do HUD).
 void GHud_Reset(GHudData& h) {
-    std::memset(&h, 0, sizeof h);
-    h.timer_beep_second = 10;
-    h.letterbox_mode = 1;
-    h.letterbox_count = 0;
-    h.paused = 0;
-    h.button_text = 0;
-    h.button_time = 0;
-    h.button_fade = 0;
-    h.objective_extra = 0;
-    h.result_text = -1;
-    h.result_state = 0;
-    h.result_delay = 0;
-    h.unknown318 = 0;
-    h.message_time = 0;
-    h.message_long = 0;
-    h.message_text = -1;
-    h.message_step = 0;
-    h.unknown36c = 1.0f;
-    h.language = 0;  // GLocale::GetLanguage (o inglês)
-    h.aiming = 0;
-    h.black_fade = 0;
-    h.black_fading = 0;
-    h.black_fade_start = 0;
-    h.black_fade_from = 0;
-    h.black_fade_rate = 0;
-    h.timer = -1;
-    h.objective_kind = -1;
-    h.objective_text = -1;
-    h.objective_next = -1;
-    h.objective_next_kind = -1;
-    h.objective_alpha = 0;
-    h.objective_frames = 0;
-    h.objective_time = 0;
-    h.unknown480 = 0;
-    h.unknown48c = 0;
-    h.screen_width = 640.0f;   // o RRenderer +0x50 e +0x54 (a tela do PS2)
-    h.screen_height = 448.0f;
-    h.screen_cx = 320.0f;
-    h.screen_cy = 224.0f;
-    h.blood_curtain = -1.0f;
-    h.frame_time = 1.0f / 60.0f;
+    uint8_t* b = reinterpret_cast<uint8_t*>(&h);
+    auto w = [&](uint32_t off, uint32_t v) { std::memcpy(b + off, &v, 4); };
+    auto f = [&](uint32_t off, float v) { std::memcpy(b + off, &v, 4); };
+    w(0x2c8, 10);
+    f(0x2d8, 3.0f);
+    f(0x2cc, 3.0f);
+    w(0x2b0, 1);
+    f(0x2e4, 0.5f);
+    for (uint32_t off : {0x2a0u, 0x2a4u, 0x2b4u, 0x420u, 0x428u, 0x42cu, 0x424u, 0x30cu, 0x38cu, 0x390u, 0x2d0u, 0x2d4u,
+                         0x2dcu, 0x2e0u, 0x2ecu, 0x2e8u, 0x2f4u, 0x2f8u, 0x300u, 0x304u, 0x308u})
+        w(off, 0);
+    w(0x310, 0xffffffffu);
+    for (uint32_t off : {0x314u, 0x320u, 0x31cu, 0x324u, 0x318u, 0x328u, 0x32cu, 0x330u, 0x2a8u, 0x408u, 0x410u}) w(off, 0);
+    w(0x404, 0xffffffffu);
+    for (uint32_t off : {0x360u, 0x338u, 0x334u, 0x33cu, 0x374u, 0x2acu, 0x378u, 0x388u, 0x3a0u, 0x3d8u, 0x3c4u, 0x3dcu})
+        w(off, 0);
+    f(0x36c, 1.0f);
+    w(0x414, 0);  // GLocale::GetLanguage (o inglês)
+    w(0x340, 0x1a);
+    w(0x344, 0xd);
+    for (uint32_t off : {0x3a4u, 0x418u, 0x45cu, 0x34cu, 0x350u, 0x354u, 0x358u, 0x35cu}) w(off, 0);
+    w(0x464, 0xffffffffu);
+    w(0x430, 0);
+    w(0x348, 0);
+    w(0x434, uber_bond().word(0x998) != 0 ? 1u : 0u);
+    const int32_t i99c = uber_bond().word(0x99c);
+    w(0x3bc, 0xffffffffu);
+    w(0x3b4, 0xffffffffu);
+    w(0x3b8, 0xffffffffu);
+    w(0x3c0, 0xffffffffu);
+    for (uint32_t off : {0x3acu, 0x3a8u, 0x3b0u, 0x43cu, 0x440u, 0x3fcu, 0x400u}) w(off, 0);
+    w(0x438, i99c != 0 ? 1u : 0u);
+    if (GSubtitlesData* s = GSubtitles_TheApp()) GSubtitles_ClearSubtitles(*s);
+    w(0x480, 0);
+    for (uint32_t off : {0x484u, 0x488u, 0x48cu, 0x494u, 0x49cu, 0x498u, 0x4a4u, 0x4a8u}) w(off, 0);
+    for (uint32_t off = 0x4e8; off >= 0x4ac; off -= 4) w(off, 0);  // os 16 de +0x4ac a +0x4e8
+    w(0x384, 0);
+    w(0x380, 0);
+    const HudRendererInfo& r = hud_renderer();
+    const float sw = ee::cvt_s(r.width), sh = ee::cvt_s(r.height);
+    f(0x44c, sw);
+    f(0x454, ee::mul(sw, 0.5f));
+    f(0x450, sh);
+    f(0x458, ee::mul(sh, 0.5f));
+    // SMissionManager::CheckProgrammerEvent(DAT_0033a024, 0x18) (o port: 0 sem a missão; o PS2 lê o nulo)
+    w(0x460, mission_exists() ? uint32_t(SMissionManager_CheckProgrammerEvent(mission_manager(), 0x18)) : 0u);
+    f(0x448, -1.0f);
+    f(0x46c, 1.0f);
+    f(0x468, 1.0f);
+    w(0x470, 0);
+    w(0x474, 0);
+    uint32_t t39c = 0;
+    std::memcpy(&t39c, b + 0x39c, 4);
+    if (t39c != 0) w(0x39c, 0);  // o __builtin_delete do ATargeting
+    // O ATargeting (os bipes da trava) das pistas junglea_mis13a, snow2a_mis4 e uw_mis11 (o port: um só, estático).
+    const char* track = uber_bond().text(0x4f4);
+    if (nf::str_icmp(track, "junglea_mis13a") == 0 || nf::str_icmp(track, "snow2a_mis4") == 0 ||
+        nf::str_icmp(track, "uw_mis11") == 0) {
+        static ATargetingData targeting;
+        ATargeting_Construct(targeting);
+        w(0x39c, nf::p32_u(&targeting));
+    }
+}
+
+bool& hud_live() {
+    static bool live = false;
+    return live;
+}
+
+void GHud_SetAutoDrive(GHudData& h, int32_t on) { std::memcpy(reinterpret_cast<uint8_t*>(&h) + 0x2a8, &on, 4); }
+
+void GHud_GadgetOn(GHudData& h, float seconds, uint32_t gadget) {
+    h.gadget = gadget;
+    h.gadget_slide = 0.5f;
+    h.gadget_time = seconds;
+    h.gadget_blinks = 2;
+    h.gadget_blink = 0.5f;
+}
+
+void GHud_Stylin(GHudData& h) {
+    h.stylin_state = 1;
+    h.stylin_fade = 0;
+    h.stylin_time = ee::div(200.0f, h.frame_rate);
+}
+
+void GHud_TriggerDamageFlash(GHudData& h, float amount) {
+    uint8_t* b = reinterpret_cast<uint8_t*>(&h);
+    uint32_t hits, total;
+    std::memcpy(&hits, b + 0x328, 4);
+    std::memcpy(&total, b + 0x32c, 4);
+    if (hits >= 5) return;
+    total = total + uint32_t(ee::cvt_w(ee::add(amount, 0.5f))) + 1;
+    if (0x14 < total) total = 0x14;
+    std::memcpy(b + 0x32c, &total, 4);
+    std::memcpy(b + 0x328, &total, 4);
 }
 
 // [driving] 0x0023c728 GHud::FadeInFromBlack(int passos): de 1 a 0 em `passos` (pelo menos 1).
@@ -115,8 +177,15 @@ void GHud_LetterBoxOn(GHudData& h, bool instant) {
 // [driving] 0x00244ec8 GHud::LetterBoxOff(bool já)
 void GHud_LetterBoxOff(GHudData& h, bool instant) { h.letterbox_mode = instant ? 1 : 3; }
 
-// [driving] 0x00244f30 GHud::AimOff (o 0x3353ec +4, o alvo da mira do WTargetPicker, não existe no port)
-void GHud_AimOff(GHudData& h) { h.aiming = 0; }
+// [driving] 0x00244f30 GHud::AimOff: o +0x418 e o RSniperZoom::fgThis_RSniperZoom +4 (0x3353ec).
+SniperZoomState& sniper_zoom() {
+    static SniperZoomState s;
+    return s;
+}
+void GHud_AimOff(GHudData& h) {
+    h.aiming = 0;
+    sniper_zoom().on = 0;
+}
 
 // [driving] 0x00245eb0 GHud::KillButtonMessage
 void GHud_KillButtonMessage(GHudData& h) {
@@ -167,7 +236,8 @@ void GHud_TriggerObjectiveMsg(GHudData& h, int32_t kind, int32_t text, int32_t e
     h.objective_alpha = 0.0f;
     h.objective_time = 5.0f;
     h.objective_extra = extra;
-    mission_note_call(0x2f4b10, 8, 0x3aadf0, 0x3aaac8, 2);  // AMenuSound::Trigger(8, "SFX_objective"...)
+    mission_note_call(0x2f4b10, 8, 0x3aadf0, 0x3aaac8, 2);  // AMenuSound::Trigger(8, "SFX_misstatus", "Menu Sounds", 2)
+    AMenuSound_TriggerCategory(8, "SFX_misstatus", "Menu Sounds", 2);
     h.objective_next = -1;
     h.button_time = 0;
 }

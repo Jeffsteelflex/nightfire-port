@@ -866,7 +866,13 @@ void random_state(Rng& rng, Context& c) {
     for (int k = 0; k < 3; ++k) rb->pos[k] = t->position[k] + rng.uni(-30, 30);
     for (int k = 0; k < 3; ++k) rb->vel[k] = rng.chance(0.2) ? 0.0f : rng.uni(-30, 30);
     for (int k = 0; k < 3; ++k) drv::mission_env().camera_pos[k] = rb->pos[k] + rng.uni(-8, 8);
-    for (const auto& [r, a] : c.rule_emu)
+    // Na ordem dos endereços emulados (a do map, pelos ponteiros do porte, mudava de rodada para rodada com o heap: o
+    // sorteio ligava outras regras e as contagens do Update variavam, com 0 diferenças).
+    std::vector<std::pair<uint32_t, const drv::SMissionRuleData*>> rules;
+    rules.reserve(c.rule_emu.size());
+    for (const auto& [r, a] : c.rule_emu) rules.emplace_back(a, r);
+    std::sort(rules.begin(), rules.end());
+    for (const auto& [a, r] : rules)
         if (rng.chance(0.1)) const_cast<drv::SMissionRuleData*>(r)->active ^= 1;
     c.sched->cinematic = 0;
     c.sched->time_scale = 1.0f;

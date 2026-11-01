@@ -58,6 +58,12 @@ deslocamentos e fatos sobre o código são fatos e entram aqui com a fonte. Nenh
 
 Estimativa das missões de carro (seção 5): de **26-39 para 20-32 dias**.
 
+**Atualização de 15/10/2026** (seção 8): o ramo `dev` deles ganhou 98 commits (`7989839..a29370a`) com a camada de jogo
+inteira da engine de carro em C++ (o HUD e as galerias, os eventos todos, a IA de todos os tipos, as armas, os efeitos,
+o som do jogo, os placares), o catálogo dos quirks do original e o executável próprio de 64 bits. A seção 8 tem o
+inventário contra o nosso porte, os quirks conferidos (uma divergência nossa achada: `GetAnchorLinearVelocity`), os
+nomes que dá para importar e a estimativa revista.
+
 ### A ordem sugerida para aproveitar
 
 1. **A engine a pé, já**: portar as funções curtas da seção 3.1, cada uma do MIPS do PS2, com teste (`ReadTuningVars`
@@ -667,3 +673,339 @@ Para o usuário levar na conversa com eles (fatos, curtos):
 - O efeito em jogo das lacunas da seção 3.1 (deduzido pelo caminho do código; nada foi executado) e se algum script do
   disco grava um canal com valor par (o que tornaria visível o desvio do `Mission_MonitorObjectives`).
 - Os nomes importados por pares de confiança 1 e os das bibliotecas da EA (seção 1, "Cuidado").
+
+## 8. A atualização de 2026-10-15 do branch dev
+
+Estudo de 15/10/2026, lido com `git show origin/dev:<caminho>` no clone `out/ref/nightfire-cxbx` (o `HEAD` dele continua
+em `7989839`; nada foi trocado de ramo, buscado, compilado, executado ou copiado). São 98 commits, de `7989839` a
+`a29370a` (11 a 15/10/2026): 776 arquivos, +182.852 e -7.818 linhas. Quase tudo em `src/driving`: 122 arquivos novos em
+`src/driving/game` (a camada de jogo), 84 em `src/driving/devtools` (os testes "shadow": cada pacote portado é rodado
+contra o original x86 em cópias dos objetos vivos, com chamadas falsas que gravam o que é chamado) e 7 em
+`src/driving/standalone`. Os docs novos estão em `docs/driving/`: `game-ai.md`, `game-events.md`, `game-weapons.md`,
+`game-frontend.md`, `game-missions.md`, `game-effects.md`, `game-audio.md`, `original-quirks.md`, `c-runtime.md`,
+`64-bit.md`, `standalone.md`, `portable.md`, `macos.md` e `sdl-gpu.md`; o `docs/driving-fmv.md` foi revisto.
+
+O que eles dizem ter agora: toda função do jogo e da engine do `Driving.xbe` é deles ("game.frontend" é o último
+pacote). Cada pacote passou pelos shadows e pelas rodadas "lockstep", em que as missões 1-8 rodam até o tique 9000,
+paradas e acelerando, e os quadros e as chamadas de som são comparados com as gravações do original. O executável
+próprio (`driving_standalone`) já não precisa do `Driving.xbe`: os dados do XBE viraram fonte, como as 17 mil linhas do
+`OwnedGlobals.inc` e as tabelas virtuais em `Vtables.cpp`. Ele roda em 32 bits no Linux nativo e em 64 bits no
+Windows, no Linux x86-64 e no macOS arm64, este pelo SDL GPU sobre Metal. Os ponteiros dos 64 bits usam `Ptr32<T>`, o
+mesmo esquema do nosso `P32`; o código x87 virou C portátil atrás de `NIGHTFIRE_X87`.
+
+Para nós continua uma referência de leitura. O código deles é a versão MSVC/x87 do Xbox; cada função nossa ainda é
+portada do MIPS do PS2 e conferida no interpretador, como nas seções 9 e 12 do `docs/driving.md`. Os dados do jogo que
+eles puseram em fonte, como o `GirlPalette.cpp`, a paleta de 48 KB do Xbox, e o `OwnedGlobals.inc`, nunca entram no
+nosso repositório: o nosso porte lê esses dados do `DRIVING.ELF` do usuário.
+
+### 8.1 O inventário dos módulos novos
+
+Como foi feito: cada função deles tem a marca `// FUNC_AT(0x<endereço do Xbox>)`. São 1.901 funções em
+`src/driving/game`. O endereço vai ao par do PS2 pelo `out/xbox/match.tsv` e o par é procurado nas nossas marcas
+`// [driving] 0x...`, incluindo os endereços citados nos comentários de continuação.
+
+| Situação | Funções |
+|---|---:|
+| temos | 532 |
+| têm par no PS2 e faltam | 817 |
+| não têm par | 552 |
+
+As 552 sem par são, na maior parte, os "scalar deleting destructors" do MSVC, as criadoras e os resolvedores dos
+eventos e os contêineres da STL compilados. As contagens são aproximadas por dois motivos:
+- funções que nós escrevemos dentro de outras não contam como "temos", como os 39 acessores triviais do `PBondCar` em
+  `BondCarBasics.cpp`, que no nosso porte são campos;
+- um par errado conta como falta.
+
+As faixas abaixo são do PS2 (pelos pares). "Nós temos" usa a contagem temos/total por arquivo.
+
+**O HUD, as galerias e a frente do driving** (`docs/driving/game-frontend.md`, 209 entradas deles):
+
+| Módulo deles | O que é | No PS2 | Nós temos | Serve para |
+|---|---|---|---|---|
+| `Hud.cpp`, `HudDraw.cpp`, `HudText.cpp`, `HudFrame.cpp`, `HudMenus.cpp`, `HudCrossHairs.cpp` (`GHud`, 0x4f0 no Xbox) | o HUD inteiro: medidores, mensagens, miras (com a da mira telescópica e o "fly-by-wire"), a cortina de sangue, o cronômetro, o letterbox, os fades, o resultado da missão, o menu de pausa com as páginas e as trapaças, `Render`/`Draw`/`UpdateTargets` | `GHud::GHud` 0x23ae30 .. `DrawStylin` 0x2472b0 | 15 de 74: os setters de estado de `game/hud.cpp` (o nosso `GHudData` tem 0x4f4 bytes, o leiaute do PS2) | **o HUD real**, que um agente nosso faz agora |
+| `Gallery.cpp` (`GGallery`, 0xc0) | a galeria do HUD (`hudNTSC.gal`): as texturas, os bonecos (puppets), as chaves interpoladas, os `FONT_*`, `SPRITE_*`, `QUAD_*`, `BITMAP_Draw2D` e `LINE_Draw2DStrip` | 0x236738-0x2394b8 | 0 de 30 | **o HUD real** |
+| `OrthoHudView.cpp` (`GOrthoHudView`) | a vista do HUD: escala altura/480; o `PostRender` manda `EExit`/`ERestart` | 0x23aa40-0x23aad0 | 0 de 3 | **o HUD real** |
+| `Girl.cpp`, `GirlPalette.cpp` (`GGirl`, `GGirlieMaterial`) | não é uma personagem: é a figura animada atrás de toda página da pausa. Um fluxo RLE na galeria do HUD é decodificado em duas texturas de 128x128, a 30 quadros por segundo do relógio real, sempre espelhado. É o par do nosso `psiDecompressWoman` a pé | 0x239718-0x23a618 | 0 de 8 | a pausa do driving (a frente) |
+| `LoadingScreen.cpp` (`GLoadingScreen`) | a tela de carga: os seis pontos, a figura da missão, as dicas `HINT_ID%d`, o log de `Status`, a tela de descarga | 0x247e98-0x2495e8 | 0 de 16 | a frente e a passagem |
+| `Subtitles.cpp` (`GSubtitles`, `GSubtitleSplitter`) | as legendas: as da missão (`DisplaySubtitle`, por passos) e as dos filmes (`SetupFMVSubtitles`, `LoadSubtitles` dos `.sub`, pelo relógio real) | 0x24a168-0x24ad40 | 0 de 17 | **os filmes** (outro agente nosso) e o `ESetSubtitle` |
+| `FrontEndSystem.cpp` (`GSystem`, `GLocale`, `CURATOR_*`) | o idioma e a subpasta dele, os textos do locale, a galeria e o arquivo de partículas de cada missão (`IsEARS`, `IsSavage`, `GetGalleryName`, `GetParticFileForMission`), cor e pontos | 0x249f98-0x24b820 | 1 de 15 (`LOCALE_Symbol`) | as missões da Ilha (galerias próprias), a frente |
+| `EffectsGallery.cpp`, `Gfx.cpp` (`GFXGallery`, `GFX`) | a galeria dos efeitos, que nós já temos em boa parte; faltam `GLARE_Draw` 0x235d50, `DEBRIS_Draw` 0x235810, `CANVAS_Purge`/`Suppress`/`SetIntensity`/`PurgeSceneObj(Effects)` e `GFX::Purge`/`SuppressEffect`/`SetIntensity`/`PurgeAllEffects` | 0x232ce0-0x2363b0 | 25 de 41 | **as sobras dos efeitos** (outro agente nosso): as glares, os destroços, os eventos 129/173/252/253 e os efeitos dos objetos da cena |
+
+**As missões** (`docs/driving/game-missions.md`):
+
+| Módulo deles | O que é | No PS2 | Nós temos | Serve para |
+|---|---|---|---|---|
+| `MissionManager.cpp` | o `SMissionManager` (0x1c70 no Xbox; o nosso 0x1b50, do PS2) | 0x204de8-0x208d98 | 38 de 55 | faltam `InitPlayerCar` 0x205a90, os comentários, a seta e a visibilidade dos objetivos (o HUD real), `SetCurrentObjective`, `StartSectionProfile` |
+| `MissionRules.cpp` | as 15 regras | 0x209360-0x20af78 | 26 de 53 (os construtores contam como falta: nós usamos o `Instantiate`) | os `CheckRule` que o nosso porte ainda não tem: `SRuleAmmo`, `SRuleRange` com alvo de posição (o nosso só faz o das estatísticas da IA), `SRulePlayerDir` com `CompareWithinDegrees` 0x20abe0. Conferir se Paris os usa (o nosso `unported_rules` conta); as outras missões sim |
+| `MissionScores.cpp` | vida e escudo, tiros, acertos, mortes, contadores mágicos, ações temporizadas e os placares | 0x205c30-0x2084a8 | 21 de 25 | **a passagem de volta**: `CalcEndMissionScores` 0x207f20 (1.220 bytes; os quirks: o placar 4 vale x 0,0, o 3 é `unknown2e0` / tiros, o 9 é uma média) e `TallyScores` 0x205c30, que o nosso `Win` só anota; também `ShowMissionText` 0x2084a8 |
+
+**A IA** (`docs/driving/game-ai.md`, 361 entradas deles):
+
+| Módulo deles | O que é | No PS2 | Nós temos | Serve para |
+|---|---|---|---|---|
+| `AIPedestrian.cpp` (`AICharacterPedestrian`, 0x290) | os 16 pedestres das calçadas: nascem e são reciclados ao longo das ruas; andam, desviam, se assustam, conversam, se encostam e morrem | 0x125b48-0x12a988; e o `AIRoadSpawn` dos pedestres em 0x13cf08-0x13d3f0 | 0 de 44 | **os pedestres**. Provavelmente também Paris: o `MIS01.VIV` traz o banco `ped` (seção 20 do `docs/driving.md`) e o `Manage` roda em toda missão. Conferir no PS2 se Paris os põe nas calçadas, o que depende do modo 2 do navegador, `CalcNextSegmentSidewalk`, também por portar |
+| `AIHelicopter.cpp`, `Helicopter.cpp` (`AIHelicopter`, `PHelicopter`) | os helicópteros inimigos: `DoAgentLogic` por modo de ataque, `ManeuverToPos`, `ControlMoveState`, armas e foguetes; a física e o dano | 0x138220-0x13df50; `PHelicopter` 0x193408-0x1942e8 | 0 de 26 | **os helicópteros inimigos** (outras missões; Paris não tem). Com eles, a parte dos helicópteros no `AIVehicleController` (0x13ecb0-0x13fa90) e o `SpawnHelicopterObject` 0x2003c8 |
+| `AIEnemyGround.cpp` (`AICharacterEnemyGround`, 0x1c0) | os inimigos a pé: armam, miram, atiram, desviam e fogem dos carros, caem | 0x11b518-0x11d9f0 | 0 de 24 | os inimigos a pé (outras missões) |
+| `AIEnemyRiders.cpp` | os passageiros armados por assento | `Snow`/`SSnow` 0x11e198-0x120500 | 27 de 60: a `Window` e o `Sunroof` da seção 26 | os das motos de neve (`AICharacterEnemySnow`/`SSnow`) |
+| `AIHands.cpp`, `AICharacter.cpp` | as mãos de Bond, que nós já temos; o `AICharacterBond` (Bond ao volante, as mãos no volante por IK); o `AICharacterPassenger` | Bond 0x119b98-0x11a858; passageira 0x125438-0x125860 | 28 de 56 | `AICharacterBond`/`AICharacterPassenger` (a lista de Paris; a passageira é a Dominique) |
+| `AIElements.cpp`, `AIGroundVehicle*.cpp`, `AIVehicle*.cpp`, `AIRoadSpawn.cpp`, `AISplinePath.cpp` | quase tudo já nosso (seções 18, 21, 23 e 24) | | 93 de 127 | falta só o que é dos pedestres e dos helicópteros, e `DriveToPointSub` 0x1349c0 |
+
+**As armas, os veículos e os efeitos** (`game-weapons.md`, `game-effects.md`):
+
+| Módulo deles | O que é | No PS2 | Nós temos | Serve para |
+|---|---|---|---|---|
+| `Sentry.cpp`, `Mine.cpp`, `Grenade.cpp` | as torres, as minas (de tempo, de proximidade, remotas e flutuantes) e as granadas | `Sentry` 0x19aeb8-0x19c908; `Mine` 0x17fc18-0x180620; `Grenade` 0x17e560-0x17e8b8 | 0 de 26 | **os sentries**, as minas (`EDropMine`, `DetonateRemoteMines`) e as granadas; também `SimulationSpawn.cpp`: `SpawnMineObject`, `SpawnGrenadeObject`, `SpawnSentryObject`, `SpawnNewtonObject` |
+| `BondCarSnowmobile.cpp`, `BondCarModes.cpp`, `SoftZone.cpp` | a física da moto de neve (`AddSnowmobileForces` 0x18fc00, `ProcessSnowmobilePhysics` 0x190510) e a do submarino (`ProcessSubmarinePhysics` 0x190f88); `PBondCar_PosInSoftZone` 0x190eb8 | | 2 de 7 | `snow1a`/`snow2a` e `uw_mis11` |
+| `WeaponEffects.cpp` | `RBulletStreak` 0x1d7620-0x1d8048, `RMuzzleFlash` 0x1e4b48-0x1e5808, `RScorchWorld::ScorchWorld` 0x1ea8e8; o `RMissileStreak`, que já temos | | 4 de 15 | **as sobras dos efeitos de Paris**: os riscos das balas e os clarões (seção 26 do `docs/driving.md`) e a marca de queimado das balas |
+| `WeaponCameras.cpp` | `RSniperZoom` 0x1ed480-0x1ed8d8, a mira telescópica (o anel, o fundo capturado); `RMissileCam` 0x1e3518-0x1e3738 | | 0 de 13 | o `RSniperZoom` serve à seção do helicóptero de Paris (o fuzil de Bond); o `RMissileCam`, ao míssil guiado |
+| `EmpEffect.cpp` (`REmp`, `REmpBolts`) | o anel do tiro do EMP e os raios entre os pontos "emp" de um carro | 0x1db038-0x1de470 | 0 de 35 | **as sobras dos efeitos de Paris**: o Q-Pulse desenhado |
+| `Debris.cpp`, `VehicleParticle.cpp`, `TyreTrack.cpp` | os destroços (23 tipos; os cartuchos), a fumaça dos pneus, a poeira e as faíscas dos carros, as marcas dos pneus | `RDebris` 0x1d94a8-0x1d9bb8; `RVehicleParticle` 0x1edf38-0x1f0148; `RTyreTrack` 0x1f4fb0-0x1f5a48 | 0 de 33 | **as sobras dos efeitos de Paris** |
+| `VehicleRender.cpp` (`RVehicle`) | já o temos em boa parte (seção 16) | | 12 de 26 | faltam `Render`, `RenderFX`, `RenderShadow`, `StartMuzzleFlash`, `TriggerEmpBolts`, `StartColourDissolve` |
+| `Vehicle.cpp` (`PVehicle`) | os nomes dos carros, os atributos, os interruptores do editor | 0x196350-0x198dc8 | 0 de 21 | o nosso `game/attributes` faz o mesmo de outro jeito; consultar só se faltar algo |
+
+**O som do jogo** (`docs/driving/game-audio.md`, 154 funções deles):
+
+| Módulo deles | O que é | No PS2 | Nós temos | Serve para |
+|---|---|---|---|---|
+| `VehicleSound.cpp`, `VehicleSoundEngine.cpp` | `AVehicle`, `AEngine`, `ARaceEngine`, `AVehicleWind`, `AHorn` | | 15 de 42 | faltam a buzina (`AHorn` 0x2de9b8, `ChooseHorn`), `ActivateGun`/`Turret`/`Zoom` e `CalculateRpm` 0x2df8a0: **o som do tráfego e das armas do carro** (o agente do som) |
+| `VehicleSoundKinds.cpp` | `ATrafficVehicle` (0x2e5340-0x2e6a20: a sirene, o rastreado); `AHelicopter`, `APlayerHeli`, `AUltraLite`, `ASnowMobile`, `ASubmersible`, `APlayerTank` | 0x2e35b8-0x2f6b08 | 2 de 45 | `ATrafficVehicle` para Paris; os outros para as outras missões |
+| `WeaponSound.cpp` | `AGun`, `ATurret`, `ASentry`, `ASmackable`, `ATargeting` (o bipe da trava), `ASceneObj`, `AWorldSound::Play` | 0x2dcd50-0x2f7300 | 0 de 29 | **o som das armas e do mundo em Paris** (o agente do som) |
+| `CharacterSound.cpp` (`ACharacter`) | as falas dos personagens, escolhidas pelas primeiras letras pedidas | 0x2fbe00-0x2fc468 | 0 de 7 | **o som dos personagens** (os capangas de Paris) |
+| `FingoDeathSound.cpp`, `DebugAudio.cpp` | `AFingoDeath` (as armas FOD da Ilha); as páginas de depuração | | 0 | outras missões; depuração (não portar) |
+
+**Os eventos** (`EventsA.cpp`..`EventsD.cpp`, `docs/driving/game-events.md`): 217 classes com criadora (o doc deles
+diz 223; 667 entradas). A nossa `kEventTable` tem 101 números, os de Paris, quase todos já executados. Das 162 classes
+deles que não aparecem como destrutor marcado no nosso código, parte é de Paris e executa em `game/events.cpp` sem essa
+marca. As outras, mais de cem, são das outras missões:
+- as minas e os sentries: `EDropMine`, `ESpawnSentry`, `EKillSentry`, `ESentryMuzzleFlash`;
+- o submarino: `ERollSub`, `ESetSubRollDirection`, `ESetCreakLevel`;
+- a Ilha: `ELavaHaze`, `ESapphirePole`, `EInfraRedOn/Off`;
+- as duas rodas: `ETwoWheelsOn`;
+- os trilhos dinâmicos `EPath*Dynamic`;
+- os contadores mágicos por bit;
+- os objetivos (`EObjective*`, `EPassObjective`, `EFailMissionObjective`);
+- os power-ups (`EPowerUpShield`, `Health`, `TopSpeed`, `Braking`, `Invulnerable`, `Timer`);
+- a câmera: `EScaleFieldOfView`, `ECinematicCamera`, `EAbortCinematic`;
+- o som: `EPlaySound`, `EStopSoundPos`, `EPathSFX`, `ESwitchStingerChannel`;
+- os efeitos: `EStartEffect`, `EPlayActorEffect`, `ESpawnForceEffect`, `ESpawnDramaticSmackable`.
+
+Dos que Paris cria e o nosso porte ainda não executa, o código deles serve aos agentes de agora: 78 `ESetVideo` (os
+filmes), 129/173/252/253 os efeitos, 31 `EMuzzleFlash` e 36 `EPlaySystemAnim`. Também servem 97 `EPlayCarCameraAnim`
+(a câmera dos `'Cams'`), 130 `ESetCollisionGeometry` e 279 `ESetReflectiveObject`.
+
+**O resto** (`SimulationContainers.cpp`, `SimulationObjects.cpp`, `SimulationSpawn.cpp`): a `Simulation` e os
+contêineres da STL. Nós temos as partes de Paris. Faltam o `Reset`/`CleanUpObjects` do reinício, `PauseSimState`,
+`DetonateRemoteMines` e as `Track*Instance`, a visibilidade das instâncias rastreadas.
+
+**Os filmes** (`docs/driving-fmv.md`, para o agente dos filmes): os filmes do Xbox são outro formato (EA Madcow, `.mad`
+em `misc.viv`) e o decodificador deles não nos serve. O lado do jogo serve:
+- um filme é uma chamada que bloqueia: o laço próprio desenha e espera o relógio do áudio;
+- o `PlayLevelMovie` é o 0x175af8 do PS2, uma função estática sem nome no SYM. O `RunTheGame` o chama antes do laço
+  principal (a introdução) e depois dele (o encerramento), com o caminho do filme e o da legenda
+  `data\loading\<missão>_intro.sub`;
+- o `ESetVideo::~ESetVideo` repete a mesma sequência embutida: o +4 é o nome do filme, o +8 o da legenda;
+- antes do filme: as travas do `IOModule`, a pausa do `IFeedback` e do `ASoundManager`, o esvaziamento das filas;
+- o pulo do filme: A, B ou Start lidos direto do controle, fora do sistema de ações;
+- os dois bytes globais que ligam os filmes e as legendas;
+- a legenda: o `GSubtitles::DrawFrame` é chamado com o número do quadro.
+
+Conferir cada item no MIPS do PS2.
+
+### 8.2 Os quirks do `original-quirks.md` que tocam o nosso porte
+
+O catálogo deles tem 670 linhas, com os endereços do Xbox: os desvios do porte deles, as máscaras dos testes e os
+quirks mantidos. Os itens abaixo tocam código que já portamos. Para cada um foi lido o nosso código. Onde a dúvida
+pedia, também o MIPS do PS2: os decompilados dos agentes em `out/agent_drv_*` e um decompilado novo pelo
+`tools/ghidra_driving.sh decomp` (`out/decomp_driving`). Quase todos esses pontos já passaram pela conferência no
+interpretador (as partes 7-23 do `nf_driving_check`); "concorda" quer dizer que o PS2 tem o mesmo comportamento e o
+nosso porte o reproduz.
+
+| Quirk (endereço do Xbox) | O nosso (endereço do PS2) | Situação |
+|---|---|---|
+| `RigidBody::ControlSleep` 0x0b09d0: um veículo em pé nunca dorme | `physics/rigid_body.cpp` 0x1fcfc0 | concorda (o y do "para cima" acima de 0,7) |
+| `PhysicsObject::ApplyForces` 0x06f2a0: o bit 1 na palavra do raio | `radius_flags` | concorda |
+| `RigidBody::InitLevers` 0x0ad840: a massa sobre `BASE_FRICTION_MASS`, o global do carro | `g_base_friction_mass` | concorda |
+| `RigidBody::CollideWithWorld` 0x0b1420: as caixas recebem o ponto do último choque de veículo (lixo sem choque anterior) | `physics/collide.cpp`, `point` em sp+0x20 | concorda; zero sem choque anterior, como eles |
+| `PBondCar::Simulate` 0x06a840: um carro de classe 3 longe (`|d|²` > 2500) anda um passo sim, outro não | `game/bond_car.cpp` 0x188200 | concorda |
+| `RVehicle::ComputeWheels` 0x096060: só os giros 0 e 1 (um por eixo) | `render/vehicle.cpp` | concorda |
+| `RViewCamera::AspectRatio` 0x096960: 0x3faaaaaa, um abaixo de 4/3 | `game/target_picker.cpp` `view_aspect` | concorda |
+| `RPlayerCamera::LimitPitchYaw` 0x083190: o meio da banda velho | `camera/player_camera_modes.cpp` (o porte com `goto` do MIPS) | concorda (parte 19) |
+| `RPlayerCamera::SetAutoDriveRotation` 0x081540: a tabela de 97 sem limite | 0x1bc0e0, a tabela 0x3825d0 de 97 bytes e 3 zeros | o PS2 também lê além; o nosso porte devolve 0 fora (guarda) |
+| `RCameraIniLoader::LoadFile` / `DirectorChangeCameraMode`: o índice "Cinematic" um além, os 16 bytes sobre o `Heli_*` | `camera/camera_ini.cpp`, `player_camera.cpp` `[cinematic_heli_index - 1]` | concorda |
+| `RWorldCamera::GetAnchorLinearVelocity` 0x097fc0: a velocidade do trilho do carro do jogador para qualquer âncora rígida | `camera/player_camera.cpp` 0x1d5d50 | **diverge** (abaixo) |
+| `DAFI_setsectionbyindex` 0x11a390: uma linha sem '=' laça para sempre | `camera/dafi.cpp` | o PS2 também; o nosso porte guarda |
+| `InputConfigManager::ParseMasterConfigFile` / `ParseDefFileForFrontEnd`: o nome antes de uma seção, `localeIDs[-1]` | `game/input_config.cpp` 0x166548, 0x166788 | o PS2 também (o +0x20); o nosso porte guarda |
+| `InputConfigManager::GetLocaleID` 0x0501a0: troca rótulos dos botões por pista (1424, 2708, 2712/2713, 2723, 2719) | não portado | para o HUD real (os textos dos botões) |
+| `WRoadNav::PathForwardRoadSegment` 0x0c9810: o laço de dentro compara o vizinho do índice de fora | `ai/ground_vehicle_agent.cpp` 0x226c88 | concorda (quirk mantido) |
+| `WRoadNav::FindClosestSegmentInd` 0x0cbf20: 0, não -1, numa célula vazia | `ai/road_nav.cpp` 0x225490 | concorda |
+| `WRender::PrepareForCull` 0x0c75b0: zera a lista que a árvore encheu por último | `world_vis.cpp` 0x21f288 | concorda |
+| `WRender::Construct` 0x0c7a50: a instância sem artigo entra na passada da seguinte | `world_vis.cpp` | concorda |
+| `WTriggerManager::CheckCollide`, `WTrigger::UpdateRotPos` 0x0cf490: o gatilho de caixa vira cilindro no `UpdateRotPos` | `game/triggers.cpp` (o `CheckCollide` concorda); o `UpdateRotPos` não portado | conferir quando portarmos os gatilhos das instâncias (`kTrigInstances`) |
+| `Handle::Stop`, `RAnimEngine::DeactivateSystem`: a lista desce uma entrada a mais | `render/anim_engine.cpp` `finish` (0x1a1af8) | concorda |
+| `ActGlobalPoseOverrideArray::SetGlobalPoseOverride` 0x015b40: as trocas e negações de linhas | `anim/actor.cpp` 0x10f378 | concorda |
+| `SWeaponManager::Update` 0x0bbdc0: `weapons[-1]` | `game/weapons.cpp` `entry_or_zero` | o PS2 lê os 0x54 bytes antes da tabela; o nosso porte guarda e lê zero (divergência já documentada) |
+| `SWeaponManager::FireWeapon` 0x0bb2b0: `fireSteps[4]` cai no +0x34 | `fire_time` | concorda (o dano) |
+| `SWeaponManager::Update`: o evento 0x16 do tiro secundário não sai para o torpedo remoto | `SWeaponManager_FireSecondary` | concorda |
+| `Missile::Construct` 0x05e8c0: o tom do som de trânsito sempre 1 | `game/missile.cpp` (+0,01, volta em 0,04) | concorda |
+| `RMissileStreak::Update` 0x0a0ea0: com contagem 0 num tique ímpar escreve `points[-2]` | `fx/missile_fx.cpp` 0x1e4640 | o PS2 também; o nosso porte guarda |
+| `RayShell::ConsiderVictim` 0x071e40: o teste do segundo atingido não humano nunca passa | `game/rayshell.cpp` 0x19a548 | concorda |
+| `RayShell::Fire` 0x072d60: o caso 2 e o traçador do tiro perdido | `game/rayshell.cpp` | concorda |
+| `RayShell::AddNewRayShellForTriggerCheck` 0x071d80: no máximo 63 raios | 0x1997e0 | concorda |
+| `Shell::ApplyWorldEffects` 0x0749b0: o "para cima" é (0, 1, 0, 1) | `game/shell.cpp` | concorda |
+| `SMissionManager::IncShotsHit` 0x0b6720: a janela é passos / 10 | `game/mission.cpp` 0x206900 | concorda |
+| `SMissionManager::Load` 0x0b9140: 1,0 quando o primeiro valor é 0 | `game/mission.cpp` (`scale_a`, `scale_b`; o `scale_a` é o `enemyGlueFactor` deles) | concorda |
+| `SRuleDeath` / `SRuleDamage` / `SRuleRange` (`CheckRule`) | `SMissionRule_CheckRule` | concorda nos alvos portados (vida 0 de alvo desconhecido passa; `lastHealth` não muda com os números da IA; comparação simples) |
+| `EKillAIElement::Process` 0x040930: o carro escrito como helicóptero (+0x138) | `ai/element_events.cpp` | concorda (o +0x138 do `PBondCar`, quirk mantido); o ramo do helicóptero é pendente |
+| `EPlayerLose::Process` 0x04cf9f: um `ERestart` dentro do próprio destrutor | `game/events.cpp` 0x154cb0 | concorda |
+| `AIElementController::CalcMightAsWellBeDead` 0x028730: o tipo (+0x44), não o estado | `ai/element_controller.cpp` 0x12c678 | concorda; no PS2 o elemento também precisa de vida > 0 (`0.0 < +0x4c`) |
+| `AIGroundVehicle::DoAttackMode` 0x02bf40: a velocidade de seguir é 0,85 | `ai/ground_vehicle_agent.cpp` (0x3f59999a) | concorda |
+| `AIGroundVehicle::GetCollNav` 0x02b210: a faixa sem sinal | | concorda (já achado na seção 21) |
+| `AIVehicleController::IntersectionGreenLight` 0x036060: o `fabs` na comparação | `ai/ground_vehicle.cpp` 0x13efc8 | o laço dos trilhos não está no nosso porte; o comentário ainda diz que falta o `RPathEngine`, que existe desde a seção 23 |
+| `AIElementController::Construct` 0x028190: os "paris_hench" do `snow2a_mis4` viram "junglesnow" | `ai/element_controller.cpp` | não portado (comentado): outras missões |
+| `RParticleSystemManager` / `GFXGallery::PARTICLE_Draw` 0x0d4f90: o mapa dos sistemas pelo endereço do emissor | `fx/particles.cpp`, `fx/gfx_gallery.cpp` (`nf::p32_u(&e)`) | concorda e já documentado (`fx/particles.h`). Eles acharam pelo enchimento do heap que a ordem (o desenho das partículas translúcidas) muda com o heap, e no build portátil passaram a usar um contador. Para nós o risco é igual: o x86 e o x64 têm heaps diferentes. Conferir se capturas do `nf_driving` com vários efeitos saem iguais nos dois builds |
+| `AVehicle::CalculateSpeed` 0x11eb50: com buzina, entre 5 e 14 vira 14 | `sound/audio_vehicle.cpp` 0x2df7c0 | concorda |
+| `SNDSTRMI_create` 0x13c350: o nível guloso nunca é posto | `sound/snd_stream.cpp` | concorda |
+| `SFILTER_remove` 0x1444a0 | `sound/snd_mix.cpp` 0x314460 | concorda |
+| `GHud::TriggerMissionMsg` 0x0da030: grava o `lastStep` (+0x360), que encurta o próximo quadro do `Render` | `game/hud.cpp` 0x245890, `message_step` +0x360 | concorda na escrita; o nome certo do +0x360 é o passo do último quadro, para quando portarmos o `GHud::Render` |
+
+**A divergência achada: `RWorldCamera::GetAnchorLinearVelocity` (PS2 0x001d5d50, `camera/player_camera.cpp`).** O MIPS
+decompilado em 15/10/2026 (`out/decomp_driving/GetAnchorLinearVelocity_001d5d50.c`) faz assim:
+
+- âncora de corpo rígido (bit 0 de +0x44 limpo): pergunta ao carro do jogador (o global 0x00339f5c, pela entrada
+  +0x5c da tabela virtual) o `AIVehicle`. Se há um e `AIVehicle::GetSplinePath` não é nulo, devolve a velocidade do
+  trilho (o +0x60 do trilho, +0x88). Senão devolve a do corpo (`Simulation::GetRigidBody` +0x20);
+- âncora de corpo simples (bit 0 ligado): a velocidade do `SimpleRigidBody`.
+
+O nosso devolve sempre a velocidade do corpo rígido e, para o corpo simples, o vetor nulo (`pending`). O comentário
+"o do jogador não tem [AIVehicle]" era verdade até a seção 23. Desde que o carro da seção do helicóptero anda no
+trilho, o PS2 dá à câmera do AutoDrive (o `d.velocity` em `UpdateAutoDriveCam`, `player_camera_modes.cpp:1184`) e ao
+`SetViewingTransform` dos modos Heli a velocidade do trilho; o nosso dá a do corpo.
+
+A conferência da parte 19 provavelmente não pegou porque a âncora da câmera ali não tinha trilho no carro global.
+Efeito provável: a velocidade da câmera, que vai ao ouvinte do som e ao `dir0` das transições. Não corrigido (este
+estudo não mexe em código).
+
+Os desvios do porte deles (seção 1.1 do catálogo: a pilha não inicializada vira zero) batem com o que o nosso porte
+faz nos mesmos lugares:
+- os `WorldCollisionInfo` (+0x20..+0x3f);
+- o `w` dos vetores locais;
+- o `roadT` do `WRoadNav::InitAtPoint`, contado no nosso;
+- o ponto das caixas no `CollideWithWorld`.
+
+### 8.3 Os nomes
+
+**O que não mudou.** A atualização não mexe nas entradas do `tools/cxbx_names.py`: `tools/functions_driving.json`,
+`structs_driving.json`, `vtables_driving.json` e os lotes e globais de `driving-symbol-matching/` são idênticos em
+`7989839` e `origin/dev`. O `cxbx_names.py` lê a árvore de trabalho do clone, que continua em `7989839`. Rodá-lo, ou o
+`xbox_match.py match --cxbx`, daria o mesmo resultado de 12/10. Por isso não foi rodado.
+
+**O que é novo** está no código-fonte deles, que o `cxbx_names.py` não lê:
+- **As marcas `FUNC_AT`**: 5.793 em `src/driving` no `dev`, contra 3.882 em `7989839` (1.911 novas). Comparadas ao
+  `functions_driving.json`:
+  - 1.154 têm o mesmo nome;
+  - 219 lá são `FUN_` e 21 nem existem (o Ghidra deles não as tinha): **240 nomes novos do `Driving.xbe`**;
+  - 517 diferem: 254 são só convenção (`Delete` × `scalar_deleting_destructor`), 32 mudam de classe e 13 de método;
+  - as outras 218 são uma **correção**: o que o Ghidra deles chamava `<Classe>::GetEventName` é a criadora do
+    evento, `<Classe>_MakeEvent_Callback` (o nome do build do GameCube; o `docs/driving/game-events.md` deles explica).
+- **No PS2.** A correção vale também para nós: o SYM pôs `E*::GetEventName` pelo tamanho nas criadoras do PS2 (por
+  exemplo 0x154308 `EPlayEffect`, 0x147370 `EAIUpdate`). O nosso `kEventTable` já as trata como criadoras, lidas por
+  execução simbólica. No PS2 o `GetEventName` de verdade é a segunda entrada das tabelas virtuais dos eventos. São 77
+  pares no `match.tsv` com esse nome.
+- **As marcas `XBE_GLOBAL`**: 1.246 contra 661 (**598 variáveis globais novas** do `Driving.xbe` com nome e tamanho).
+
+Quanto daria, contado sobre as nossas tabelas atuais (`out/xbox/match.tsv`, `out/driving/sym_map.tsv`,
+`out/driving/cxbx_names.tsv`):
+- dos 240 nomes novos do Xbox, só 6 chegam a uma função `FUN_` do PS2 pelos pares de hoje (213 nem têm par);
+- de todas as `FUNC_AT` do `dev`, 144 têm par com uma função do PS2 ainda `FUN_`, 56 delas com par de confiança
+  >= 2 (8 de confiança 3);
+- 175 pares novos possíveis pelo nome igual e único: uma `FUNC_AT` sem par e um nome do PS2 (do SYM ou do
+  nightfire-cxbx) sem par, como `AICharacterEnemySunroof::DoTilting` (PS2 0x1214d0, Xbox 0x20f40) e
+  `AIZoneController::Update` (PS2 0x1404c8, Xbox 0x36ac0);
+- as 598 globais vão ao `out/ghidra_xbox` como rótulos; ao PS2 só pelos pares, como as 480 de 12/10.
+
+O comando, quando valer a pena (umas 2-3 horas, sem pressa):
+1. O usuário avança o clone (`git -C out/ref/nightfire-cxbx checkout --detach origin/dev`, ou uma worktree dele).
+2. O `cxbx_names.py` ganha uma fonte nova: as marcas `FUNC_AT`/`XBE_GLOBAL` de `src/driving/**`, o nome tirado da
+   definição seguinte, `Construct`/`Destruct`/`Delete` traduzidos às convenções de hoje e `_MakeEvent_Callback`
+   preferido ao `GetEventName`.
+3. Rodar `python tools/cxbx_names.py pairs`, `python tools/xbox_match.py match --cxbx` e
+   `python tools/cxbx_names.py names`.
+4. Aplicar no Ghidra: `NF_DATA=... tools/ghidra_driving.sh names out/driving/cxbx_names.tsv` e
+   `NF_DATA=... tools/ghidra_xbox.sh names out/xbox/cxbx_xbox_names.tsv`.
+
+O ganho é pequeno perto do de 12/10 (lá foram 2.376 nomes e 1.297 pares). O valor maior da atualização está no
+código e nos docs.
+
+### 8.4 A ordem sugerida
+
+1. **Agora, para os dois agentes em andamento.**
+   - HUD real e filmes:
+     - `Hud*.cpp`, `Gallery.cpp`, `OrthoHudView.cpp` e `docs/driving/game-frontend.md` (o leiaute do `GHud`, as galerias,
+       os quirks do HUD);
+     - o `GetLocaleID` dos rótulos por pista;
+     - `Subtitles.cpp` e o lado do jogo em `docs/driving-fmv.md` (o `PlayLevelMovie` 0x175af8 do PS2, o `ESetVideo`, os
+       `.sub`).
+   - Sobras dos efeitos e do som:
+     - `WeaponEffects.cpp` (`RBulletStreak`, `RMuzzleFlash`, `RScorchWorld`), `EmpEffect.cpp`, `Debris.cpp`,
+       `VehicleParticle.cpp`, `TyreTrack.cpp`;
+     - o `GLARE_Draw`/`DEBRIS_Draw` da galeria e os `GFX::Purge`/`SuppressEffect`/`SetIntensity`;
+     - `VehicleSoundKinds.cpp` (`ATrafficVehicle`), `VehicleSound.cpp` (`AHorn`), `WeaponSound.cpp` (`AGun`,
+       `ATargeting`, `ASmackable`, `AWorldSound`) e `CharacterSound.cpp`.
+2. **Corrigir a divergência do `GetAnchorLinearVelocity`** (pequena; acrescentar à parte 19 um caso com o carro
+   global no trilho).
+3. **O resto de Paris**:
+   - conferir no PS2 se Paris tem pedestres (`AIPedestrian.cpp`; se tiver, entram na conta de Paris);
+   - o `RSniperZoom` da seção do helicóptero;
+   - o 97 `EPlayCarCameraAnim`;
+   - os gatilhos das instâncias (com o quirk do `UpdateRotPos`);
+   - o `AICharacterBond`/`AICharacterPassenger` (`AIHands.cpp`, `AICharacter.cpp`);
+   - os `CheckRule` que faltam, se Paris os usar.
+4. **As outras quatro missões**, cada uma com o seu veículo:
+   - `uw_mis11`: o submarino (`ProcessSubmarinePhysics`, `ASubmersible`, `ERollSub`, `ESetSubRollDirection`,
+     `ESetCreakLevel`) e os métodos do fundo do mar;
+   - `snow1a_mis3` e `snow2a_mis4`: a moto de neve (`BondCarSnowmobile.cpp`, `ASnowMobile`), os inimigos a pé e nas
+     motos (`AIEnemyGround.cpp`, `AIEnemyRiders.cpp`), os sentries e as minas;
+   - `junglea/b/c`: os helicópteros (`AIHelicopter.cpp`, `Helicopter.cpp`, `AHelicopter`), `ELavaHaze`, as galerias
+     próprias (`GSystem::IsEARS`), `AUltraLite`, `APlayerTank` e `AFingoDeath`, se forem dessas missões.
+   - Os eventos de cada missão vêm de `EventsA-D.cpp`.
+5. **A frente do driving e a passagem de volta**:
+   - `LoadingScreen.cpp`;
+   - a pausa (`GHud::DrawPauseMenu`, `PauseMenuMsgHandler`, `Girl.cpp`);
+   - o resultado (`GHud::DrawMissionResult`);
+   - os placares (`CalcEndMissionScores`, `TallyScores`), que alimentam o `NewScoresRef` e o bloco UberBond;
+   - o `BASE.ELF`.
+6. **Os nomes** (seção 8.3), quando sobrar tempo.
+
+### 8.5 A estimativa revista
+
+As contas anteriores (seções 19 a 27 do `docs/driving.md`) dão **Paris 4-8 dias e as fases 2-4 4-9 dias**. A diferença
+entre as duas vinha da linha da seção 19: "as outras missões reaproveitam quase tudo: 1-3 dias". O inventário acima
+mostra que isso era pouco. As outras quatro missões têm código próprio que Paris não usa:
+- os pedestres;
+- os helicópteros inimigos;
+- os inimigos a pé e nas motos;
+- os sentries, as minas e as granadas;
+- a física da moto de neve e a do submarino;
+- os sons de cinco tipos de veículo;
+- mais de cem classes de evento;
+- três regras de missão.
+
+São perto de 500 funções com par no PS2. Somam-se os métodos do mundo das outras pistas (a água, o fundo do mar, a
+alga, o `BondGouraud`), que são do VU1 do PS2 e que o código deles não ajuda, e a frente com a passagem de volta.
+
+| O que falta | Sem a referência | Com a referência |
+|---|---|---|
+| Paris (o que as seções 19-27 deixaram: o HUD real, os filmes, as sobras dos efeitos e do som, o resto da câmera, os gatilhos das instâncias, o crossfade e o IK, Bond e a passageira; mais os pedestres se Paris os tiver) | 4-8 | 3-6 |
+| as outras quatro missões: a IA, as armas, os veículos, o som e os eventos delas (~500 funções) | 7-11 | 5-8 |
+| os métodos do mundo das outras pistas (VU1) | 2-3 | 2-3 |
+| a frente do driving e a passagem de volta (a tela de carga, a pausa, o resultado, os placares, o `BASE.ELF`) | 2-3 | 1-2 |
+| jogar e acertar cada missão do começo ao fim (como Paris nas seções 21 e 24) | 2-4 | 2-3 |
+| **as fases 2-4** | **17-29** | **13-22** |
+
+Sobre a última conta publicada (fases 2-4 em 4-9 dias), a mudança tem duas partes:
+- **para cima**: corrige o escopo, porque as outras missões não são "1-3 dias";
+- **para baixo**: o uso da referência, que tira uns 25% da leitura. Ela não tira a conferência no interpretador,
+  porque o código deles é o do Xbox.
+
+Paris sozinha cai de 4-8 para 3-6 dias com a referência. A incerteza maior continua nos métodos de render das outras
+pistas e no jogo de cada missão do começo ao fim.

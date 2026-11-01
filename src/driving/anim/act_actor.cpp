@@ -1432,6 +1432,7 @@ void act_draw_list(std::vector<ActDrawItem>& out) {
             const ActWeaponResource* r = P<ActWeaponResource>(w.aux);
             ActDrawItem::Weapon dw;
             dw.model = r ? r->model.get() : nullptr;
+            dw.weapon = c.weapon[i];
             const uint32_t scene = nf::p32_u(&w.scene);
             for (uint32_t k = 0; k < (r ? r->count : 0); ++k) {
                 float m[4][4];

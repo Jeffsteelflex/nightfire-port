@@ -23,6 +23,7 @@ class DiscSource;
 
 namespace drv {
 class Bigf;
+struct VolatileDraw;
 class AttributeCollection;
 
 namespace drive_actors {
@@ -41,6 +42,8 @@ bool upload(DrvRenderer& renderer, std::string& error);
 // Os desenhos dos atores no quadro: `cam` a matriz da câmera (as linhas: direita, cima, frente, o olho) e `fov` o
 // meio campo de visão horizontal (graus) do RPlayerCamera.
 void draw(std::vector<DrvItem>& items, const float cam[16], float fov);
+// Seção 32: os clarões dos canos do último draw (o ActWeapon::ManualRender de cada arma desenhada; a matriz já no mundo).
+const std::vector<VolatileDraw>& muzzle_flash_draws();
 // A linha "atores ..." do relatório.
 std::string report();
 // O fim (os atores, as mãos, o ActManager).

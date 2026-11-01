@@ -19,6 +19,7 @@
 #include "driving/physics/simulation.h"
 #include "driving/physics/world.h"
 #include "driving/real/vu0_math.h"
+#include "driving/sound/audio.h"
 #include "platform/fmath.h"
 #include "platform/ps2_float.h"
 #include "platform/ptr32.h"
@@ -252,15 +253,18 @@ void AICharacter_Construct(AICharacterData& c) {
 // [driving] 0x00118900 AICharacter::~AICharacter (o som, o ator; o +0x98 não é zerado)
 void AICharacter_Destruct(AICharacterData& c) {
     c.vtable = kVtAICharacter;
-    if (c.sound) ++g_stats.sound;  // a entrada +0xc do ACharacter (não portado)
+    if (c.sound) ACharacter_Delete(c.sound);  // a entrada +0xc do ACharacter com 3 (o +0x94 não é zerado)
     if (c.actor) an::ActActorDatabase_KillActorByHandle(c.actor);
 }
 
-// [driving] 0x00118988 AICharacter::GetACharacter
+// [driving] 0x00118988 AICharacter::GetACharacter: o ACharacter da primeira fala (o construtor inline).
 uint32_t AICharacter_GetACharacter(uint32_t self) {
-    (void)self;
-    ++g_stats.sound;  // o ABaseSound/AMix "Character" não foi portado: o +0x94 fica nulo
-    return 0;
+    AICharacterData& c = C(self);
+    if (c.sound == 0) {
+        c.sound = ACharacter_New();
+        ++g_stats.sound;
+    }
+    return c.sound;
 }
 
 // [driving] 0x00118af0 AICharacter::Execute
@@ -304,8 +308,16 @@ void AICharacter_Execute(uint32_t self) {
         c.body[14] = p[2];
     }
     if (uint32_t(c.state) < 0x17) vcall_state(self, c.state);
-    // O ACharacter do +0x94 (a posição, ou a entrada +0xc com 3 e o +0x94 zerado): não portado, sempre nulo.
-    if (c.sound) ++g_stats.sound;
+    // O ACharacter do +0x94: sem voz (+0xb0) ele é apagado (a entrada +0xc com 3) e o +0x94 zerado; senão vai à
+    // posição do personagem (a linha 3 da matriz).
+    if (c.sound) {
+        if (ACharacter_Done(c.sound)) {
+            ACharacter_Delete(c.sound);
+            c.sound = 0;
+        } else {
+            ACharacter_SetPos(c.sound, c.matrix + 12);
+        }
+    }
 }
 
 // [driving] 0x00118eb0 AICharacter::NotifyZoneDamage
@@ -833,6 +845,7 @@ void hands_do_firing(uint32_t self) {
         note(0x002f4b10, 4);
         ++g_stats.menu_sounds;
         if (g_env.menu_sound) g_env.menu_sound(4, "SFX_sniperbolt", "POV Weapons");
+        else AMenuSound_TriggerCategory(4, "SFX_sniperbolt", "POV Weapons", 0);
         return;
     }
     const uint32_t a = actor_of(self);

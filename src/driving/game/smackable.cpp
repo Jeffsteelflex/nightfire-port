@@ -2,16 +2,20 @@
 // out/agent_drv_traffic/ do checkout principal (fora do git).
 //
 // Divergências (port), cada uma também na função:
-//  - o som (ASmackable), os estímulos do RAnimEngine, o TriggerFX e a luz de sombra do RSceneObj (o byte +0x1a pelo
-//    GetShadowBrightness) não existem: contados;
+//  - os estímulos do RAnimEngine e o TriggerFX do ApplyDamage (o ProcessStimuliZones não foi portado) e a luz de sombra
+//    do RSceneObj (o byte +0x1a pelo GetShadowBrightness) não existem: contados (o Handle do objeto existe desde a seção
+//    34, e o Simulate pergunta a ele se algum sistema toca, como o PS2); o ASmackable (o som) só existe com o som ligado
+//    (driving/sound/audio.h: sem ele o IsStillActive é falso, o mesmo que o PS2 dá com os timbres -1 de Paris);
 //  - o EWakeupSmackable só cria o Smackable (o Newton e o ramo dos raios das armas contados; sem objeto o gatilho volta a
 //    valer, como no PS2);
-//  - o RSceneObj +0xc (o 'pD') não é gravado no objeto: scene_object_desc o acha como o UseArticle/UseInstanceList o
-//    gravaria;
+//  - scene_object_desc acha o 'pD' como o UseArticle/UseInstanceList o grava no +0xc (desde a seção 34 o objeto do
+//    mundo o tem; as conferências montam objetos sem ele);
 //  - o WTrigger::UpdateRotPos não põe o gatilho na lista dinâmica da grade (o port não a tem): contado;
 //  - o mapa de objetos da Simulation (a árvore por tipo) é o vetor smackables() e a ordem do Simulate é a das vagas.
 
 #include "driving/game/smackable.h"
+
+#include "driving/render/anim_engine.h"
 
 #include <algorithm>
 #include <cstring>
@@ -22,6 +26,7 @@
 #include "driving/game/triggers.h"
 #include "driving/physics/simulation.h"
 #include "driving/real/vu0_math.h"
+#include "driving/sound/audio.h"
 #include "driving/world_vis.h"
 #include "platform/ps2_float.h"
 #include "platform/ptr32.h"
@@ -351,7 +356,10 @@ RigidBody* Smackable_Construct(Smackable& s, RSceneObj& scene, WTrigger* trigger
         d.hit_points = ee::sub(d.hit_points, ee::mul(frac, params.hit_points));
     }
     d.hit_point_loc = nf::p32_u(&d.hit_points);  // SetHitPointLoc (ValidateHitPoints: nada)
-    ++g_stats.stimuli;                            // o ASmackable (o som) não foi construído
+    // O ASmackable (os timbres do choque +0x18..+0x20 e o do rolar +0x24 da PhysicsData, a mixagem "Smackables") no
+    // +0x84 e no +0x4c (PhysicsObject::SetAudioObject).
+    d.audio = ASmackable_New(params.impact_lo, params.impact_med, params.impact_hi, params.scrape);
+    d.audio_object = d.audio;
     d.render = nf::p32_u(&scene);                 // SetRenderObject
     RSceneObj_SetPhysics(scene, &s);
     if (d.slot < 0) {
@@ -390,18 +398,27 @@ RigidBody* Smackable_Construct(Smackable& s, RSceneObj& scene, WTrigger* trigger
 // [driving] 0x0019e718 Smackable::Simulate (com o PhysicsObject::Simulate 0x00195aa8)
 void Smackable::simulate() {
     Simulation& sim = simulation();
-    if (d.actor) ++g_stats.guards;  // o ator (+0x4c) não existe no port
     const RigidBody* b = body();
+    // O objeto de som (+0x4c) com a posição e a velocidade do corpo (PhysicsObject::GetPosition, GetLinearVelocity).
+    if (d.audio_object) ASmackable_Feed(d.audio_object, b->pos, b->vel);
     // vsqrt de |v|² (vmadday): acima de 0,1 m/s o relógio de 10 s volta ao começo.
     const float speed = flt(ps2::add(0, ps2::sqrt(vu_len_sq(b->vel))));
     if (ee::lt(flt(0x3dcccccdu), speed)) d.awake_timer = fptoui(ee::mul(ee::cvt_s(sim.frame_rate), 10.0f));
     if (d.awake_timer != 0) d.awake_timer -= 1;
-    // A animação do RAnimEngine (+0x48 -> +0x28) e o ator: nenhum no port.
-    if (b->state != 2) {
-        if (d.sleep_delay != 0) d.sleep_delay -= 1;
-        else Smackable_GoToSleep(*this);
-    }
+    // A animação do RAnimEngine (+0x48 -> +0x28: o Handle do UseArticle, seção 34; AnySystemPlaying 0x001a2cc0) e o som
+    // (a entrada +0x3c do objeto de som, IsStillActive: a voz do choque ainda toca) seguram o objeto acordado.
+    bool anim_playing = false;
+    if (const RSceneObj* o = scene()) anim_playing = o->article != 0 && AnimHandle_AnySystemPlaying(o->article);
+    const bool sound_active = d.audio_object != 0 && ASmackable_IsStillActive(d.audio_object);
+    if (Smackable_SleepStep(d, b->state, anim_playing, sound_active)) Smackable_GoToSleep(*this);
     if (RSceneObj* o = scene()) RSceneObj_UpdatePosition(*o, true);  // PhysicsObject::Simulate: o render +0x78
+}
+
+bool Smackable_SleepStep(SmackableData& d, int32_t body_state, bool anim_playing, bool sound_active) {
+    if (body_state == 2 || anim_playing || sound_active) return false;
+    if (d.sleep_delay == 0) return true;
+    d.sleep_delay -= 1;
+    return false;
 }
 
 // [driving] 0x0019e610 Smackable::GoToSleep
@@ -491,6 +508,10 @@ int32_t Smackable::apply_damage(const float from[3], const float to[3], float am
 
 // [driving] 0x0019e590 Smackable::~Smackable e 0x00195568 PhysicsObject::~PhysicsObject
 Smackable::~Smackable() {
+    // ASmackable::Detatch(+0x84) e PhysicsObject::SetAudioObject(0)
+    if (d.audio) ASmackable_Detatch(d.audio);
+    d.audio = 0;
+    d.audio_object = 0;
     RSceneObj* o = scene();
     if (d.trigger) {
         if (o) RSceneObj_SetPhysics(*o, nullptr);  // SetRenderObject(0)

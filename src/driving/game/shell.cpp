@@ -202,13 +202,16 @@ void Shell_ApplyWorldEffects(const float pos[4], const float normal[4], int32_t 
 }
 
 // [driving] 0x0019ddb8 Shell::ApplyWorldDamage
-void Shell_ApplyWorldDamage(float damage, float size, const WWorldPos& /*wp*/, int32_t decal,
+void Shell_ApplyWorldDamage(float damage, float size, const WWorldPos& wp, int32_t decal,
                             const WorldCollisionInfo& info) {
     if (info.flag52 == 0 && info.face_type != 0x70 && (info.face_subtype & 2) == 0) {
-        // RScorchWorld::ScorchWorld (0x001ea8e8; tamanho, WWorldPos &, ponto, normal, decalque): não portado.
+        // RScorchWorld::ScorchWorld (0x001ea8e8; tamanho, WWorldPos &, ponto, normal, decalque): seção 32, pelo
+        // shells_env().scorch_world (o WWorldPos do chamador muda, como no PS2).
         ++stats().scorches;
         effects_note(0x001ea8e8, ps2::fbits(size), uint32_t(decal), ps2::fbits(info.point[0]),
                      ps2::fbits(info.point[1]), ps2::fbits(info.point[2]));
+        if (shells_env().scorch_world)
+            shells_env().scorch_world(const_cast<WWorldPos&>(wp), info.point, info.normal, decal, size);
     }
     if (info.face_instance == 0) return;
     // WCollisionInstance::GetRenderInstance (o fgWorld +0x20 + o índice +0x1a x 0x40) e WWorld::GetSceneObjFromInstance.

@@ -11,6 +11,7 @@
 #include "engine/resetmap.h"
 #include "platform/input_bindings.h"
 #include "platform/psi.h"
+#include "platform/psi_input.h"
 #include "platform/psi_sound.h"
 #include "platform/settings.h"
 
@@ -265,6 +266,17 @@ void game_options_debug_power_on() {
     g_ini = GameOptionsIni{};
     for (int32_t& v : g_base) v = 0;
     g_based = false;
+}
+
+// (Era de input_bindings.cpp: aqui com as opções do jogo, para aquele arquivo ficar neutro.)
+void persist_controls() {
+    // Uma opção do jogo mudada junto (a vibração ou a inversão da página de controles) passa a ser do .ini antes (sem
+    // g_controls_persist só a referência das mudanças anda, como no game_options_sync de cada tick).
+    game_options_note_changes();
+    if (!g_controls_persist) return;
+    save_controls(settings(), controls(), psiMouseSensitivity);
+    save_game_options(settings(), game_options_ini());  // [controls] do jogo, [ui] subtitles e [game] (game_options.h)
+    settings().save();
 }
 
 }  // namespace nf

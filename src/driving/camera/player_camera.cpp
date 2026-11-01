@@ -7,11 +7,16 @@
 #include <atomic>
 #include <cstring>
 
+#include "driving/ai/ground_vehicle.h"
+#include "driving/carp_runtime.h"
 #include "driving/game/explosion.h"
 #include "driving/game/rail.h"
 #include "driving/real/vu0_math.h"
 
 #include "driving/physics/rigid_body.h"
+#include "driving/physics/simple_body.h"
+#include "driving/render/anim_engine.h"
+#include "driving/render/path_engine.h"
 #include "driving/physics/simulation.h"
 #include "driving/physics/world_collision.h"
 #include "platform/ps2_float.h"
@@ -233,12 +238,20 @@ bool PlayerCamera::IsAnchorValid() {
     return true;
 }
 
-// [driving] 0x1d5ef0 RWorldCamera::SetAnchor (as animações 'Cams' do modelo da âncora: o port não as tem, +0x108/+0x10c
-// ficam como estão)
+// [driving] 0x1d5ef0 RWorldCamera::SetAnchor: com uma âncora válida, as animações 'Cams' do modelo dela (+0x108 os
+// registros, +0x10c a contagem; sem 'Cams' os de antes ficam, como no PS2).
 void PlayerCamera::SetAnchor(CameraAnchor* a) {
     anchor_ = a;
     d.anchor = a ? 1u : 0u;  // (no PS2 o ponteiro; aqui só a presença: o objeto fica em anchor_)
-    if (IsAnchorValid()) d.mode_change |= 1;
+    if (!IsAnchorValid()) return;
+    d.mode_change |= 1;
+    ++anchor_changes;
+    UGroup* g = nf::p32_ptr<UGroup>(a->model_group);
+    if (!g) return;  // (o PS2 leria o grupo do modelo: o port sem modelo não tem 'Cams')
+    UData* cams = UGroup_DataLocateTag(g, 0x43616d73u);  // 'Cams'
+    if (cams == UGroup_DataEnd(g)) return;
+    d.camera_anim_count = cams->count;
+    d.camera_anims = nf::p32_u(UData_Data(cams));
 }
 
 // [driving] 0x1d5b90 RWorldCamera::GetAnchorMatrix4
@@ -250,7 +263,11 @@ const float* PlayerCamera::GetAnchorMatrix4(const CameraContext& ctx) {
     if (!IsAnchorValid()) return anchor_matrix_;
     const CameraAnchor* a = anchor_;
     if ((a->flags & 1) == 0) return &nf::raw(GetRigidBody(*ctx.sim, a->body)->info)->orient[0][0];
-    pending();  // SimpleRigidBody::RecalcOrientMat
+    // O corpo simples: a matriz do quatérnio no global 0x3d76a0 (seção 30).
+    float m[4][4];
+    std::memcpy(m, anchor_matrix_, 64);
+    SimpleRigidBody_RecalcOrientMat(GetSimpleRigidBody(*ctx.sim, a->body), m);
+    std::memcpy(anchor_matrix_, m, 64);
     return anchor_matrix_;
 }
 
@@ -259,8 +276,7 @@ const float* PlayerCamera::GetAnchorPosition(const CameraContext& ctx) {
     if (!IsAnchorValid()) return kNoPosition;
     const CameraAnchor* a = anchor_;
     if ((a->flags & 1) == 0) return rb_pos(GetRigidBody(*ctx.sim, a->body));
-    pending();  // o corpo simples
-    return kNoPosition;
+    return &GetSimpleRigidBody(*ctx.sim, a->body)->pos[0];  // +0x10 (o w: o tipo, a vaga e as bandeiras)
 }
 
 // [driving] 0x1d5888 RWorldCamera::GetAnchorSpeed
@@ -272,17 +288,26 @@ float PlayerCamera::GetAnchorSpeed(const CameraContext& ctx) {
         return ee::sqrt(ee::add(ee::mul(v[0], v[0]), ee::mul(v[2], v[2])));
     }
     if ((a->flags & 1) == 0) return 0.0f;
-    pending();  // SimpleRigidBody::GetScalarVelocity
-    return 0.0f;
+    return SimpleRigidBody_GetScalarVelocity(GetSimpleRigidBody(*ctx.sim, a->body));
 }
 
-// [driving] 0x1d5d50 RWorldCamera::GetAnchorLinearVelocity (o AIVehicle do primeiro carro: o do jogador não tem)
+// [driving] 0x1d5d50 RWorldCamera::GetAnchorLinearVelocity: numa âncora de corpo rígido (qualquer uma), se o primeiro
+// carro da Simulation tem um AIVehicle num trilho (AIVehicle::GetSplinePath 0x13e0b0), a velocidade do RPathHandle
+// do trilho (+0x60, +0x88); senão a do corpo da âncora. Num corpo simples, a dele (+0x20). Até a seção 30 o port dava
+// sempre a do corpo (a divergência que o estudo do nightfire-cxbx achou, docs/cxbx.md seção 8).
 const float* PlayerCamera::GetAnchorLinearVelocity(const CameraContext& ctx) {
     if (!IsAnchorValid()) return kNoVelocity;
     const CameraAnchor* a = anchor_;
-    if ((a->flags & 1) == 0) return rb_vel(GetRigidBody(*ctx.sim, a->body));
-    pending();
-    return kNoVelocity;
+    if ((a->flags & 1) == 0) {
+        if (AIGroundVehicle* v = ctx.player_vehicle ? ctx.player_vehicle() : nullptr) {
+            if (const AISplinePath* sp = nf::p32_ptr<AISplinePath>(v->spline_path)) {
+                ++rail_velocity_reads;
+                return nf::p32_ptr<RPathHandle>(sp->handle)->velocity;
+            }
+        }
+        return rb_vel(GetRigidBody(*ctx.sim, a->body));
+    }
+    return &GetSimpleRigidBody(*ctx.sim, a->body)->vel[0];  // +0x20 (o w: o raio)
 }
 
 // [driving] 0x1d5e38 RWorldCamera::GetAnchorResetAvailable (o PBondCar::GetResetAvailable da âncora)
@@ -313,8 +338,10 @@ void PlayerCamera::SetViewingTransform(const float up[4], const float lift[2], c
     float* r3 = d.matrix + 12;
     d.matrix_changed = 1;
     for (int i = 0; i < 3; ++i) r2[i] = ee::sub(d.look_at[i], d.eye[i]);
-    for (int i = 0; i < 3; ++i) r2[i] = ee::add(r2[i], ee::mul(up[i], lift[1]));
-    for (int i = 0; i < 3; ++i) r2[i] = ee::add(r2[i], ee::mul(r0[i], lift[0]));
+    if (lift) {  // (o 0x1d5610 não tem os dois deslocamentos)
+        for (int i = 0; i < 3; ++i) r2[i] = ee::add(r2[i], ee::mul(up[i], lift[1]));
+        for (int i = 0; i < 3; ++i) r2[i] = ee::add(r2[i], ee::mul(r0[i], lift[0]));
+    }
     normalize(r2);
     vcross(up, r2, r0);
     normalize(r0);
@@ -356,6 +383,8 @@ void PlayerCamera::RestartWorldCamera(const CameraContext& ctx) {
     // A fila de entrada (ActionQueue::Flush; o port não tem), o RAnimEngine::Handle (~Handle) e o trilho da IA
     // (~AISplinePath).
     anim_handle.reset();
+    if (engine_handle) AnimHandle_Destroy(engine_handle);
+    engine_handle = 0;
     d.anim_handle = 0;
     if (AISplinePath* path = nf::p32_ptr<AISplinePath>(d.ai_spline)) {
         AISplinePath_Destruct(*path);
@@ -368,7 +397,10 @@ void PlayerCamera::RestartWorldCamera(const CameraContext& ctx) {
 
 void PlayerCamera::construct(CameraTables& t, const CameraContext& ctx) {
     tables = &t;
+    ctx_ = &ctx;
     anim_handle.reset();
+    if (engine_handle) AnimHandle_Destroy(engine_handle);
+    engine_handle = 0;
     if (AISplinePath* path = nf::p32_ptr<AISplinePath>(d.ai_spline)) {
         AISplinePath_Destruct(*path);
         delete path;
@@ -426,9 +458,9 @@ void PlayerCamera::restart(const CameraContext& ctx) {
     d.up[1] = 1.0f;
     std::memcpy(d.noise, one, 16);
     d.noise[3] = 0;
-    std::memcpy(d.unknown240, one, 16);
-    d.unknown240[3] = 0;
-    d.unknown250 = d.unknown254 = 0;
+    std::memcpy(d.dash_force, one, 16);
+    d.dash_force[3] = 0;
+    d.dash_steer = d.dash_glance = 0.0f;
     ResetState(state, *ctx.sim);
     statics.zoom_button = 0;
     state.look_back = 0;
@@ -480,7 +512,7 @@ void PlayerCamera::restart(const CameraContext& ctx) {
     // [driving] 0x1aa870 RDirectorQueue::RestartDirectorQueue
     director_flags = 2;
     ProcessDirectorLogic(ctx);
-    d.unknown264 = d.unknown268 = 0;
+    d.ellipse_facet = d.ellipse_height = 0;
     std::memcpy(d.unknown2d0, one, 16);
     collider.reset();
     d.collider = 0;
@@ -520,9 +552,17 @@ void PlayerCamera::ProcessDirectorLogic(const CameraContext& ctx) {
         director_flags = 0;
         return;
     }
-    if (q.anchor != 0) pending();  // RPlayerCamera::DirectorSetAnchor
+    if (q.anchor != 0) DirectorSetAnchor(ctx, q);  // (player_camera_views.cpp, seção 30)
     const DirectorQueueData copy = q;
     DirectorChangeCameraMode(ctx, copy);
+    // Com a bandeira 8 o registro do +0x18 é apagado (o __builtin_delete: os do SetOldCameraMode).
+    if ((copy.flags & 8) && copy.data18 != 0) {
+        for (size_t i = 0; i < old_mode_records.size(); ++i)
+            if (nf::p32_u(old_mode_records[i].get()) == copy.data18) {
+                old_mode_records.erase(old_mode_records.begin() + ptrdiff_t(i));
+                break;
+            }
+    }
     director_queue.erase(director_queue.begin());
     director_flags = 0;
 }
@@ -663,10 +703,9 @@ void PlayerCamera::DirectorChangeCameraMode(const CameraContext& ctx, const Dire
             }
             if (m.type == kCamAnimation) {
                 if (q.flags & 0x40) {
-                    // [driving] 0x1d6860 RWorldCamera::LoadSingleAnimationFromList: as animações 'Cams' do modelo da
-                    // âncora (+0x108/+0x10c; nenhum modelo do port as tem: devolve 0).
-                    pending();
-                    return;
+                    // As animações 'Cams' do modelo da âncora (+0x108/+0x10c, seção 30), pelo número do pedido.
+                    if (!LoadSingleAnimationFromList(q.data24)) return;
+                    break;
                 }
                 if (!LoadSingleAnimation(nf::p32_ptr<const uint8_t>(q.data18))) return;
             } else {
@@ -774,7 +813,23 @@ void PlayerCamera::update(const CameraContext& ctx) {
     d.last_step = sim.steps;
     if (sim.state != 3) ProcessDirectorLogic(ctx);
     ++updates;
-    switch (tables->mode(d.mode).update.fn) {
+    RunModeUpdate(ctx, tables->mode(d.mode).update.fn);
+    if (mouse_aim_[0] != 0.0f || mouse_aim_[1] != 0.0f) {  // só do port: o pedido do mouse não usado (seção 33)
+        ++mouse_aim_stats.dropped;
+        mouse_aim_[0] = mouse_aim_[1] = 0.0f;
+    }
+    if ((tables->mode(d.mode).shake == 0 && d.shaking == 0) || sim.state == 3) {
+        d.mode_change = 0;
+        return;
+    }
+    CheckForCameraShaking(ctx);
+    d.mode_change = 0;
+}
+
+// A função do modo (o ponteiro para membro da tabela de modos, +0x14: o UpdateCamera e o SetOldCameraMode o chamam).
+void PlayerCamera::RunModeUpdate(const CameraContext& ctx, uint32_t fn) {
+    ctx_ = &ctx;
+    switch (fn) {
         case kCamUpdateMomentumHeli:
             UpdateMomentumHeliCam(ctx);
             ++heli_updates;
@@ -790,16 +845,26 @@ void PlayerCamera::update(const CameraContext& ctx) {
         case kCamUpdateAIPathAnimation:
             UpdateAIPathAnimationCam(ctx);
             break;
+        // Seção 30 (player_camera_views.cpp).
+        case kCamUpdateBumper:
+            UpdateBumperCam(ctx);
+            break;
+        case kCamUpdateDashboard:
+            UpdateDashboardCam(ctx);
+            break;
+        case kCamUpdateTumble:
+            UpdateTumbleCam(ctx);
+            break;
+        case kCamUpdateEllipse:
+            UpdateEllipseCam(ctx);
+            break;
+        case kCamUpdateRelativeAnimation:
+            UpdateRelativeAnimationCam(ctx);
+            break;
         default:
-            pending();  // os outros modos
+            pending();  // o Spline e o Fixed (Paris não os usa)
             break;
     }
-    if ((tables->mode(d.mode).shake == 0 && d.shaking == 0) || sim.state == 3) {
-        d.mode_change = 0;
-        return;
-    }
-    CheckForCameraShaking(ctx);
-    d.mode_change = 0;
 }
 
 // [driving] 0x1b2b48 RPlayerCamera::UpdateMomentumHeliCam
@@ -1082,11 +1147,34 @@ int32_t PlayerCamera::ResolveAllCollisions(const CameraContext& ctx, float eye[4
     return d.collision;
 }
 
-// [driving] 0x1b8ae0 RPlayerCamera::CheckObjectCollisions e 0x1b8d08 RPlayerCamera::AdjustCamAroundObjectEllipse (a
-// parte dos corpos rígidos: os corpos simples contam como pendentes)
+// [driving] 0x1b8ae0 RPlayerCamera::CheckObjectCollisions e 0x1b8d08 RPlayerCamera::AdjustCamAroundObjectEllipse: os
+// outros carros e (seção 30) os corpos simples do tipo 8 (o raio x kCameraObjectSphereRad contra a distância ao
+// quadrado, como no PS2; a orientação pelo quatérnio, a elipse do raio x kCameraObjectRadiusEx).
 int32_t PlayerCamera::CheckObjectCollisions(const CameraContext& ctx, float eye[4]) {
     int32_t result = 0;
     const float rad = tables->constants.object_sphere_rad;
+    // AdjustCamAroundObjectEllipse(eye, corpo): o olho no referencial do corpo; dentro do elipsoide de meias-medidas
+    // `ext`, sobe pela superfície (o y no mundo fica positivo).
+    auto adjust = [&](const float pos[4], const float* o, const float ext[3]) -> int32_t {
+        const float rel[3] = {ee::sub(eye[0], pos[0]), ee::sub(eye[1], pos[1]), ee::sub(eye[2], pos[2])};
+        float local[3];
+        for (int j = 0; j < 3; ++j)
+            local[j] = ee::add(ee::add(ee::mul(o[j * 4], rel[0]), ee::mul(o[j * 4 + 1], rel[1])), ee::mul(o[j * 4 + 2], rel[2]));
+        if (!(ee::lt(ee::abs(local[0]), ext[0]) && ee::lt(ee::abs(local[1]), ext[1]) &&
+              ee::lt(ee::abs(local[2]), ext[2])))
+            return 0;
+        const float lx2 = ee::mul(local[0], local[0]), ly2 = ee::mul(local[1], local[1]), lz2 = ee::mul(local[2], local[2]);
+        const float ex2 = ee::mul(ext[0], ext[0]), ey2 = ee::mul(ext[1], ext[1]), ez2 = ee::mul(ext[2], ext[2]);
+        const float sx = ee::div(lx2, ex2), sy = ee::div(ly2, ey2), sz = ee::div(lz2, ez2);
+        if (!ee::lt(ee::add(ee::add(sx, sy), sz), 1.0f)) return 0;
+        local[1] = ee::sqrt(ee::mul(ee::sub(ee::sub(1.0f, sx), sz), ey2));
+        float w[3];
+        xform3(local, o, w);
+        w[1] = ee::abs(w[1]);
+        for (int i = 0; i < 3; ++i) eye[i] = ee::add(w[i], pos[i]);
+        ++ellipse_hits;
+        return 1;
+    };
     for (CameraAnchor* car : ctx.cars) {
         if (car == anchor_) continue;
         const RigidBody* rb = GetRigidBody(*ctx.sim, car->body);
@@ -1096,33 +1184,25 @@ int32_t PlayerCamera::CheckObjectCollisions(const CameraContext& ctx, float eye[
         std::memcpy(pos, rb_pos(rb), 16);
         const float dv[3] = {ee::sub(pos[0], eye[0]), ee::sub(pos[1], eye[1]), ee::sub(pos[2], eye[2])};
         if (!ee::le(len2(dv), reach)) continue;
-        // AdjustCamAroundObjectEllipse(eye, rb, 0, 0): o olho no referencial do corpo; dentro do elipsoide das
-        // meias-medidas x kCameraObjectRadiusEx, sobe pela superfície (o y no mundo fica positivo).
-        const float* o = &info->orient[0][0];
         float ext[3];
         for (int i = 0; i < 3; ++i) ext[i] = ee::mul(info->half_size[i], tables->constants.object_radius_ex[i]);
-        const float rel[3] = {ee::sub(eye[0], pos[0]), ee::sub(eye[1], pos[1]), ee::sub(eye[2], pos[2])};
-        float local[3];
-        for (int j = 0; j < 3; ++j)
-            local[j] = ee::add(ee::add(ee::mul(o[j * 4], rel[0]), ee::mul(o[j * 4 + 1], rel[1])), ee::mul(o[j * 4 + 2], rel[2]));
-        int32_t adjusted = 0;
-        if (ee::lt(ee::abs(local[0]), ext[0]) && ee::lt(ee::abs(local[1]), ext[1]) && ee::lt(ee::abs(local[2]), ext[2])) {
-            const float lx2 = ee::mul(local[0], local[0]), ly2 = ee::mul(local[1], local[1]), lz2 = ee::mul(local[2], local[2]);
-            const float ex2 = ee::mul(ext[0], ext[0]), ey2 = ee::mul(ext[1], ext[1]), ez2 = ee::mul(ext[2], ext[2]);
-            const float sx = ee::div(lx2, ex2), sy = ee::div(ly2, ey2), sz = ee::div(lz2, ez2);
-            if (ee::lt(ee::add(ee::add(sx, sy), sz), 1.0f)) {
-                local[1] = ee::sqrt(ee::mul(ee::sub(ee::sub(1.0f, sx), sz), ey2));
-                float w[3];
-                xform3(local, o, w);
-                w[1] = ee::abs(w[1]);
-                for (int i = 0; i < 3; ++i) eye[i] = ee::add(w[i], pos[i]);
-                adjusted = 1;
-            }
-        }
-        result = adjusted;
+        result = adjust(pos, &info->orient[0][0], ext);
     }
-    for (int i = 0; i < kSimpleBodySlots; ++i)
-        if (ctx.sim->simple_owners[i]) pending();  // os corpos simples (SimpleRigidBody, tipo 8)
+    for (int i = 0; i < kSimpleBodySlots; ++i) {
+        if (!ctx.sim->simple_owners[i]) continue;
+        const SimpleRigidBody* sb = GetSimpleRigidBody(*ctx.sim, i);
+        if (sb->type != 8) continue;
+        float pos[4];
+        std::memcpy(pos, sb->pos, 16);
+        const float reach = ee::mul(sb->radius, rad);
+        const float dv[3] = {ee::sub(pos[0], eye[0]), ee::sub(pos[1], eye[1]), ee::sub(pos[2], eye[2])};
+        if (!ee::le(len2(dv), reach)) continue;
+        float m[4][4];
+        VU0_quattom4(sb->quat, m);
+        float ext[3];
+        for (int k = 0; k < 3; ++k) ext[k] = ee::mul(tables->constants.object_radius_ex[k], sb->radius);
+        result = adjust(pos, &m[0][0], ext);
+    }
     return result;
 }
 

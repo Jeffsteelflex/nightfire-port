@@ -353,6 +353,9 @@ struct ShellsEnv {
     std::function<bool(int32_t type, float& speed)> streak_speed;
     // RPlayerCamera::WeaponFired(arma) do RPlayerCamera (0x333ed8 +4): sem ele, o port grava o effects_env().camera_1f4.
     std::function<void(int32_t weapon)> weapon_fired;
+    // Seção 32: RScorchWorld::ScorchWorld(WWorldPos &, ponto, normal, tipo, tamanho) (driving/fx/decals.h; o WWorldPos é
+    // o do chamador, que a busca da face muda, como no PS2). Sem ele: só anotado (a parte 20 grava a chamada).
+    std::function<void(WWorldPos& wp, const float point[4], const float normal[4], int32_t type, float size)> scorch_world;
 };
 ShellsEnv& shells_env();
 

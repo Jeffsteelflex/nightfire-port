@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -213,6 +214,8 @@ public:
     const uint8_t* render_instances() const { return nf::p32_ptr<const uint8_t>(render_instances_); }
     // Contadores (só do port): consultas, faces achadas.
     uint64_t queries = 0, faces = 0;
+    // Seção 32: o mapa do WCollisionMgr +0x20 (a instância de colisão e o artigo original do SetCollisionArticle).
+    std::map<uint32_t, uint32_t> saved_articles;
 
 private:
     WCollisionMgr mgr_{};
@@ -350,5 +353,13 @@ bool WCollisionMgr_GetObjectOBB(const TrackWorld& world, std::vector<WCollisionO
 // [driving] 0x00230bf0 WWorld::GetSceneObjFromInstance: a instância de render tem um objeto de cena (o byte +0x0c com o
 // bit 0x10)? O port não monta os objetos de cena; devolve só se haveria um.
 bool WWorld_HasSceneObj(const TrackWorld& world, uint32_t render_index);
+
+// [driving] 0x00213720 WCollisionMgr::SetCollisionArticle(CARP::Instance *, int) (seção 32; o ESetCollisionGeometry): a
+// primeira instância de colisão da instância de render `instance` (o índice dela a partir de `render_base`, o WWorld
+// +0x20) troca de artigo: -1 sem colisão, senão o 'ca' de índice `article` do grupo do artigo da instância (o **(+0x1c));
+// o artigo original fica guardado no mapa do gerente (+0x20, `saved`: na primeira troca de cada instância). Devolve 0
+// sem a instância de colisão ou com um índice fora dos 'ca' do grupo.
+uint32_t WCollisionMgr_SetCollisionArticle(WCollisionMgr& mgr, uint32_t render_base, uint32_t instance, int32_t article,
+                                           std::map<uint32_t, uint32_t>& saved);
 
 }  // namespace drv

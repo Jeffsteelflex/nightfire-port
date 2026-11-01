@@ -56,6 +56,15 @@ FILE* snd_log() {
     return f;
 }
 
+// O nome do timbre para o registro (o índice do banco da categoria que tem esse banco do SND).
+const char* patch_name(int32_t bank, int32_t patch) {
+    for (int c = 0; c < 10; ++c) {
+        ABank* b = ABank_Category(c);
+        if (b != nullptr && b->snd_bank == bank) return b->index.Lookup(patch);
+    }
+    return "";
+}
+
 }  // namespace
 
 std::list<AVoiceView*>& voice_active_list() { return active(); }
@@ -72,7 +81,11 @@ static void AVoiceView_Restart(AVoiceView* v) {
 }
 
 // [driving] 0x002dd790 AVoice::AVoice(AMix &, int, int)
-AVoice::AVoice(AMix* m, int32_t bank, int32_t patch) : mix(m) { Set(bank, patch); }
+AVoice::AVoice(AMix* m, int32_t bank, int32_t patch) : mix(m) {
+    if (AudioTrace* t = audio_trace())
+        t->line("voice#%d %s %d %d", t->fresh(this), audio_mix_name(m).c_str(), int(bank), int(patch));
+    Set(bank, patch);
+}
 
 // [driving] 0x002dd698 AVoice::Set(int, int): a vista recomeça quando o timbre muda; sem timbre (-1) acaba.
 void AVoice::Set(int32_t bank, int32_t patch) {
@@ -90,6 +103,15 @@ void AVoice::Set(int32_t bank, int32_t patch) {
 
 // [driving] 0x002de0b8 AVoice::View::~View (para as três vistas)
 AVoice::~AVoice() {
+    if (AudioTrace* t = audio_trace()) {
+        t->line("free#%d", t->id(this));
+        t->ids.erase(this);
+        if (t->dry) {
+            for (AVoiceView& v : views)
+                if (v.listed != 0) active().remove(&v);
+            return;
+        }
+    }
     for (int i = 2; i >= 0; --i) {
         AVoiceView& v = views[i];
         if (v.listed != 0) active().remove(&v);
@@ -152,6 +174,12 @@ static void AVoiceView_Play(float vol, float pitch, float azimuth, float delay, 
 
 // [driving] 0x002ddfd0 AVoice::Play(AView, float, float, float, float, float)
 void AVoice_Play(float vol, float pitch, float azimuth, float delay, float fx, AVoice* v, int32_t view) {
+    if (AudioTrace* t = audio_trace()) {
+        t->line("play#%d %08x %08x %08x %08x %08x %d", v ? t->id(v) : -1, unsigned(ps2::fbits(vol)),
+                unsigned(ps2::fbits(pitch)), unsigned(ps2::fbits(azimuth)), unsigned(ps2::fbits(delay)),
+                unsigned(ps2::fbits(fx)), int(view));
+        if (t->dry) return;
+    }
     if (v == nullptr) return;
     if (ee::lt(0.007874016f, vol)) {
         if (ee::lt(1.0f, vol)) vol = 1.0f;
@@ -199,8 +227,9 @@ void AVoice_PlayVoices() {
                     v->handle = SNDBANK_play(v->bank, v->patch, &o);
                     ++audio_stats_mut().plays;
                     if (FILE* f = snd_log())
-                        std::fprintf(f, "%d play %d:%d vol %d pitch %u az %u fx %u -> %d\n", int(tick), int(v->bank),
-                                     int(v->patch), int(o.vol), unsigned(pitch), unsigned(az), unsigned(fx), int(v->handle));
+                        std::fprintf(f, "%d play %d:%d %s vol %d pitch %u az %u fx %u -> %d\n", int(tick),
+                                     int(v->bank), int(v->patch), patch_name(v->bank, v->patch), int(o.vol),
+                                     unsigned(pitch), unsigned(az), unsigned(fx), int(v->handle));
                 }
             }
         } else if (0 < vol) {
@@ -238,6 +267,7 @@ ABaseSound::ABaseSound(const char* mix_name, int32_t view) {
 }
 
 ABaseSound::~ABaseSound() {
+    if (AudioTrace* t = audio_trace()) t->line("del %s", audio_mix_name(mix).c_str());
     AMix_Remove(mix);
     sound_list().remove(this);
 }

@@ -22,6 +22,7 @@
 #include "driving/physics/simulation.h"
 #include "driving/real/vu0_math.h"
 #include "driving/render/anim_engine.h"
+#include "driving/sound/audio.h"
 #include "platform/fmath.h"
 #include "platform/ps2_float.h"
 #include "platform/ptr32.h"
@@ -1002,7 +1003,11 @@ PassengerApi passenger_default_api() {
     a.process_stimuli = [](uint32_t h, uint32_t system, uint32_t stimulus, uint32_t steps, uint32_t mode) {
         if (h) AnimHandle_ProcessStimuli(h, system, stimulus, steps, mode);
     };
-    a.say = [](uint32_t, const char*) { ++g_stats.says; };
+    a.say = [](uint32_t self, const char* what) {
+        // AICharacter::GetACharacter (0x00118988) e ACharacter::Say (0x002fbe00)
+        ++g_stats.says;
+        ACharacter_Say(AICharacter_GetACharacter(self), what);
+    };
     a.inc_kills = [](int32_t n) {
         if (mission_exists()) SMissionManager_IncKills(mission_manager(), n);
     };

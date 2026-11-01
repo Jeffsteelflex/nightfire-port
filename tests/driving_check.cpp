@@ -25,6 +25,12 @@
 //    (tests/driving_check_chars.cpp; `--so personagens` roda só ela).
 // 17. A IA dos elementos de Paris e o dano do carro: o AIElementController, os agentes, os comandos, o ApplyDamage
 //    (tests/driving_check_ai.inc, incluído no driving_check_traffic.cpp; `--so ia` roda só ela).
+// 26. As câmeras e os gatilhos de Paris: as âncoras, os modos do carro, as animações relativas, os gatilhos dos corpos
+//    simples e das instâncias, a luneta (tests/driving_check_cameras.cpp; `--so cameras` roda só ela).
+// 27. Os sons das armas, da mira e dos objetos de Paris e o resto do HUD (a pausa, a fila HUDQ, as trapaças, a moça
+//    do fundo) (tests/driving_check_sound_hud.cpp; `--so som_hud` roda só ela).
+// 29. O modelo próprio dos objetos de cena do mundo: o RSceneObj::UseArticle, os estímulos no Handle e o Render (a rampa
+//    do guindaste da obra de Paris) (tests/driving_check_scene_article.cpp; `--so objetos_cena` roda só ela).
 //
 // Tudo aqui lê dados do jogo: a saída é um relatório, nada é gravado.
 
@@ -55,7 +61,13 @@
 #include "driving_check_heli.h"
 #include "driving_check_integ.h"
 #include "driving_check_passengers.h"
+#include "driving_check_p24.h"
+#include "driving_check_rest.h"
+#include "driving_check_sound_hud.h"
+#include "driving_check_fx_ped.h"
+#include "driving_check_scene_article.h"
 #include "driving_check_traffic.h"
+#include "driving_check_cameras.h"
 #include "platform/crash_report.h"
 #include "platform/ps2_float.h"
 #include "platform/vu_interp.h"
@@ -634,8 +646,8 @@ int main_body(int argc, char** argv) {
     nf::install_crash_report();
     if (argc < 2) {
         std::printf("uso: nf_driving_check <raiz dos dados> [--casos N] [--quadros N] [--semente N] [--consultas N] "
-                    "[--so camera|agenda|entrada|visibilidade|carro|som|trafego|missao|personagens|ia|helicoptero|"
-                    "integracao[.tiros|.atores|.ia]|efeitos|passageiros]\n");
+                    "[--so camera|agenda|entrada|visibilidade|carro|som|trafego|missao|personagens|ia|helicoptero|filmes_hud|"
+                    "integracao[.tiros|.atores|.ia]|efeitos|passageiros|restos|cameras|som_hud|efeitos_ped|objetos_cena]\n");
         return 1;
     }
     const std::string root = argv[1];
@@ -645,7 +657,8 @@ int main_body(int argc, char** argv) {
                        // carro: só a 12; som: só a 13; trafego: só a 14; missao: só a 15;
                        // personagens: só a 16; ia: só a 17; armas: só a 18 (misseis: o fim dela);
                        // helicoptero: só a 19; integracao: só a 20 (integracao.<pedaço>: só um pedaço);
-                       // efeitos: só a 21; passageiros: só a 22
+                       // efeitos: só a 21; passageiros: só a 22; cameras: só a 26; som_hud: só a 27;
+                       // efeitos_ped: só a 28; objetos_cena: só a 29
     for (int i = 2; i + 1 < argc; ++i) {
         if (std::strcmp(argv[i], "--casos") == 0) cases = std::atoi(argv[++i]);
         else if (std::strcmp(argv[i], "--quadros") == 0) frames = std::atoi(argv[++i]);
@@ -720,8 +733,46 @@ int main_body(int argc, char** argv) {
         std::printf("\nfim\n");
         return f ? 2 : 0;
     }
+    if (only == "filmes_hud" || only == "filmes_hud.filmes" || only == "filmes_hud.hud") {
+        // só a parte 24: os filmes e o HUD (seção 28); .filmes ou .hud uma das duas
+        int f = 0;
+        if (only != "filmes_hud.hud") f += drvcheck::run_p24_movie_checks(elf, *disc, cases, seed);
+        if (only != "filmes_hud.filmes") f += drvcheck::run_p24_hud_checks(elf, *disc, cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
     if (only == "fluxos") {  // só a parte 23: os fluxos (o mixador do EE, o SNDSTRM, o AStream, os eventos de som)
         const int f = drvcheck::run_stream_checks(elf, *disc, cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "restos") {  // só a parte 25: os efeitos e os sons que faltavam em Paris
+        const int f = drvcheck::run_rest_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()), cases,
+                                                seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "cameras") {  // só a parte 26: as câmeras e os gatilhos de Paris (seção 30)
+        const int f = drvcheck::run_cameras_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                   cases, frames, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "som_hud") {  // só a parte 27: os sons das armas, da mira e dos objetos e o resto do HUD
+        const int f = drvcheck::run_sound_hud_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                     cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "efeitos_ped") {  // só a parte 28: os pedestres, os efeitos das instâncias, os clarões, os eventos
+        const int f = drvcheck::run_fx_ped_checks(elf, *disc, progs[1].code.data(), uint32_t(progs[1].code.size()),
+                                                  cases, seed);
+        std::printf("\nfim\n");
+        return f ? 2 : 0;
+    }
+    if (only == "objetos_cena") {  // só a parte 29: o UseArticle e o Render dos objetos de cena do mundo
+        const int f = drvcheck::run_scene_article_checks(elf, *disc, progs[1].code.data(),
+                                                         uint32_t(progs[1].code.size()), cases, seed);
         std::printf("\nfim\n");
         return f ? 2 : 0;
     }
@@ -826,11 +877,30 @@ int main_body(int argc, char** argv) {
                                                     cases, seed);
     // Parte 23, os fluxos (o mixador do EE, o SNDSTRM e o tocador de pacotes, o AStream e o AFader): `--casos`.
     const int stream_failures = drvcheck::run_stream_checks(elf, *disc, cases, seed);
+    // Parte 24, os filmes e o HUD (as fontes, as legendas, o relógio do AV_PLAYER, o GHud e a GGallery): `--casos`.
+    int p24_failures = drvcheck::run_p24_movie_checks(elf, *disc, cases, seed);
+    p24_failures += drvcheck::run_p24_hud_checks(elf, *disc, cases, seed);
     // Parte 22, os passageiros dos carros da IA (a janela, o teto solar, o motorista): `--casos`.
     const int passenger_failures = drvcheck::run_passenger_checks(elf, *disc, progs[1].code.data(),
                                                                   uint32_t(progs[1].code.size()), cases, seed);
+    // Parte 25, os efeitos e os sons que faltavam em Paris (os riscos, os clarões, os destroços, os sons): `--casos`.
+    const int rest_failures = drvcheck::run_rest_checks(elf, *disc, progs[1].code.data(),
+                                                        uint32_t(progs[1].code.size()), cases, seed);
+    // Parte 26, as câmeras e os gatilhos de Paris (as âncoras, os modos do carro, as animações relativas, os gatilhos
+    // dos corpos simples e das instâncias, a luneta): `--casos` e `--quadros`.
+    const int cameras_failures = drvcheck::run_cameras_checks(elf, *disc, progs[1].code.data(),
+                                                              uint32_t(progs[1].code.size()), cases, frames, seed);
+    // Parte 27, os sons das armas, da mira e dos objetos e o resto do HUD (seção 31): `--casos`.
+    const int sound_hud_failures = drvcheck::run_sound_hud_checks(elf, *disc, progs[1].code.data(),
+                                                                  uint32_t(progs[1].code.size()), cases, seed);
+    // Parte 28, os pedestres, os efeitos das instâncias, os clarões dos canos, as marcas e os eventos (seção 32).
+    const int fx_ped_failures = drvcheck::run_fx_ped_checks(elf, *disc, progs[1].code.data(),
+                                                            uint32_t(progs[1].code.size()), cases, seed);
+    // Parte 29, o modelo próprio dos objetos de cena do mundo (seção 34): `--casos`.
+    const int scene_article_failures = drvcheck::run_scene_article_checks(elf, *disc, progs[1].code.data(),
+                                                                          uint32_t(progs[1].code.size()), cases, seed);
     std::printf("\nfim\n");
-    return stream_failures || passenger_failures || integ_failures || fx_failures || ee_failures || world_failures || car_failures || collide_failures || camera_failures || sched_failures ||
+    return scene_article_failures || fx_ped_failures || sound_hud_failures || cameras_failures || rest_failures || p24_failures || stream_failures || passenger_failures || integ_failures || fx_failures || ee_failures || world_failures || car_failures || collide_failures || camera_failures || sched_failures ||
                    input_failures || vis_failures || vehicle_failures || sound_failures || traffic_failures ||
                    mission_failures || chars_failures || ai_failures || weapons_failures || heli_failures
                ? 2

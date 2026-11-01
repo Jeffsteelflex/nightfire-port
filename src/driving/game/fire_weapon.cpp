@@ -622,6 +622,10 @@ void EFireWeapon_Execute(const PendingEvent& e) {
                     // 0x0014e4f8: [driving] 0x002f4a20 AMenuSound::Trigger(o banco da arma, o timbre, "POV Weapons", 0)
                     ++g_fire.menu_sounds;
                     effects_note(0x002f4a20, uint32_t(entry->sound_bank), uint32_t(patch));
+                    // Peculiaridade mantida: o +0x40 da arma é a CATEGORIA do banco (o que o SWeaponManager passa ao
+                    // AMenuSound::Trigger(int categoria, ...)), e aqui vai como o número do banco do SND ao lado do
+                    // timbre do banco das armas.
+                    AMenuSound_Trigger(entry->sound_bank, patch, "POV Weapons", 0);
                     break;
                 case 0:
                     // 0x0014e520: as metralhadoras dos personagens (o nome alternado; em snow1a_mis3 um tiro sim, outro

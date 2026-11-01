@@ -8,7 +8,6 @@
 //    gasta nos efeitos (o port não), então o sorteio difere do PS2 depois do primeiro efeito;
 //  - Init sem 'Trgr' esvazia os dados da pista anterior (o PS2 os deixa; guarda);
 //  - Restart não valida os fluxos de som dos EStreamEvent (só conta), nem os das regras da missão;
-//  - Update só passa os corpos rígidos: os corpos simples, as instâncias dos trilhos e os raios não existem no port;
 //  - Process: as listas dinâmicas das células da grade (o que se move de célula em célula) não existem no port; uma
 //    célula com a lista conta como guarda e só a lista fixa dela é lida.
 
@@ -27,7 +26,9 @@
 #include "driving/game/missile.h"
 #include "driving/light_manager.h"
 #include "driving/physics/obb.h"
+#include "driving/physics/simple_body.h"
 #include "driving/physics/simulation.h"
+#include "driving/render/path_engine.h"
 #include "driving/physics/world.h"
 #include "driving/physics/world_collision.h"
 #include "platform/ps2_float.h"
@@ -445,8 +446,161 @@ void WTriggerManager_ProcessRay(int index) {
     }
 }
 
+// [driving] 0x0022eec0 WTriggerManager::CheckCollide(SimpleRigidBody &, WTrigger *)
+bool WTriggerManager_CheckCollideSimple(const SimpleRigidBody& b, const WTrigger& t) {
+    const float r = b.radius;
+    float dx = ee::sub(t.position[0], b.pos[0]);
+    float dz = ee::sub(t.position[2], b.pos[2]);
+    float reach = ee::add(r, t.radius);
+    dx = ee::mul(dx, dx);
+    dz = ee::mul(dz, dz);
+    reach = ee::mul(reach, reach);
+    if (!ee::lt(ee::add(dx, dz), reach)) return false;
+    if ((t.flags & kTrigDirectional) && !WTrigger_TestDirection(t, b.vel)) return false;
+    const float y = b.pos[1], ty = t.position[1];
+    if (!ee::le(ty, ee::add(y, r))) return false;
+    return ee::lt(ee::sub(y, r), ee::add(ty, t.height));
+}
+
+namespace {
+// Os gatilhos das células de `cells` ainda não vistos nesta consulta, ligados e não ignorados (a lista fixa de cada
+// célula; as dinâmicas não existem no port: guarda).
+template <typename Fn>
+void for_cell_triggers(const TrackWorld& tw, const std::vector<uint32_t>& cells, uint32_t stamp, Fn fn) {
+    for (uint32_t cell : cells) {
+        const WGridNode* node = tw.node(cell);
+        if (!node) continue;
+        if (node->dynamic != 0) ++g_stats.guards;
+        const uint16_t* list =
+            reinterpret_cast<const uint16_t*>(reinterpret_cast<const uint8_t*>(node) + 0x10 + node->static_offset[1]);
+        for (int i = 0; i < node->static_count[1]; ++i) {
+            WTrigger* t = trigger_at(list[i]);
+            if (!t) {
+                ++g_stats.guards;
+                continue;
+            }
+            if (t->query_stamp == stamp) continue;
+            t->query_stamp = stamp;
+            const uint16_t f = t->flags;
+            if (!(f & kTrigEnabled) || (f & kTrigIgnored)) continue;
+            if ((f & kTrigWhileActive) && g_mgr.active == 0) continue;
+            fn(*t);
+        }
+    }
+}
+}  // namespace
+
+// [driving] 0x0022dae8 WTriggerManager::Process(unsigned int, SimpleRigidBody &)
+// Divergência: as listas dinâmicas das células (contadas como guarda) não existem no port.
+void WTriggerManager_ProcessSimple(int slot, SimpleRigidBody& b) {
+    const uint32_t stamp = ++g_mgr.query_stamp;
+    Simulation& sim = simulation();
+    const bool owned = PhysicsObject_IsOwnedBy(SimpleRigidBody_GetOwner(&b), GetPlayerObject(sim));
+    uint16_t touch = 0;
+    if (b.flags & kSrbTouchesTriggers) {
+        if (owned) touch = 0x80;
+        switch (b.type) {
+            case 1: touch |= 0x10; break;
+            case 2:
+            case 8: touch |= 0x08; break;
+            case 4:
+            case 5: touch |= 0x40; break;
+            default: break;
+        }
+    }
+    if (touch == 0) return;
+    ++g_stats.simple_checks;
+    float radius = b.radius;
+    if (ee::lt(radius, 1.5f)) radius = 1.5f;
+    TrackWorld* tw = world() ? world()->track_world() : nullptr;
+    if (!tw) {
+        ++g_stats.guards;
+        return;
+    }
+    std::vector<uint32_t> cells;
+    cells.reserve(64);
+    WGrid_FindNodes(tw->grid(), b.pos, radius, cells);
+    for_cell_triggers(*tw, cells, stamp, [&](WTrigger& t) {
+        if ((t.flags & touch) == 0) return;
+        if (!owned && (t.flags & 0x80)) return;
+        if (!WTriggerManager_CheckCollideSimple(b, t)) return;
+        ++g_stats.simple_hits;
+        WTrigger_FireEvents(t, 1, slot, 0);
+    });
+}
+
+// [driving] 0x0022efb0 WTriggerManager::CheckCollide(COORD3 &, float, WTrigger *)
+bool WTriggerManager_CheckCollidePoint(float r, const float pos[3], const WTrigger& t) {
+    const float r2 = ee::mul(r, r);
+    float dx = ee::sub(pos[0], t.position[0]);
+    float dz = ee::sub(pos[2], t.position[2]);
+    dx = ee::mul(dx, dx);
+    dz = ee::mul(dz, dz);
+    if (!ee::lt(ee::add(dx, dz), r2)) return false;
+    const float y = pos[1], ty = t.position[1];
+    if (!ee::le(ty, ee::add(y, r))) return false;
+    return ee::lt(ee::sub(y, r), ee::add(ty, t.height));
+}
+
+// [driving] 0x0022f030 WTriggerManager::CheckCollide(COORD3 &, float, float, float, WTrigger *)
+bool WTriggerManager_CheckCollidePoint3(float r, float up, float down, const float pos[3], const WTrigger& t) {
+    const float r2 = ee::mul(r, r);
+    float dx = ee::sub(pos[0], t.position[0]);
+    float dz = ee::sub(pos[2], t.position[2]);
+    dx = ee::mul(dx, dx);
+    dz = ee::mul(dz, dz);
+    if (!ee::lt(ee::add(dx, dz), r2)) return false;
+    const float y = pos[1], ty = t.position[1];
+    if (!ee::le(ty, ee::add(y, up))) return false;
+    return ee::lt(ee::sub(y, down), ee::add(ty, t.height));
+}
+
+// [driving] 0x0022d5a8 WTriggerManager::Process(CARP::Instance &)
+// Divergência: as listas dinâmicas das células (contadas como guarda) não existem no port.
+void WTriggerManager_ProcessInstance(uint32_t instance) {
+    const uint8_t* inst = nf::p32_ptr<const uint8_t>(instance);
+    if (!inst) {
+        ++g_stats.guards;
+        return;
+    }
+    uint32_t w;
+    std::memcpy(&w, inst + 0x3c, 4);
+    // 0x39af88: os passos dos campos (0,25 e 16, pelo bit 30); os campos de 10 bits nunca são negativos (cvt.s.w).
+    static const float kSteps[2] = {0.25f, 16.0f};
+    const float step = kSteps[(w >> 30) & 1];
+    const float radius = ee::mul(ee::cvt_s(int32_t(w & 0x3ff)), step);
+    float up, down;
+    if (int32_t(w) < 0) {
+        up = ee::mul(ee::cvt_s(int32_t((w >> 10) & 0x3ff)), step);
+        down = ee::mul(ee::cvt_s(int32_t((w >> 20) & 0x3ff)), step);
+    } else {
+        up = ee::mul(ee::cvt_s(int32_t(w & 0x3ff)), step);
+        up = ee::add(up, up);
+        down = up;
+    }
+    const uint32_t stamp = ++g_mgr.query_stamp;
+    ++g_stats.instance_checks;
+    float pos[3];
+    std::memcpy(pos, inst + 0x30, 12);
+    TrackWorld* tw = world() ? world()->track_world() : nullptr;
+    if (!tw) {
+        ++g_stats.guards;
+        return;
+    }
+    std::vector<uint32_t> cells;
+    cells.reserve(64);
+    WGrid_FindNodes(tw->grid(), pos, radius, cells);
+    for_cell_triggers(*tw, cells, stamp, [&](WTrigger& t) {
+        if ((t.flags & kTrigInstances) == 0) return;
+        const bool hit = int32_t(w) < 0 ? WTriggerManager_CheckCollidePoint3(radius, up, down, pos, t)
+                                         : WTriggerManager_CheckCollidePoint(radius, pos, t);
+        if (!hit) return;
+        ++g_stats.instance_hits;
+        WTrigger_FireEvents(t, 0, -1, instance);
+    });
+}
+
 // [driving] 0x0022f0c0 WTriggerManager::Update
-// Divergência: os corpos simples e os trilhos (RPathEngine) não são conferidos no port.
 void WTriggerManager_Update() {
     if (g_mgr.manager == 0) return;
     RayShell_GetNumTracers(-1);
@@ -456,6 +610,12 @@ void WTriggerManager_Update() {
         RigidBody* body = GetRigidBody(sim, i);
         if (body->state == 2) WTriggerManager_Process(i, body);
     }
+    for (int i = 0; i < kSimpleBodySlots; ++i) {
+        if (!sim.simple_owners[i]) continue;
+        WTriggerManager_ProcessSimple(i, *GetSimpleRigidBody(sim, i));
+    }
+    for (RPathHandle* h = RPathEngine_GetFirstPathHandle(); h; h = RPathEngine_GetNextPathHandle())
+        if (h->master == 0) WTriggerManager_ProcessInstance(h->instance);
     const int32_t n = RayShell_GetNumActiveRayShells();
     for (int32_t i = 0; i < n; ++i) WTriggerManager_ProcessRay(i);
     RayShell_ClearActiveRayShells();

@@ -2,7 +2,11 @@
 
 #include <cstring>
 
+#include "driving/fx/debris.h"
+#include "driving/fx/glare.h"
+#include "driving/light_manager.h"
 #include "driving/real/vu0_math.h"
+#include "driving/sound/audio.h"
 #include "platform/ps2_float.h"
 #include "platform/vu0_macro.h"
 
@@ -469,6 +473,42 @@ void GFXGallery_FRAME_Draw(GfxGallery& g) {
 // [driving] 0x00233f18 GFXGallery::GET_FirstIdleKey
 const uint8_t* GFXGallery_GET_FirstIdleKey(uint32_t track) { return data_of(track, kTagKey); }
 
+// [driving] 0x002339c8 GFXGallery::DataIndex
+uint32_t GFXGallery_DataIndex(uint32_t family, uint32_t index) { return family << 12 | index; }
+
+// [driving] 0x00233dd0 GFXGallery::GET_Key: a chave i (o passo é o byte +0x21 mais 0x30, pelo menos 0x40).
+const uint8_t* GFXGallery_GET_Key(const uint8_t* keys, int32_t i) {
+    const uint32_t size = uint32_t(keys[0x21]) + 0x30;
+    const uint32_t stride = size > 0x3f ? size : 0x40;
+    return keys + int32_t(uint32_t(i) * stride);
+}
+
+// [driving] 0x00233df8 GFXGallery::GET_Keys
+void GFXGallery_GET_Keys(const uint8_t* keys, int32_t frame, int32_t count, const uint8_t*& k0, int32_t& t0,
+                         const uint8_t*& k1, int32_t& t1) {
+    k0 = keys;
+    t0 = 0;
+    k1 = keys;
+    t1 = 0;
+    if (frame == 0) return;
+    for (int32_t i = 0; i < count - 1; ++i) {
+        const uint8_t* a = GFXGallery_GET_Key(keys, i);
+        const uint8_t* b = GFXGallery_GET_Key(keys, i + 1);
+        const int32_t ta = int32_t(rd32(a + 0xc)), tb = int32_t(rd32(b + 0xc));
+        if (!(frame < ta) && !(tb < frame)) {
+            k0 = a;
+            t0 = ta;
+            k1 = b;
+            t1 = tb;
+            return;
+        }
+        k0 = b;
+        t0 = tb;
+        k1 = b;
+        t1 = tb;
+    }
+}
+
 // [driving] 0x00234818 GFXGallery::CANVAS_Draw
 void GFXGallery_CANVAS_Draw(GfxGallery& g, GfxCanvas& c, const float pos[4], const float quat[4]) {
     ++g_stats.canvas_draws;
@@ -499,15 +539,66 @@ void GFXGallery_CANVAS_Draw(GfxGallery& g, GfxCanvas& c, const float pos[4], con
         } else if (tag == 0x67732020) {  // 'gs ' o som
             all_one_shot = 1;
             if (sound < 8) {
-                ++sound;
-                if ((c.flags & 0x1000) == 0) ++g_stats.sounds;  // (o ASound e o SOUND_Play: não portados)
+                const int32_t slot_index = sound++;
+                if ((c.flags & 0x1000) == 0) {
+                    if (!g_env.sounds) {
+                        ++g_stats.sounds;  // (sem o som do port: contado)
+                    } else {
+                        // A primeira vez: a chave da trilha (+0x30: o SoundDesc) e, se o nome não é "(null)", o
+                        // ASound("Object Sounds"), sem laço com a bandeira 0x800 (driving/sound/audio_sound.cpp).
+                        uint32_t& slot = c.sounds[slot_index];
+                        const uint8_t* desc = nullptr;
+                        if (slot == 0) {
+                            const uint8_t* key = GFXGallery_GET_FirstIdleKey(nf::p32_u(t));
+                            if (key == nullptr) {
+                                ++g_stats.guards;  // o PS2 leria a chave nula
+                                continue;
+                            }
+                            desc = key + 0x30;
+                            if (std::strcmp(reinterpret_cast<const char*>(key + 0x3c), "(null)") != 0)
+                                slot = GFXGallery_NewSound((c.flags & 0x800) != 0);
+                        }
+                        if (slot != 0) GFXGallery_SOUND_Play(slot, desc, pos, c.extra);
+                    }
+                }
             }
         } else if (tag == 0x67672020) {  // 'gg ' o clarão
             all_one_shot = 0;
-            if ((c.flags & 0x1400) == 0) ++g_stats.glares;  // (GLARE_Interpolate e GLARE_Draw: não portados)
+            if ((c.flags & 0x1400) == 0) {
+                ++g_stats.glares;
+                // As duas chaves em volta da idade da tela (GET_Keys sobre os 'gk' da trilha), a fração entre elas, o
+                // GLARE_Interpolate e o GLARE_Draw na posição da tela mais a da primeira chave (três vezes com o
+                // tremor).
+                const uint32_t track = nf::p32_u(t);
+                const uint8_t* first = GFXGallery_GET_FirstIdleKey(track);
+                UData* kd = UGroup_DataLocateTag(ug(track), 0x676b0000u | GFXGallery_DataIndex(3, 0));
+                const int32_t count = kd != UGroup_DataEnd(ug(track)) ? int32_t(kd->count) : 0;
+                if (kd == UGroup_DataEnd(ug(track))) ++g_stats.guards;  // o PS2 leria o +8 do fim do grupo
+                const uint8_t *k0, *k1;
+                int32_t t0, t1;
+                GFXGallery_GET_Keys(first, c.age, count, k0, t0, k1, t1);
+                const float f0 = ee::cvt_s(t0), f1 = ee::cvt_s(t1);
+                const float span = ee::sub(f1, f0);
+                const float frac = ee::eq(span, 0.0f) ? 0.0f : ee::div(ee::sub(ee::cvt_s(c.age), f0), span);
+                uint32_t a[3], b[3], o[3];
+                std::memcpy(a, k0 + 0x30, 12);
+                std::memcpy(b, k1 + 0x30, 12);
+                std::memcpy(o, a, 12);
+                GFXGallery_GLARE_Interpolate(frac, a, b, o);
+                float kp[3];
+                std::memcpy(kp, k0, 12);
+                const float gp[4] = {ee::add(pos[0], kp[0]), ee::add(pos[1], kp[1]), ee::add(pos[2], kp[2]), 1.0f};
+                const int calls = a[2] != 0 ? 3 : 1;
+                for (int k = 0; k < calls; ++k) GFXGallery_GLARE_Draw(o, gp);
+            }
         } else if (tag == 0x67642020 && (c.flags & 0x1400) == 0) {  // 'gd ' os destroços
             if ((c.flags & 0x4000) == 0 || c.frame == 0) {
-                ++g_stats.debris;  // (DEBRIS_SetState e DEBRIS_Draw: não portados)
+                ++g_stats.debris;
+                // A primeira chave da trilha, o DEBRIS_SetState (vazio) e o DEBRIS_Draw na posição e no quatérnio da tela,
+                // sem velocidade (o t0 nulo do PS2).
+                const uint8_t* key = GFXGallery_GET_FirstIdleKey(nf::p32_u(t));
+                GFXGallery_DEBRIS_SetState();
+                GFXGallery_DEBRIS_Draw(key, pos, quat, nullptr, rtime_data().time);
                 c.flags |= 0x4000;
             } else {
                 all_one_shot = 0;
@@ -612,7 +703,7 @@ uint32_t GFXGallery_PARTICLE_Draw(GfxGallery& g, uint32_t track, ParticleEmitter
     return (nf::raw(s->data)->flags >> 1) & 1;
 }
 
-// [driving] 0x00235270 GFXGallery::CANVAS_HasStopped (sem os sons: o port não os cria)
+// [driving] 0x00235270 GFXGallery::CANVAS_HasStopped
 bool GFXGallery_CANVAS_HasStopped(GfxGallery& /*g*/, GfxCanvas& c) {
     ParticleEmitter* e = nf::raw(c.emitters);
     if (e) {
@@ -621,7 +712,18 @@ bool GFXGallery_CANVAS_HasStopped(GfxGallery& /*g*/, GfxCanvas& c) {
             if (s && s->active != 0) return false;
         }
     }
-    // (os oito sons: os que não acabaram seguram a tela; os outros são destruídos)
+    // Os oito sons: com a bandeira 0x800 os que não acabaram seguram a tela; os outros são apagados.
+    bool held = false;
+    for (uint32_t& snd : c.sounds) {
+        if (snd == 0) continue;
+        if ((c.flags & 0x800) != 0 && !GFXGallery_SoundDone(snd)) {
+            held = true;
+            continue;
+        }
+        GFXGallery_DeleteSound(snd);
+        snd = 0;
+    }
+    if (held) return false;
     if (e) {
         for (int32_t i = 0; i < int8_t(c.nump); ++i) {
             RParticleSystem* s = nf::raw(e[i].system);
@@ -693,7 +795,10 @@ void GFXGallery_PurgeAllEffects(GfxGallery& g) {
             emitters_delete(e);
             c.emitters = nullptr;
         }
-        for (uint32_t& s : c.sounds) s = 0;  // (o destrutor de cada som: o port não os cria)
+        for (uint32_t& s : c.sounds) {
+            if (s != 0) GFXGallery_DeleteSound(s);  // a entrada +0xc da tabela virtual com 3
+            s = 0;
+        }
     }
     for (int i = 0; i < 0x200; ++i) {
         GfxCanvas& c = g.canvases[i];

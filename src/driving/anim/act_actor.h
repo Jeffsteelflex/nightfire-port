@@ -509,6 +509,7 @@ struct ActDrawItem {
     struct Weapon {
         const CarModel* model = nullptr;
         std::vector<std::vector<float>> instances;  // 16 floats por instância
+        uint32_t weapon = 0;  // (p32) o ActWeapon (seção 32: os clarões do ManualRender)
     };
     std::vector<Weapon> weapons;
 };

@@ -2091,6 +2091,24 @@ int check_smackables(TrafficEmu& e, Fleet& f, drv::Track& track, int cases, Rng&
     std::printf("  os objetos de cena derrubáveis de Paris: %zu (com 'pD' e PhysicsData), espaço PHYS: %d\n", cands.size(),
                 track.physics_symbols());
     if (cands.empty()) return 1;
+    // Seção 34: o objeto de cena do porte tem o RAnimEngine::Handle do UseArticle (+0x28); o emulado não (o motor de
+    // animação e os estímulos ficam em ganchos aqui; a parte 29 confere o UseArticle). Sem ele dos dois lados durante a
+    // parte (o Simulate pergunta se algum sistema toca), devolvido no fim.
+    struct SavedHandle {
+        drv::RSceneObj* o;
+        uint32_t h;
+    };
+    std::vector<SavedHandle> saved_handles;
+    for (const SmackCandidate& k : cands) {
+        saved_handles.push_back({k.obj, k.obj->article});
+        k.obj->article = 0;
+    }
+    struct RestoreHandles {
+        std::vector<SavedHandle>& v;
+        ~RestoreHandles() {
+            for (const SavedHandle& s : v) s.o->article = s.h;
+        }
+    } restore_handles{saved_handles};
 
     uint64_t stimuli = 0, dyn_grid = 0, sounds = 0;
     e.m.hook(0x200cb8, "Simulation::SpawnPhysicsObject", [](MipsMachine& mm) {

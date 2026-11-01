@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "driving/ai/sim_random.h"
+#include "driving/drv.h"
 #include "driving/light_manager.h"
 #include "platform/fmath.h"
 #include "platform/ps2_float.h"
@@ -33,11 +34,7 @@ float u2f(uint32_t v) {
     return ee::add(h, h);
 }
 
-// [driving] 0x0024e340 __fixunssfsi (fptoui): os valores até 2^31 por cvt.w.s; acima, menos 2^31 e o bit de volta.
-uint32_t fptoui(float f) {
-    if (ee::lt(f, 2147483648.0f)) return uint32_t(ee::cvt_w(f));
-    return uint32_t(ee::cvt_w(ee::sub(f, 2147483648.0f))) ^ 0x80000000u;
-}
+// O fptoui (0x0024e340) é o do drv.h (uma definição só, em game/hud_draw.cpp).
 
 // O 'dflt' do .data (0x3351c0), palavra a palavra.
 const uint32_t kDefaultWords[44] = {

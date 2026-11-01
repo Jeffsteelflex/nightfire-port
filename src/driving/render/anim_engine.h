@@ -134,6 +134,10 @@ bool AnimHandle_IsSystemPlaying(uint32_t handle, uint32_t system);
 // [driving] 0x001a2630 RAnimEngine::Handle::SetFrame (e 0x001a38e0 System::SetFrame): as instâncias do sistema com a
 // animação de (estímulo, estado corrente) vão a ela, no quadro dado (no máximo o último). A torre dos carros da IA.
 void AnimHandle_SetFrame(uint32_t handle, uint32_t system, uint32_t stimulus, uint32_t frame);
+// [driving] 0x001a2f00 RAnimEngine::Handle::GetFirstSystemInstanceIndex (0xffffffff sem o sistema) e 0x001a3040
+// GetFirstSystemInstance (a cópia da instância no bloco, 0 sem): a câmera animada (seção 30).
+uint32_t AnimHandle_GetFirstSystemInstanceIndex(uint32_t handle, uint32_t system);
+uint32_t AnimHandle_GetFirstSystemInstance(uint32_t handle, uint32_t system);
 // [driving] 0x001a2d40 RAnimEngine::Handle::GetSystemStartTick
 uint32_t AnimHandle_GetSystemStartTick(uint32_t handle, uint32_t system);
 // [driving] 0x001a2d68 RAnimEngine::Handle::GetSystemMaxTicks

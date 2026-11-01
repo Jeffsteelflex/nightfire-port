@@ -429,6 +429,7 @@ Texture2D fx_tex : register(t0);
 SamplerState fx_smp : register(s0);
 float4 ps_fx(FxOut i) : SV_Target {
     float4 t = fx_flags.y > 0.5 ? fx_tex.Sample(fx_smp, i.uv) * 255.0 : float4(128.0, 128.0, 128.0, 128.0);
+    if (fx_flags.z > 0.5) t.a = 128.0;
     float3 rgb = min(floor(t.rgb * i.col.rgb / 128.0), 255.0) / 255.0;
     float a = min(floor(t.a * i.col.a / 128.0), 255.0);
     return float4(rgb, min(a / 128.0, 1.0));
@@ -491,7 +492,18 @@ struct DrvRenderer::Impl {
     ComPtr<ID3D11Buffer> fx_vb, cb_fx;
     UINT fx_vb_capacity = 0;
     std::map<int, ComPtr<ID3D11ShaderResourceView>> fx_textures;
-    void render_fx(const DrvScene& scene, DrvRenderStats& st);
+    void render_fx(const DrvScene& scene, DrvRenderStats& st) { render_fx_list(scene, scene.fx, st); }
+    void render_fx_list(const DrvScene& scene, const std::vector<DrvFxBatch>& list, DrvRenderStats& st);
+    // O pós-processamento (seção 30): a cópia do quadro com as reduções (GenerateMips) e a vista da redução de até 64
+    // linhas (o ROffscreenBuffer de 64 x 64 do RSniperZoom).
+    ComPtr<ID3D11Texture2D> scene_copy;
+    ComPtr<ID3D11ShaderResourceView> scene_copy_all, scene_copy_small;
+    UINT scene_copy_w = 0, scene_copy_h = 0;
+    void make_scene_copy();
+    // O filme (seção 28): a textura do quadro e o seu tamanho.
+    ComPtr<ID3D11Texture2D> movie_tex;
+    int movie_w = 0, movie_h = 0;
+    void render_movie(DrvRenderStats& st);
     // Um modelo enviado: os buffers das duas famílias, as texturas e os desenhos de cada peça.
     struct ModelGpu {
         ComPtr<ID3D11Buffer> vb, ib, bvb, bvb_ext, bib;  // bvb: pos, stq, cor (44 bytes); bvb_ext: stq1, normal
@@ -823,10 +835,11 @@ bool DrvRenderer::set_fx_texture(int slot, int width, int height, const uint8_t*
 }
 
 // Os DrvFxBatch na ordem: um desenho por lote, com a mistura do ALPHA_1 (o ABE ligado) e a profundidade do TEST_1.
-void DrvRenderer::Impl::render_fx(const DrvScene& scene, DrvRenderStats& st) {
-    if (scene.fx.empty()) return;
+void DrvRenderer::Impl::render_fx_list(const DrvScene& scene, const std::vector<DrvFxBatch>& list,
+                                       DrvRenderStats& st) {
+    if (list.empty()) return;
     size_t total = 0;
-    for (const DrvFxBatch& b : scene.fx) total += b.verts.size();
+    for (const DrvFxBatch& b : list) total += b.verts.size();
     if (total == 0) return;
     const UINT bytes = UINT(total * sizeof(FxGpuVertex));
     if (bytes > fx_vb_capacity) {
@@ -842,7 +855,7 @@ void DrvRenderer::Impl::render_fx(const DrvScene& scene, DrvRenderStats& st) {
     D3D11_MAPPED_SUBRESOURCE map;
     if (FAILED(ctx->Map(fx_vb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map))) return;
     FxGpuVertex* out = static_cast<FxGpuVertex*>(map.pData);
-    for (const DrvFxBatch& b : scene.fx)
+    for (const DrvFxBatch& b : list)
         for (const DrvFxVertex& v : b.verts) {
             std::memcpy(out->pos, v.pos, 16);
             std::memcpy(out->uv, v.uv, 8);
@@ -865,22 +878,27 @@ void DrvRenderer::Impl::render_fx(const DrvScene& scene, DrvRenderStats& st) {
     ID3D11SamplerState* smp = sampler(0x5);  // CLAMP nos dois eixos
     ctx->PSSetSamplers(0, 1, &smp);
     UINT first = 0;
-    for (const DrvFxBatch& b : scene.fx) {
+    for (const DrvFxBatch& b : list) {
         const UINT n = UINT(b.verts.size());
         if (n == 0) continue;
         auto it = fx_textures.find(b.texture);
         ID3D11ShaderResourceView* srv = it != fx_textures.end() ? it->second.Get() : nullptr;
+        const bool scene_tex = b.texture == kDrvSceneCopyTexture;
+        if (scene_tex) srv = scene_copy_small.Get();
         float c[20];
         std::memcpy(c, vp, 64);
         c[16] = b.world ? 1.0f : 0.0f;
         c[17] = srv ? 1.0f : 0.0f;
-        c[18] = c[19] = 0.0f;
+        c[18] = scene_tex ? 1.0f : 0.0f;  // a cópia do quadro: o alfa da textura 0x80 (a de 24 bits do GS)
+        c[19] = 0.0f;
         D3D11_MAPPED_SUBRESOURCE m2;
         if (SUCCEEDED(ctx->Map(cb_fx.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m2))) {
             std::memcpy(m2.pData, c, sizeof c);
             ctx->Unmap(cb_fx.Get(), 0);
         }
         ctx->PSSetShaderResources(0, 1, &srv);
+        ID3D11SamplerState* bs = sampler(b.clamp);  // o CLAMP_1 do lote (o padrão: CLAMP nos dois eixos)
+        ctx->PSSetSamplers(0, 1, &bs);
         const float fix = float((b.alpha >> 32) & 0xFF) / 128.0f;
         const float bf[4] = {fix, fix, fix, fix};
         ctx->OMSetBlendState(blend(b.alpha, true, D3D11_COLOR_WRITE_ENABLE_ALL), bf, 0xFFFFFFFF);
@@ -892,6 +910,107 @@ void DrvRenderer::Impl::render_fx(const DrvScene& scene, DrvRenderStats& st) {
         st.fx_triangles += int(n / 3);
     }
     ctx->PSSetShader(ps.Get(), nullptr, 0);
+}
+
+// A cópia do quadro para o pós-processamento (seção 30): o alvo de cor (resolvido, com MSAA) num nível 0 com as
+// reduções; a vista é a primeira redução de até 64 linhas (o ROffscreenBuffer de 64 x 64 do RSniperZoom).
+void DrvRenderer::Impl::make_scene_copy() {
+    if (!color) return;
+    D3D11_TEXTURE2D_DESC cd{};
+    color->GetDesc(&cd);
+    if (!scene_copy || scene_copy_w != cd.Width || scene_copy_h != cd.Height) {
+        scene_copy.Reset();
+        scene_copy_all.Reset();
+        scene_copy_small.Reset();
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = cd.Width;
+        td.Height = cd.Height;
+        td.MipLevels = 0;
+        td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_DEFAULT;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+        td.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+        if (FAILED(dev->CreateTexture2D(&td, nullptr, &scene_copy))) return;
+        scene_copy->GetDesc(&td);
+        if (FAILED(dev->CreateShaderResourceView(scene_copy.Get(), nullptr, &scene_copy_all))) return;
+        UINT level = 0;
+        while (level + 1 < td.MipLevels && (cd.Height >> level) > 64) ++level;
+        D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+        sd.Format = td.Format;
+        sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        sd.Texture2D.MostDetailedMip = level;
+        sd.Texture2D.MipLevels = 1;
+        if (FAILED(dev->CreateShaderResourceView(scene_copy.Get(), &sd, &scene_copy_small))) return;
+        scene_copy_w = cd.Width;
+        scene_copy_h = cd.Height;
+    }
+    if (samples > 1 && color_ms) ctx->ResolveSubresource(scene_copy.Get(), 0, color_ms.Get(), 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+    else ctx->CopySubresourceRegion(scene_copy.Get(), 0, 0, 0, 0, color.Get(), 0, nullptr);
+    ctx->GenerateMips(scene_copy_all.Get());
+}
+
+// O filme (seção 28): uma textura dinâmica BGRA do tamanho do quadro, posta nos efeitos sob a etiqueta kMovieSlot.
+constexpr int kMovieSlot = 0x7fff0000;
+
+bool DrvRenderer::set_movie_frame(int width, int height, const uint8_t* bgra) {
+    Impl& I = *d_;
+    if (width <= 0 || height <= 0 || !bgra) return false;
+    if (!I.movie_tex || I.movie_w != width || I.movie_h != height) {
+        I.movie_tex.Reset();
+        I.fx_textures.erase(kMovieSlot);
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = UINT(width);
+        td.Height = UINT(height);
+        td.MipLevels = 1;
+        td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_DEFAULT;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        if (FAILED(I.dev->CreateTexture2D(&td, nullptr, &I.movie_tex))) return false;
+        ComPtr<ID3D11ShaderResourceView> srv;
+        if (FAILED(I.dev->CreateShaderResourceView(I.movie_tex.Get(), nullptr, &srv))) return false;
+        I.fx_textures[kMovieSlot] = srv;
+        I.movie_w = width;
+        I.movie_h = height;
+    }
+    I.ctx->UpdateSubresource(I.movie_tex.Get(), 0, nullptr, bgra, UINT(width * 4), 0);
+    return true;
+}
+
+// O quadro na área 4:3 da janela (a tela do PS2 pela altura, centrada; pela largura se a janela é mais estreita).
+void DrvRenderer::Impl::render_movie(DrvRenderStats& st) {
+    if (!movie_tex) return;
+    float aw = float(height) * 4.0f / 3.0f, ah = float(height);
+    if (aw > float(width)) {
+        aw = float(width);
+        ah = aw * 0.75f;
+    }
+    const float x0 = (float(width) - aw) * 0.5f, y0 = (float(height) - ah) * 0.5f;
+    auto clip = [&](float x, float y, DrvFxVertex& v, float u, float t) {
+        v.pos[0] = x / float(width) * 2.0f - 1.0f;
+        v.pos[1] = 1.0f - y / float(height) * 2.0f;
+        v.pos[2] = 0.0f;
+        v.pos[3] = 1.0f;
+        v.uv[0] = u;
+        v.uv[1] = t;
+        v.colour = 0x80808080u;
+    };
+    DrvFxBatch b;
+    b.texture = kMovieSlot;
+    b.alpha = 0x8000000064ull;  // Cs (sem mistura: o quadro inteiro)
+    b.test = 0x30000ull;
+    b.zwrite = false;
+    DrvFxVertex a, c, d, e;
+    clip(x0, y0, a, 0, 0);
+    clip(x0 + aw, y0, c, 1, 0);
+    clip(x0, y0 + ah, d, 0, 1);
+    clip(x0 + aw, y0 + ah, e, 1, 1);
+    b.verts = {a, c, d, d, c, e};
+    DrvScene dummy;
+    render_fx_list(dummy, std::vector<DrvFxBatch>{b}, st);
 }
 
 bool DrvRenderer::set_ui_texture(int width, int height, const uint8_t* rgba) {
@@ -1411,8 +1530,14 @@ void DrvRenderer::Impl::render(const DrvScene& scene, DrvRenderStats& st) {
             }
         }
     }
+    if (scene.movie) render_movie(st);
     render_fx(scene, st);
+    if (!scene.post.empty()) {  // o pós-processamento (seção 30: o RSniperZoom)
+        make_scene_copy();
+        render_fx_list(scene, scene.post, st);
+    }
     render_sprites(scene, st);
+    render_fx_list(scene, scene.overlay, st);
     if (samples > 1) ctx->ResolveSubresource(color.Get(), 0, color_ms.Get(), 0, DXGI_FORMAT_R8G8B8A8_UNORM);
 }
 

@@ -19,8 +19,9 @@
 //
 // Portado do MIPS do PS2; conferido na parte 21 do nf_driving_check (tests/driving_check_fx.cpp).
 //
-// Divergências (só do port, nas funções): os sons das trilhas 'gs' (o SOUND_Play, um ASound em laço), os clarões 'gg'
-// (o RGlareManager) e os destroços 'gd' (o RDebris) não são portados: contados e anotados (gfx_stats()); a tela grava
+// Os sons das trilhas 'gs' (o SOUND_Play, um ASound: driving/sound/audio.h) com o gfx_env().sounds, os clarões 'gg'
+// (o RGlareManager, driving/fx/glare.h) e os destroços 'gd' (o RDebris, driving/fx/debris.h) também (seção 29).
+// Divergências (só do port, nas funções): sem o gfx_env().sounds as trilhas 'gs' só são contadas; a tela grava
 // as bandeiras dela no meio de uma palavra de 64 bits (+0x68) como o PS2, e os bits que o CANVAS_Add não limpa ficam
 // com o que a tela anterior deixou (o mesmo no port: as telas não são zeradas).
 
@@ -54,7 +55,7 @@ struct GfxCanvas {
                              //       0x4000 destroços já lançados, 0x8000 (o 12º argumento do CANVAS_Add)
     uint8_t nump;            // +0x6e
     uint8_t sticky;          // +0x6f o índice grudado (0xff nenhum)
-    uint32_t sounds[8];      // +0x70 os ASound das trilhas 'gs' (o port não os cria)
+    uint32_t sounds[8];      // +0x70 os ASound das trilhas 'gs' (P32)
 };
 static_assert(sizeof(GfxCanvas) == 0x90);
 
@@ -144,6 +145,14 @@ void GFXGallery_STICKY_ReleaseIndex(GfxGallery& g, uint32_t index);
 void GFXGallery_STICKY_ReleaseAllIndexes(GfxGallery& g);
 // [driving] 0x00233f18 GFXGallery::GET_FirstIdleKey: os dados da primeira chave 'gk' de uma trilha.
 const uint8_t* GFXGallery_GET_FirstIdleKey(uint32_t track);
+// [driving] 0x002339c8 GFXGallery::DataIndex(família, índice): família << 12 | índice.
+uint32_t GFXGallery_DataIndex(uint32_t family, uint32_t index);
+// [driving] 0x00233dd0 GFXGallery::GET_Key(chaves, i)
+const uint8_t* GFXGallery_GET_Key(const uint8_t* keys, int32_t i);
+// [driving] 0x00233df8 GFXGallery::GET_Keys(chaves, quadro, contagem, ...): as duas chaves em volta do quadro e os
+// tempos delas (o +0xc de cada chave).
+void GFXGallery_GET_Keys(const uint8_t* keys, int32_t frame, int32_t count, const uint8_t*& k0, int32_t& t0,
+                         const uint8_t*& k1, int32_t& t1);
 
 // [driving] 0x002cbc00 VU0_v3quatrotate(q, v, out) e 0x002cbcf8 VU0_v4quatrotate_xlate(q, v, t, out): v girado por q
 // (+ t), xyz; o w da saída fica.
@@ -158,6 +167,9 @@ struct GfxEnv {
     bool (*instance_position)(uint32_t scene, int32_t instance, float m[4][4]) = nullptr;
     // A posição da câmera (o RRenderer::fgRenderer +0x40).
     float camera[4] = {0, 0, 0, 1};
+    // Os sons 'gs' (o ASound e o SOUND_Play, driving/sound/audio.h): o nf_driving liga com o som; desligados (os testes,
+    // a parte 21, que engancha o operator new do ABaseSound devolvendo 0) a trilha só é contada.
+    bool sounds = false;
 };
 GfxEnv& gfx_env();
 
@@ -172,7 +184,7 @@ GfxEmitterAlloc& gfx_emitter_alloc();
 struct GfxStats {
     uint64_t triggers = 0, refused = 0, lookups = 0, lookups_failed = 0, incidental = 0;
     uint64_t frames = 0, canvas_draws = 0, particle_draws = 0, particle_types = 0, stopped = 0;
-    uint64_t sounds = 0, glares = 0, debris = 0;  // as trilhas não portadas (contadas)
+    uint64_t sounds = 0, glares = 0, debris = 0;  // as trilhas (os sons: só sem o gfx_env().sounds)
     uint64_t guards = 0;
 };
 GfxStats& gfx_stats();

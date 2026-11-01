@@ -137,6 +137,7 @@ add_library(nf_platform STATIC
     src/platform/psi_pad.cpp
     src/platform/gamepad.cpp
     src/platform/input_bindings.cpp
+    src/platform/drive_controls.cpp
     src/platform/psi_loading.cpp
     src/platform/psi_stubs.cpp
     src/platform/psi_movie.cpp
@@ -433,6 +434,7 @@ add_executable(nf_driving WIN32
     src/driving_app/drive_actors.cpp
     src/driving_app/drv_renderer_d3d11.cpp
     src/driving_app/drv_fx.cpp
+    src/driving_app/drv_hud2d.cpp
     src/render/gpu_adapters_dxgi.cpp
     ${NF_APP_ENTRY}
     ${NF_EXE_SOURCES}
@@ -708,6 +710,8 @@ target_compile_options(nf_loader_check PRIVATE ${NF_OPTIONS})
 # interpretador contra o porte à mão, o passo inteiro dos dois jeitos, as funções do EE no interpretador MIPS.
 # A parte 20 (a ligação das armas com a IA, seção 24) tem um arquivo por pedaço: entram sozinhos.
 file(GLOB NF_DRV_INTEG_CHECKS CONFIGURE_DEPENDS tests/driving_check_integ*.cpp)
+# A parte 24 (os filmes e o HUD, seção 28): um arquivo por pedaço.
+file(GLOB NF_DRV_P24_CHECKS CONFIGURE_DEPENDS tests/driving_check_p24*.cpp)
 add_executable(nf_driving_check tests/driving_check.cpp tests/driving_check_ee.cpp tests/driving_check_world.cpp
     tests/driving_check_car.cpp tests/driving_check_collide.cpp tests/driving_check_camera.cpp
     tests/driving_check_sched.cpp tests/driving_check_input.cpp tests/driving_check_vis.cpp
@@ -718,7 +722,13 @@ add_executable(nf_driving_check tests/driving_check.cpp tests/driving_check_ee.c
     tests/driving_check_heli_cam.cpp tests/driving_check_heli_rail.cpp tests/driving_check_fx.cpp
     tests/driving_check_streams.cpp
     tests/driving_check_passengers.cpp
+    tests/driving_check_rest.cpp
+    tests/driving_check_cameras.cpp
+    tests/driving_check_sound_hud.cpp
+    tests/driving_check_fx_ped.cpp
+    tests/driving_check_scene_article.cpp
     ${NF_DRV_INTEG_CHECKS}
+    ${NF_DRV_P24_CHECKS}
     ${NF_EXE_SOURCES})
 target_link_libraries(nf_driving_check PRIVATE nf_data nf_drv)
 target_compile_options(nf_driving_check PRIVATE ${NF_OPTIONS})

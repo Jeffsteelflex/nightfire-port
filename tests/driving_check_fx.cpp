@@ -46,6 +46,7 @@
 #include "data/mips_interp.h"
 #include "driving/ai/sim_random.h"
 #include "driving/bigf.h"
+#include "driving/fx/debris.h"
 #include "driving/fx/decals.h"
 #include "driving/fx/fx_events.h"
 #include "driving/fx/fx_lights.h"
@@ -374,7 +375,7 @@ public:
         m.hook(kFnSoundNew, "ABaseSound::operator_new", [](MipsMachine& mm) { mm.set_gpr(R::v0, 0); });
         m.hook(kFnASound, "ASound::ASound", [](MipsMachine& mm) { mm.set_gpr(R::v0, 0); });
         m.hook(kFnAddGlare, "RGlareManager::AddGlare", [this](MipsMachine&) { ++glares; });
-        m.hook(kFnDebrisAdd, "RDebris::Add", [this](MipsMachine&) { ++debris; });
+        // (o RDebris::Add roda o original: seção 29)
         // O RRenderer falso: +4 a vista (o RCamera em +0, a margem 4 em +0x50), +0x40 a posição da câmera, +0x78 o
         // relógio; o RCamera com o fov em +0xa4; o GHud com +0x2a0 = 0.
         m.write32(kRendererPtr, kRenderer);
@@ -1278,6 +1279,14 @@ void check_gallery(Emu& e, Rng& r, const GalleryCtx& g, int cases, int& failures
         }
         e.m.write32(kGalleryPtr, eg);
         drv::GFX_Init(g.file);
+        // Seção 29: os destroços das trilhas 'gd' de verdade nos dois lados (o RDebris::Add original gasta o RRandom do
+        // render que esta parte compara): os 23 RDebrisType vazios no RDebris::fgThis (0x334a00).
+        {
+            const uint32_t rd = e.alloc(0x60);
+            for (uint32_t i = 0; i < 23; ++i) e.m.write32(rd + i * 4, e.alloc(0xe00));
+            e.m.write32(0x334a00, rd);
+            drv::RDebris_Reset(drv::debris());
+        }
         drv::GfxGallery& pg = *drv::gfx_gallery();
         g_port_pool = &pool;
         g_port_pool_used = 0;

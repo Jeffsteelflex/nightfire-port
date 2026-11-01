@@ -94,6 +94,13 @@ UData* UGroup_DataLocateTag(const UGroup* g, uint32_t tag) {
     return p;
 }
 
+uint32_t UGroup_DataCountType(const UGroup* g, uint32_t tag) {
+    uint32_t n = 0;
+    for (const UData* p = UGroup_GroupEnd(g); p != UGroup_DataEnd(g); ++p)
+        if (UData_MatchTag(p) == tag) ++n;
+    return n;
+}
+
 UData* UGroup_DataLocateFirst(const UGroup* g, uint32_t tag, int32_t index, int32_t max) {
     UData* found = UGroup_GroupEnd(g);
     if (index == -1) {

@@ -61,6 +61,11 @@ float cam_sin_turns(float t) {
     return VU0_Sin(t);
 }
 
+float cam_cos_turns(float t) {
+    if (ee::lt(t, 0.0f)) t = ee::add(t, 1.0f);
+    return VU0_Cos(t);
+}
+
 float cam_tan_turns(float t) {
     if (ee::lt(t, 0.0f)) t = ee::add(t, 1.0f);
     return nf::fm::tan(ee::mul(t, fb(0x40c90fdbu)));

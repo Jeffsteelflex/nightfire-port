@@ -49,6 +49,7 @@ struct Simulation {
     // multimapa pelo tipo do objeto, os iguais na ordem em que entraram).
     uint32_t simple_seq[kSimpleBodySlots] = {};
     uint32_t next_seq = 1;
+    int32_t prev_state = 0;                   // +0xdb0 o estado antes da pausa (PauseSimState)
     int32_t state = 0;                        // +0xdb4 3 = simulação parada
     int32_t frame_rate = 60;                  // +0xdbc
     float dt = 0;                             // +0xdc0 1 / frame_rate

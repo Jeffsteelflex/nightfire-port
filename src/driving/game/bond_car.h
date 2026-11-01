@@ -30,6 +30,7 @@
 #include "driving/game/feedback.h"
 #include "driving/physics/rigid_body.h"
 #include "driving/physics/world.h"
+#include "driving/sound/audio.h"
 #include "platform/ptr32.h"
 
 namespace drv {
@@ -460,6 +461,16 @@ class AttributeCollection;
 // corpo (nulo sem vaga).
 RigidBody* PBondCar_Construct(BondCar& car, int car_class, const std::string& car_type, const CarDesc& desc,
                               const AttributeCollection& attrs, const float direction[3], const float position[3]);
+// [driving] 0x00186878 PBondCar::InitAudioObject(CarClass): os números das chaves SFX_* e, nas classes 2 e 4, o
+// SimRandom da afinação (sempre: é parte da simulação); o objeto de som (driving/sound/audio.h) se o som está ligado.
+void PBondCar_InitAudioObject(BondCar& car, int32_t car_class, const AttributeCollection& attrs);
+// A leitura das chaves e o sorteio (a parte que a parte 25 do nf_driving_check confere: as buscas pelas funções).
+void PBondCar_ReadAudioParams(AudioCarObjectParams& p, int32_t car_class,
+                              const std::function<bool(const char*, std::string&)>& str,
+                              const std::function<float(const char*)>& flt,
+                              const std::function<int32_t(const char*)>& integer);
+// O objeto de som de um carro que já existia quando o som ligou (port: o nf_driving liga o som depois da pista).
+void PBondCar_CreateAudioObject(BondCar& car);
 // [driving] 0x002104a8 Util_Step(float cur, float target, float step)
 float Util_Step(float cur, float target, float step);
 
@@ -512,6 +523,8 @@ public:
     }
     float lookup_float(const char* key) override;
     WWorldPos* world_pos() override { return &d.world_pos; }
+    // [driving] 0x00192ff0 (+0x6c) PBondCar::GetResetAvailable: o contador do capotamento (seção 30: a câmera Tumble).
+    int32_t reset_available() override { return d.reset_available; }
     int32_t virtual_18c() override { return d.num_wheels_on_ground; }  // GetNumWheelsOnGround
     int32_t virtual_23c() override { return int32_t(d.was_in_air); }   // GetWasInAir
     void virtual_244(int32_t value) override { d.was_in_air = uint32_t(value); }  // SetWasInAir
@@ -533,6 +546,9 @@ public:
     bool is_police = false;
     bool is_heli = false;
     bool has_siren = false;
+    // O que o PBondCar::InitAudioObject leu e sorteou (o objeto de som das classes 1 a 4 sai dele: com o som ligado
+    // na construção, ou depois, pelo PBondCar_CreateAudioObject, quando o som liga com o carro já na rua).
+    AudioCarObjectParams audio_params;
     // AttributeSet::LookupBool das chaves que a IA dos elementos pergunta (lidas na construção; ausente: falso).
     std::map<std::string, bool> ai_bools;
     // AttributeSet::LookupVector("TURRET_RANGE") (o TurnTurret dos motoristas: os dois intervalos de ângulo da torre,

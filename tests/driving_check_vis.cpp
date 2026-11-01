@@ -75,6 +75,7 @@ constexpr uint32_t kFnGetNextPoint = 0x21f2b8, kFnSetCull = 0x21f570, kFnCopyPas
 constexpr uint32_t kFnIntrosort = 0x2207c0, kFnFinalInsertion = 0x220b10, kCmpInstance = 0x220bc0, kCmpDistance = 0x220bd0;
 constexpr uint32_t kFnAtan2f = 0x2c0618, kFnUploadMicrocode = 0x2cc3f0, kFnSinf = 0x2bfc38, kFnCosf = 0x2bfa48;
 constexpr uint32_t kFnTimeUpdate = 0x1d1ef8, kFnLightDirections = 0x1b0038;
+constexpr uint32_t kFnSetMapNode = 0x1c8cf8;
 constexpr uint32_t kFnSceneObjCtor = 0x1c7098, kFnPathHandle = 0x1b20c8, kFnPrepareSceneObjs = 0x1c80f0;
 constexpr uint32_t kFnNextSceneObj = 0x1c8130, kFnSetSceneObjCull = 0x1c8490;
 constexpr uint32_t kFnMemset = 0x2a8038;
@@ -666,10 +667,21 @@ void check_tracks(VisEmu& e, const nf::DiscSource& disc, int frames, uint32_t se
             for (size_t i = 0; i < objs.size(); ++i) {
                 ++scene.cases;
                 e.call(kFnSceneObjCtor, {kSceneObjs + 0x40u * uint32_t(i), inst_emu(objs[i].instance)});
+                // Seção 34: o WWorld::Open chama o UseArticle logo depois do construtor (a parte 29 o confere); o que ele
+                // faz com a árvore (o SetMapNode da raiz, com a bandeira 8 da instância) vem do original aqui, na mesma
+                // ordem.
+                if (objs[i].flags & 0x04000000u) e.call(kFnSetMapNode, {kSceneObjs + 0x40u * uint32_t(i), tc.root_emu});
             }
             for (size_t i = 0; i < objs.size(); ++i) {
                 drv::RSceneObj eo, po = objs[i];
                 e.get(kSceneObjs + 0x40u * uint32_t(i), &eo, 0x40);
+                // Os campos que o UseArticle grava (o 'pD', as bandeiras 25-27 e a variante, o Handle, o nome; a parte 29
+                // os confere contra o original) vão do porte para o emulado, que o corte abaixo lê.
+                eo.unknown0c = po.unknown0c;
+                eo.flags = (eo.flags & ~0x0e00ff00u) | (po.flags & 0x0e00ff00u);
+                eo.article = po.article;
+                std::memcpy(eo.unknown30, po.unknown30, sizeof eo.unknown30);
+                e.put(kSceneObjs + 0x40u * uint32_t(i), &eo, 0x40);
                 po.next = obj_emu(po.next);
                 po.prev = obj_emu(po.prev);
                 po.instance = inst_emu(po.instance);

@@ -29,8 +29,9 @@ uint32_t SimRandom_Generate(SimRandom& r);
 SimRandom& sim_random();
 
 // O gerador do render (RRandom, 0x333e60 a semente e 0x333e64 o multiplicador): a mesma conta do SimRandom, sem contador.
-// O PS2 o gasta nos efeitos (partículas, clarões, destroços, raios, o dano visual) e no EFireRandomTrigger; o port, só
-// no EFireRandomTrigger (driving/game/triggers.h), então a sequência difere da do PS2 depois do primeiro efeito.
+// O PS2 o gasta nos efeitos (partículas, destroços, raios, o dano visual, os riscos dos mísseis) e no
+// EFireRandomTrigger (driving/game/triggers.h); o port também, desde as seções 25 e 29 (os clarões têm o gerador do
+// GSystem, driving/fx/glare.h).
 struct RRandom {
     uint32_t seed;        // 0x333e60
     uint32_t multiplier;  // 0x333e64

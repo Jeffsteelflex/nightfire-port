@@ -732,6 +732,7 @@ bool effects_event_execute(const PendingEvent& e) {
         return true;
     case 9:
     case 36:
+    case 39:
     case 130:
     case 173:
     case 196:
@@ -740,7 +741,8 @@ bool effects_event_execute(const PendingEvent& e) {
     case 253:
     case 257:
     case 279:
-        // Os eventos de efeito (driving/fx/fx_events.h): 9, 196, 250 e 257 executados; os outros só contados.
+        // Os eventos de efeito (driving/fx/fx_events.h): todos executados (36, 39, 130, 173, 252, 253 e 279 desde a seção
+        // 32).
         g_stats.other_events.push_back(e.type);
         return fx_event_execute(e);
     default:

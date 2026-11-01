@@ -3,13 +3,15 @@
 //
 // Divergências (port), além das do cabeçalho:
 //  - o mixador do IOP (MIX_*/SFILTER_* do módulo: as vozes de modo de render 0x100, amostras EA-XA na memória do IOP)
-//    não está portado: ele não mistura voz nenhuma e devolve silêncio, como o original sem vozes, e cada tick com uma voz
-//    do IOP pedida conta em snddrv_guards(). No disco são 249 timbres (os bancos h* dos personagens: os gritos e quedas
-//    dos capangas e do Bond; os a* do ambiente e 3 de cada g*: na Paris o SFX_OffRN e o SFX_OffRoadSkid do carro, mudos
-//    fora do asfalto); os outros 1.219 vão à SPU2;
+//    está em driving/sound/iop_mix.h, com as divergências dele (o reverb do mixador, que o jogo deixa desligado, e os
+//    formatos que não são EA-XA). No disco são 249 timbres no IOP (os bancos h* dos personagens: os gritos e quedas dos
+//    capangas e do Bond; os a* do ambiente e 3 de cada g*: na Paris o SFX_OffRN e o SFX_OffRoadSkid do carro fora do
+//    asfalto); os outros 1.219 vão à SPU2;
 //  - a memória do IOP (o SNDMEMI do módulo) são vetores daqui.
 
 #include "driving/sound/snddrv_iop.h"
+
+#include "driving/sound/iop_mix.h"
 
 #include <algorithm>
 #include <cstring>
@@ -85,8 +87,10 @@ struct Iop {
     IopVoice prev[48];            // 0x0000b5a8
     uint8_t ramping[96] = {};     // 0x0000b998
     uint8_t mix_on[16] = {};      // 0x0000b988
+    uint8_t iop_prev[16][0x10] = {};  // 0x0000b728 as vozes do mixador no tick anterior (a cópia da tagbuf +0x1a0)
     std::vector<int16_t> out;     // o buffer da transferência em laço (0x0000ba20)
     std::vector<int32_t> mix;     // as saídas do mixador do IOP (0x0000ba18: 0x800 bytes cada)
+    int32_t* mix_out[5] = {};     // 0x0000ba00 (com o modo 1, 0x0000ba04 a cópia do canal único)
     std::vector<uint8_t> tag;     // a cópia da tagbuf (0x0000e624)
     // A fila das transferências (0x00011250..)
     int32_t dma_id = 0;
@@ -341,14 +345,88 @@ void SNDIOP_checkspueffect(const uint8_t* p) {
     }
 }
 
-// [snddrv] 0x00007c2c SNDIOP_setiopvoicevol / 0x00007cf4 SNDIOP_updateiopvoices: as vozes do mixador do IOP.
+// [snddrv] 0x00007188 SNDIOP_mixvoicefree: o mixador avisa que a voz acabou (o MIXI_stop).
+void SNDIOP_mixvoicefree(int32_t v) {
+    g_iop.mix_on[v] = 0;
+    g_iop.ioptoee[0x34 + v] = 0xffffffffu;
+}
+
+// [snddrv] 0x00007c2c SNDIOP_setiopvoicevol: o volume de cada saída (com sinal: x 0x102, ou << 8 se negativo).
+void SNDIOP_setiopvoicevol(int v) {
+    if (g_iop.mix_on[v] == 0) return;
+    const int n = g_iop.outputs + g_iop.extra;
+    for (int k = 0; k < n; ++k) {
+        int32_t g = int8_t(g_iop.iop_prev[v][6 + k]);
+        g = g < 0 ? int32_t(uint32_t(g) << 8) : g * 0x102;
+        IopMix_setdrygain(v, k, g);
+    }
+}
+
+// [snddrv] 0x00007cf4 SNDIOP_updateiopvoices: as vozes do mixador do IOP (0x10 bytes cada na tagbuf +0x1a0: o
+// endereço do cabeçalho da amostra, o pitch, os volumes por saída, o do reverb).
 void SNDIOP_updateiopvoices(const uint8_t* p) {
-    if (p[0x13] != g_iop.quality) g_iop.quality = p[0x13];  // MIX_setresamplequality
+    if (p[0x13] != g_iop.quality) {
+        g_iop.quality = p[0x13];
+        IopMix_setresamplequality(p[0x13]);
+    }
     for (int k = 0; k < g_iop.iop_voices; ++k) {
         const uint8_t* e = p + 0x1a0 + k * 0x10;
-        const uint32_t addr = rd32(e) & 0x7fffff;
-        if (addr != 0 && g_iop.mix_on[k] == 0) ++g_iop.guards;  // uma voz do IOP pedida: não portada
-        g_iop.ioptoee[0x34 + k] = g_iop.mix_on[k] != 0 ? 0 : 0xffffffffu;
+        uint8_t* prev = g_iop.iop_prev[k];
+        uint32_t& frame = g_iop.ioptoee[0x34 + k];
+        if (rd16(e + 4) != rd16(prev + 4)) {
+            std::memcpy(prev + 4, e + 4, 2);
+            if (g_iop.mix_on[k] != 0) IopMix_setpitch(k, int32_t(uint32_t(rd16(e + 4)) << 4));
+        }
+        bool vol = false;
+        for (int i = 0; i < g_iop.outputs + g_iop.extra; ++i) {
+            if (e[6 + i] != prev[6 + i]) {
+                prev[6 + i] = e[6 + i];
+                vol = true;
+            }
+        }
+        if (vol) SNDIOP_setiopvoicevol(k);
+        if (e[0xc] != prev[0xc]) {
+            prev[0xc] = e[0xc];
+            if (g_iop.mix_on[k] != 0) IopMix_setwetgain(k, 0, int32_t(uint32_t(int32_t(int8_t(e[0xc]))) << 8));
+        }
+        const uint32_t word = rd32(e);
+        if (word != rd32(prev)) {
+            const uint32_t addr = word & 0x7fffff;
+            std::memcpy(prev, e, 4);
+            if (addr != 0) {
+                if (g_iop.mix_on[k] != 0) {
+                    IopMix_stop(k);
+                    g_iop.mix_on[k] = 0;
+                }
+                // O cabeçalho da amostra: o formato no byte +1, o começo e o fim do laço em +4 e +8, a contagem em +0xc,
+                // os dados em +0x10.
+                const uint8_t* h = snddrv_iop_ram(addr, 0x10);
+                if (h != nullptr) {
+                    const uint8_t* ram_end = g_iop.ram.data() + g_iop.ram.size();
+                    IopMix_playinit(k, h[1], 1, h + 0x10, ram_end, int32_t(rd32(h + 0xc)), int32_t(rd32(h + 4)),
+                                    int32_t(rd32(h + 8)), 0);
+                } else {
+                    ++g_iop.guards;  // port: um cabeçalho fora da memória do IOP (o PS2 leria o que houvesse lá)
+                    IopMix_playinit(k, 0, 1, nullptr, nullptr, 0, 0, 0, 0);
+                }
+                g_iop.mix_on[k] = 1;
+                frame = 0;
+                IopMix_setpitch(k, int32_t(uint32_t(rd16(prev + 4)) << 4));
+                SNDIOP_setiopvoicevol(k);
+                IopMix_setwetgain(k, 0, int32_t(uint32_t(int32_t(int8_t(prev[0xc]))) << 8));
+                IopMix_play(k);
+            } else if (g_iop.mix_on[k] != 0) {
+                IopMix_stop(k);
+                g_iop.mix_on[k] = 0;
+                frame = 0xffffffffu;
+            } else {
+                continue;  // (o original passa direto à próxima voz: o quadro fica)
+            }
+        }
+        if (g_iop.mix_on[k] != 0) {
+            const int32_t f = IopMix_getframe(k);
+            frame = f < 0 ? 0 : uint32_t(f);
+        }
     }
 }
 
@@ -446,7 +524,9 @@ void SNDIOP_mix(const uint8_t* tag, uint32_t* at) {
     const uint32_t size_at = *at;
     *at += 0xc;
     int16_t* half = g_iop.out.data() + (1 - g_iop.half) * (g_iop.out_size >> 2) / 2;
-    // MIX_audioslice do mixador do IOP: sem vozes, os acumuladores ficam em zero.
+    IopMix_audioslice(g_iop.mix_out, g_iop.iop_frames);
+    if (g_iop.outputs == 1)
+        std::memcpy(g_iop.mix_out[1], g_iop.mix_out[0], size_t(g_iop.iop_frames) * 4);  // SNDI_memcpy
     if (g_iop.ee_rate == 48000 && g_iop.iop_rate == 48000 && g_iop.outputs < 4) {
         SNDIOP_ee48_iop48(tag + *at, half);
     } else {
@@ -492,6 +572,10 @@ void SNDIOP_init() {
         g_iop.ioptoee[0x34 + i] = 0xffffffffu;
         g_iop.mix_on[i] = 0;
     }
+    for (int k = 0; k < 5; ++k) g_iop.mix_out[k] = nullptr;
+    for (int k = 0; k < g_iop.outputs + g_iop.extra && k < 4; ++k) g_iop.mix_out[k] = g_iop.mix.data() + k * 0x200;
+    if (g_iop.outputs == 1) g_iop.mix_out[1] = g_iop.mix.data() + 0x200;
+    IopMix_create(g_iop.iop_rate, g_iop.iop_voices, g_iop.outputs + g_iop.extra, SNDIOP_mixvoicefree);
     SndLibsd* sd = g_iop.sd;
     sd->Init(0);
     for (int core = 0; core < 2; ++core) {
@@ -641,8 +725,10 @@ void snddrv_iop_rpc(int32_t fn, const uint8_t* data, int32_t size) {
         SNDIOP_init();
         return;
     }
-    // fn 2: o reverb do mixador do IOP (SNDMIXI_initfx2: o descritor que o SNDDRV_setiopfx manda). O mixador do IOP
-    // não está portado (o cabeçalho), então o reverb dele também não: só fica registrado.
+    // fn 2: o reverb do mixador do IOP (o descritor que o SNDDRV_setiopfx manda). Com 4 bytes o MIX_restorereverb
+    // (0x00004b5c: o reverb desligado, o que o jogo manda: o modo 0 do barramento do IOP); os outros o
+    // MIX_initreverb (0x0000485c), não portado (driving/sound/iop_mix.h).
+    if (fn == 2 && size != 4) ++g_iop.guards;
 }
 
 // [snddrv] 0x000093f0 SNDIOP_cmdhandler

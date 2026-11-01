@@ -127,6 +127,7 @@ bool NoCaseLess::operator()(const std::string& a, const std::string& b) const {
 }
 
 std::list<ABaseSound*>& sound_list() { return A().sounds; }
+float& sound_time() { return A().time; }
 int32_t& sound_count() { return A().count; }
 int32_t TIMER_gettick() { return A().timer; }
 void audio_set_timer(int32_t ticks) { A().timer = ticks; }
@@ -136,6 +137,13 @@ void audio_set_timer(int32_t ticks) { A().timer = ticks; }
 // o bltz do rrandom (o caminho sem sinal: srl 1 | o bit de baixo, cvt.s.w, add.s) nunca salta e o cvt.s.w lê a palavra
 // COM sinal: o resultado fica em [-0,5, 0,5), não em [0, 1) (o nf_driving_check, parte 13, o confere no interpretador).
 float rrandom() {
+    const uint32_t w = random_word();
+    // (v0 = r[0] estendido sem sinal: nunca negativo em 64 bits; mtc1 leva os 32 bits de baixo ao cvt.s.w)
+    return ee::mul(ee::cvt_s(int32_t(w)), ps2::ffloat(0x2f800000u));
+}
+
+// [driving] 0x0025a5ac random: as seis palavras somadas em cascata; devolve a primeira (estendida sem sinal).
+uint32_t random_word() {
     uint32_t* r = A().rnd;
     const uint32_t s5 = r[5], s4 = r[4], s3 = r[3], s2 = r[2], s1 = r[1];
     const uint32_t u1 = s5 + s4;
@@ -162,14 +170,23 @@ float rrandom() {
             }
         }
     }
-    // (v0 = r[0] estendido sem sinal: nunca negativo em 64 bits; mtc1 leva os 32 bits de baixo ao cvt.s.w)
-    return ee::mul(ee::cvt_s(int32_t(r[0])), ps2::ffloat(0x2f800000u));
+    return r[0];
 }
 
 // ---- AMix ----------------------------------------------------------------------------------------------------------
 
+namespace {
+AMix* mix_add(const char* name);
+}
+
 // [driving] 0x002f2d50 AMix::Add(char *)
 AMix* AMix_Add(const char* name) {
+    if (AudioTrace* t = audio_trace()) t->line("add %s", name);
+    return mix_add(name);
+}
+
+namespace {
+AMix* mix_add(const char* name) {
     auto& m = A().mixes;
     auto it = m.find(name);
     if (it == m.end()) {
@@ -179,14 +196,16 @@ AMix* AMix_Add(const char* name) {
     ++it->second->refs;  // URefCounter<AMix>::AddReference
     return it->second.get();
 }
+}  // namespace
 
 // [driving] 0x002f2dc8 AMix::Get(char *): sem a mixagem no .ini, avisa e a cria.
 AMix* AMix_Get(const char* name) {
+    if (AudioTrace* t = audio_trace()) t->line("get %s", name);
     auto& m = A().mixes;
     auto it = m.find(name);
     if (it != m.end()) return it->second.get();
     // printf("WARNING: Mix not found in INI file... manually adding %s")
-    return AMix_Add(name);
+    return mix_add(name);
 }
 
 // [driving] 0x002f2e18 AMix::Remove: uma referência a menos (a mixagem fica no mapa: URefCounter só apaga com 0, e
@@ -218,6 +237,13 @@ float AMix_GetVolume(AMix* m) {
     return r;
 }
 
+void audio_mix_force(const char* name, float volume) {
+    if (!A().ready) return;
+    AMix* m = AMix_Get(name);
+    m->saved = m->volume;
+    m->volume = volume;
+}
+
 // [driving] 0x002f3360 AMix::SetMaster(char *)
 void AMix_SetMaster(AMix* m, const char* name) {
     if (m->master != nullptr) AMix_Remove(m->master);  // ClearMaster
@@ -226,6 +252,15 @@ void AMix_SetMaster(AMix* m, const char* name) {
 
 // [driving] 0x002f3450 AMix::Reset(int): cada mixagem do .ini volta ao volume do .ini em ticks quadros.
 void AMix_Reset(int32_t ticks) {
+    if (AudioTrace* tr = audio_trace()) {
+        tr->line("reset %d", int(ticks));
+        AudioTrace* saved = tr;
+        audio_trace() = nullptr;  // (as transições de dentro não são registradas: o original fica com o gancho)
+        const int32_t t = 0 < ticks ? ticks : 1;
+        for (AMix* m : A().mix_list) AMix_SetTransition(m->initial, m, t);
+        audio_trace() = saved;
+        return;
+    }
     const int32_t t = 0 < ticks ? ticks : 1;
     for (AMix* m : A().mix_list) AMix_SetTransition(m->initial, m, t);
 }
@@ -235,6 +270,8 @@ float AMix_GetPresetVolume(AMix* m) { return m->initial; }
 
 // [driving] 0x002f33a0 AMix::SetTransition(float, int)
 void AMix_SetTransition(float to, AMix* m, int32_t ticks) {
+    if (AudioTrace* t = audio_trace())
+        t->line("trans %s %08x %d", audio_mix_name(m).c_str(), unsigned(ps2::fbits(to)), int(ticks));
     if (ee::lt(to, 0.0f)) to = 0.0f;
     else if (ee::lt(1.0f, to)) to = 1.0f;
     m->transition = 1;
@@ -612,7 +649,10 @@ void audio_vehicle_forget();
 void audio_shutdown() {
     Audio& a = A();
     audio_streams_destroy();
+    world_sound_group().Clear();
     while (!a.sounds.empty()) a.sounds.front()->destroy();
+    for (AVoice* v : world_leaked_voices()) delete v;
+    world_leaked_voices().clear();
     audio_vehicle_forget();
     if (a.ready) {
         for (auto& b : a.banks)
@@ -683,7 +723,7 @@ static void ASoundManager_BuildPaths(AListener& l) {
 void audio_update(const AudioListenerInput& in) {
     Audio& a = A();
     if (!a.ready) return;
-    // (WSoundGroup::Update dos sons do mundo: não portado)
+    world_sound_group().Update();  // WSoundGroup::Update (o WWorld +0x38): os WSound::Update, vazios
     // AListener(MATRIX4 &, COORD3 &, AView) 0x002f4e00 com a matriz da câmera e a vista 2.
     AListener l;
     const float(&m)[4][4] = in.matrix;
@@ -742,6 +782,8 @@ AudioInternals audio_internals() {
     r.mixes = &A().mixes;
     r.mix_list = &A().mix_list;
     r.categories = A().categories;
+    r.banks = &A().banks;
+    r.empty = &A().empty;
     audio_vehicle_internals(r);
     return r;
 }

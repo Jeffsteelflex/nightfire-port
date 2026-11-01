@@ -12,8 +12,13 @@
 // passos ele dorme (GoToSleep: o gatilho vai para onde o objeto ficou e volta a valer; o objeto sai do mapa da
 // Simulation e é apagado no começo do próximo ESimFrameUpdate, quando a instância fica na última pose do corpo).
 //
+// O som é o ASmackable (driving/sound/audio_internal.h, seção 31): o choque e o rolar; o Simulate lhe passa a posição e
+// a velocidade do corpo e não deixa o objeto dormir enquanto a voz do choque toca (IsStillActive). Em Paris os timbres
+// da "PhysicsData" são -1 (o PS2 os resolve na carga da pista, antes do ASoundManager::Init carregar os bancos), então
+// o ASmackable fica mudo e nunca segura o objeto acordado.
+//
 // Portado do MIPS do PS2 (a verdade); o nightfire-cxbx (NightfireResearch, a versão de Xbox) deu os nomes. Ficam de fora
-// (contados em smackable_stats()): o som (o ASmackable), as animações de estímulo do RAnimEngine e o TriggerFX do render
+// (contados em smackable_stats()): as animações de estímulo do RAnimEngine e o TriggerFX do render
 // que o ApplyDamage pede (os pedaços que se soltam, as faíscas), o objeto jogado (o ramo Newton do EWakeupSmackable, o bit
 // 6 do byte +5), os raios das armas (o ramo do RayShell e a força do ApplyDamage de tipo 2) e a lista dinâmica da grade
 // (o WGrid::AddGridNodeDynamicElement do gatilho que o GoToSleep move: o port não o acha de novo).
@@ -41,7 +46,7 @@ struct SmackableData {
     uint16_t flags;           // +0x44 bit 0: corpo simples (0: rígido)
     int16_t slot;             // +0x46 a vaga do corpo
     uint32_t render;          // +0x48 (p32 RSceneObj)
-    uint32_t actor;           // +0x4c
+    uint32_t audio_object;    // +0x4c o objeto de som (PhysicsObject::SetAudioObject: o ASmackable; port: o P32 dele)
     uint32_t feedback;        // +0x50
     uint32_t hit_point_loc;   // +0x54 (p32 float) a vida
     uint32_t unknown58;
@@ -55,7 +60,7 @@ struct SmackableData {
     uint32_t params;          // +0x78 (p32 SmackablePhysicsData)
     uint32_t trigger;         // +0x7c (p32 WTrigger)
     uint32_t proc_anim;       // +0x80 (p32) o registro do 'ps  ' da instância (o byte +4: o dano)
-    uint32_t audio;           // +0x84 o ASmackable (port: 0)
+    uint32_t audio;           // +0x84 o ASmackable (o P32 do driving/sound/audio.h; 0 sem o som ligado)
 };
 static_assert(sizeof(SmackableData) == 0x48, "Smackable (+0x40..+0x88)");
 
@@ -90,6 +95,9 @@ public:
 // corpo (nulo sem vaga: o PS2 escreveria fora do vetor).
 RigidBody* Smackable_Construct(Smackable& s, RSceneObj& scene, WTrigger* trigger, const float velocity[3],
                                uint32_t sleep_delay);
+// O fim do Smackable::Simulate (0x0019e718): com o corpo parado (estado diferente de 2), sem animação e sem a voz do
+// choque, o atraso desce ou, já zero, o objeto dorme (verdadeiro: o GoToSleep).
+bool Smackable_SleepStep(SmackableData& d, int32_t body_state, bool anim_playing, bool sound_active);
 // [driving] 0x0019e610 Smackable::GoToSleep
 void Smackable_GoToSleep(Smackable& s);
 

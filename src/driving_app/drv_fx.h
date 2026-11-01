@@ -15,7 +15,11 @@
 #include <string>
 #include <vector>
 
+#include "driving/fx/bullet_streak.h"
+#include "driving/fx/debris.h"
+#include "driving/fx/glare.h"
 #include "driving/fx/missile_fx.h"
+#include "driving/track.h"
 
 namespace nf {
 class DiscSource;
@@ -35,8 +39,11 @@ struct DrvFxApp {
     // O passo dos efeitos (o DrawEffects): `step` o passo da simulação (um só por passo), a matriz da câmera (as linhas
     // do RCamera: 2 a frente, 3 o olho) e a vista.
     void update(uint32_t step, const float camera[16], const float view[16]);
-    // Os lotes do quadro na cena (o fov do RCamera em graus, o aspecto da janela).
-    void push(drv::DrvScene& scene, float fov, float aspect);
+    // Os lotes do quadro na cena (o fov do RCamera em graus, o aspecto da janela). Seção 29: com a pista e as
+    // instâncias desenhadas, os clarões das lâmpadas do mundo (o DrawGroupDrawEffects de cada uma, e um DrawGlares só
+    // deles: o PS2 os junta aos da galeria no mesmo quadro).
+    void push(drv::DrvScene& scene, float fov, float aspect, const drv::Track* track = nullptr,
+              const std::vector<drv::Track::Draw>* draws = nullptr, const float camera[16] = nullptr);
     std::string report() const;
     std::string extra_report() const;
     // Depuração (--play-effect NOME@s[@m]): o efeito da galeria disparado no segundo s, m metros (padrão 15) à frente da
@@ -53,8 +60,33 @@ struct DrvFxApp {
     // Os rastros dos mísseis do último quadro (o Missile::Render), para o push.
     std::vector<drv::StreakStrip> streaks;
     int decal_types = 0;  // os tipos lidos do decal.dat (0 sem ele)
+    // Seção 29: a pista (o nome dos .tun), os desenhos do RBulletStreak e os clarões do último passo.
+    std::string track;
+    const nf::DiscSource* disc = nullptr;  // o DRIVING.ELF: os modelos dos destroços (nulo: sem destroços)
+    std::vector<drv::DebrisGeometry> debris_geo;
+    std::vector<drv::DebrisDraw> debris_draws;
+    bool have_fx_tun = false, have_glare_tun = false;
+    std::vector<drv::VolatileDraw> volatile_draws;
+    drv::GlareDrawList glare_list, world_glare_list;
+    float glare_control_y = 66.0f / (60.0f * 4.0f);
+    uint64_t world_glare_instances = 0;
+    std::string rest_report() const;
     // As luzes pontuais que o quadro desenha (as publicadas no fim do anterior; o FinishLights fecha o quadro no update).
     drv::PositionalLightBlock frame_lights{};
+    // Seção 32: os carros desenhados neste quadro (o RVehicle e a matriz do objeto: o RVehicle::RenderFX de cada um, com
+    // os clarões dos canos e os efeitos das instâncias, antes do DrawGlares) e os desenhos com matriz que o nf_driving
+    // junta (os clarões das armas dos atores); o push os consome.
+    struct FrameCar {
+        uint32_t vehicle = 0;  // (p32 RVehicleData)
+        float transform[4][4] = {};
+    };
+    std::vector<FrameCar> frame_cars;
+    // Seção 34: os objetos de cena do mundo desenhados pelas cópias do Handle (o RenderEffects do RSceneObj::Render).
+    std::vector<uint32_t> frame_scene_objs;
+    uint64_t scene_obj_fx_frames = 0;
+    std::vector<drv::VolatileDraw> frame_volatile;
+    uint64_t car_fx_frames = 0, flash_draws = 0;
+    std::string section32_report() const;
 };
 
 // O --check do nf_driving (docs/driving.md seção 25): a galeria e os tipos de partícula carregam, os efeitos andam; com

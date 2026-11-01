@@ -10,6 +10,8 @@
 
 #include "driving/game/bond_car.h"
 
+#include "driving/fx/scene_fx.h"
+
 #include <cctype>
 
 #include <cstdlib>
@@ -1288,9 +1290,52 @@ float CarDesc_RenderOffset(const CarDesc& d) {
     return ee::add(f1, ee::sub(f1, h));
 }
 
+// [driving] 0x00186878 PBondCar::InitAudioObject(CarClass)
+void PBondCar_InitAudioObject(BondCar& car, int32_t car_class, const AttributeCollection& attrs) {
+    PBondCar_ReadAudioParams(
+        car.audio_params, car_class, [&attrs](const char* k, std::string& v) { return attrs.find(k, v); },
+        [&attrs](const char* k) { return attrs.lookup_float(k); }, [&attrs](const char* k) { return attrs.lookup_int(k); });
+    // (a classe 0, o carro do jogador, é o audio_create_player_car do nf_driving)
+    if (car_class != 0) PBondCar_CreateAudioObject(car);
+}
+
+void PBondCar_ReadAudioParams(AudioCarObjectParams& p, int32_t car_class,
+                              const std::function<bool(const char*, std::string&)>& str,
+                              const std::function<float(const char*)>& flt,
+                              const std::function<int32_t(const char*)>& integer) {
+    p.car_class = car_class;
+    p.engine.clear();
+    str("SFX_ENGINE", p.engine);
+    p.volume = flt("SFX_VOLUME");
+    p.has_siren = int16_t(integer("HAS_SIREN")) != 0;
+    p.is_heli = int16_t(integer("IS_HELI")) != 0;
+    p.skid_multiple = flt("SFX_SKIDMULTIPLE");
+    p.is_flying = int16_t(integer("IS_FLYING")) != 0;
+    p.pitch_offset = 0.0f;
+    p.horn.clear();
+    p.horn_pitch = 0.0f;
+    if (car_class == 2 || car_class == 4) {
+        // A afinação dos inimigos: SimRandom x 0,2 x 2^-16 (no AHelicopter o +0x344, no ATrafficVehicle o +0x238).
+        const int32_t r = int32_t(SimRandom_Generate(sim_random()));
+        p.pitch_offset = ee::mul(ee::mul(ee::cvt_s(r), ps2::ffloat(0x3e4ccccdu)), ps2::ffloat(0x37800000u));
+    } else if (car_class != 0) {
+        str("SFX_HORN", p.horn);  // AVehicle::ChooseHorn com o SFX_HORNPITCH
+        p.horn_pitch = flt("SFX_HORNPITCH");
+    }
+}
+
+void PBondCar_CreateAudioObject(BondCar& car) {
+    if (car.d.audio != 0 || car.audio_params.car_class == 0) return;
+    car.d.audio = audio_create_car_object(car.audio_params);  // PhysicsObject::SetAudioObject
+}
+
 // [driving] 0x00186fb0 PBondCar::~PBondCar, a parte da mira (o resto, a fila de ações e as rodas, é do port): o alvo
-// sai do WTargetPicker, vira do tipo 0 e perde a referência do carro.
+// sai do WTargetPicker, vira do tipo 0 e perde a referência do carro; o objeto de som apagado.
 BondCar::~BondCar() {
+    if (d.audio != 0) {
+        audio_delete_car_object(d.audio);
+        d.audio = 0;
+    }
     if (d.target_beacon != 0) {
         WTargetPicker_UnregisterTarget(d.target_beacon);
         nf::p32_ptr<WTargetableData>(d.target_beacon)->kind = 0;
@@ -1416,6 +1461,8 @@ RigidBody* PBondCar_Construct(BondCar& car, int car_class, const std::string& ca
     c.target_beacon = 0;
     if (car_class == 0 || car_class == 2) c.target_beacon = WTargetable_NewObject(&car);
     if (car_class == 2) WTargetPicker_RegisterTarget(c.target_beacon);
+    // O som (0x00186878 InitAudioObject): o sorteio da afinação das classes 2 e 4 e o objeto das classes 1 a 4.
+    PBondCar_InitAudioObject(car, car_class, attrs);
     // O carro do jogador: a vibração (o IFeedback da porta do controle, o UberBond +0x990: 0 no port) e os faróis.
     if (car_class == 0) {
         IFeedback_Construct(car.feedback, 0);
@@ -1430,14 +1477,15 @@ RigidBody* PBondCar_Construct(BondCar& car, int car_class, const std::string& ca
 
 namespace {
 
-// O TriggerFX do render (a +0x84 da tabela virtual do RSceneObj de +0x48, com a intensidade -1 e as posições zero):
-// as lâmpadas pelo RVehicle; os efeitos contados.
+// O TriggerFX do render (a +0x84 da tabela virtual do RSceneObj de +0x48, com a intensidade -1 e as posições zero): o
+// RVehicle::TriggerFX inteiro (seção 32, driving/fx/scene_fx.h: as lâmpadas e os efeitos das instâncias pelo Handle).
 void render_fx(BondCar& car, int32_t type, uint32_t which) {
     if (!car.vehicle) {
         ++g_stats.guards;  // o PS2 sempre tem o render (o construtor o cria)
         return;
     }
-    if (!RVehicle_TriggerFX(*car.vehicle, type, int32_t(which))) ++car.render_fx;
+    if (type != 0xb && type != 0xc) ++car.render_fx;
+    SceneObj_TriggerFX(-1.0f, nf::p32_u(&car.vehicle->d), type, which, 0, nullptr, nullptr);
 }
 
 }  // namespace

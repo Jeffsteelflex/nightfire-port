@@ -9,6 +9,7 @@
 // GameLoop_StartUsingMainBigFile, 0x00175a28).
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -84,6 +85,12 @@ public:
     struct Draw {
         int instance = 0, part = -1, pass = 0;
         float distance = 0;
+        // Seção 34: uma cópia do RAnimEngine::Handle de um objeto de cena (RSceneObj::Render, driving/scene_article.h):
+        // `world` é a matriz dela no mundo (a da instância de origem não vale); `instance` continua a de origem.
+        bool own = false;
+        int render_flags = 0;  // o +0x1f do artigo da cópia (1: sem névoa)
+        uint32_t article = 0;  // (p32) o artigo da cópia
+        float world[16] = {};
     };
     // `lod_multiplier`: o multiplicador de LOD da vista (RViewCamera::RefreshLODMultiplier 0x001d44c8: um inteiro, (o
     // parâmetro +0xa4 da câmera / 33 / 400) x a largura da vista, truncado). Todos os artigos de Paris têm um LOD só,
@@ -105,6 +112,8 @@ public:
                                                // objetos de cena visíveis (a instância de origem, no lugar do modelo
                                                // próprio do RSceneObj, não portado)
         std::vector<Draw> scene_objects_last;  // RSceneObj::RenderAllDrawLast (com os carros)
+        std::vector<uint32_t> own_objects;     // seção 34: os RSceneObj (p32) desenhados pelas cópias do Handle (o
+                                               // RenderEffects de cada um vem depois)
         std::vector<Draw> pass1, pass0;   // depois dos carros, do longe para o perto
         int nodes = 0, curtains = 0, tested = 0, kept = 0;
     };
@@ -115,6 +124,11 @@ public:
     // Os objetos de cena (RSceneObj) do WWorld::Open.
     const std::vector<RSceneObj>& scene_objects() const { return scene_objs_; }
     std::vector<RSceneObj>& scene_objects() { return scene_objs_; }
+    // Seção 34: os desenhos de um objeto de cena com Handle (as cópias pelo RSceneObj::Render, com o LOD do artigo de
+    // cada uma); vazio sem Handle.
+    void object_draws(const RSceneObj& o, float lod_multiplier, std::vector<Draw>& out) const;
+    // O nome de um artigo (os do mundo e os das instâncias dos objetos de cena), ou vazio.
+    std::string article_name(uint32_t address) const;
     // Refaz a matriz em cache de uma instância a partir do registro do 'in  ' (um objeto de cena que a física moveu).
     void refresh_instance(int index);
     // As "PhysicsData" que o espaço "PHYS" deu na carga (port: as estruturas da classe "smackable" pelo nome).
@@ -139,6 +153,9 @@ private:
     float cull_eye_[3] = {0, 0, 0};
     std::vector<TrackInstance> instances_;
     std::vector<TrackArticle> articles_;
+    // Seção 34: os artigos das instâncias dos objetos de cena (as do 'in' do grupo do modelo, que nenhuma instância do
+    // mundo aponta), pelo endereço (p32): os LODs.
+    std::map<uint32_t, TrackArticle> object_articles_;
     TrackStats stats_;
     std::string name_, viv_;
 };

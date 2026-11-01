@@ -773,6 +773,22 @@ void MipsMachine::mmi(uint32_t addr, uint32_t w) {
                 out = make(word(b, 0), word(a, 0), word(b, 1), word(a, 1));
                 break;
             }
+            if (sa == 0x01) {  // PSUBW
+                out = make(word(a, 0) - word(b, 0), word(a, 1) - word(b, 1), word(a, 2) - word(b, 2),
+                           word(a, 3) - word(b, 3));
+                break;
+            }
+            if (sa == 0x09) {  // PSUBB: byte a byte, sem saturar (o strlen da newlib)
+                uint8_t x[16], y[16];
+                std::memcpy(x, &a.lo, 8);
+                std::memcpy(x + 8, &a.hi, 8);
+                std::memcpy(y, &b.lo, 8);
+                std::memcpy(y + 8, &b.hi, 8);
+                for (int i = 0; i < 16; ++i) x[i] = uint8_t(x[i] - y[i]);
+                std::memcpy(&out.lo, x, 8);
+                std::memcpy(&out.hi, x + 8, 8);
+                break;
+            }
             if (sa == 0x17 || sa == 0x1b) {  // PPACH, PPACB: as metades (ou os bytes) pares de rt e depois de rs
                 const bool bytes = sa == 0x1b;
                 uint8_t src[2][16], dst[16];
@@ -811,6 +827,14 @@ void MipsMachine::mmi(uint32_t addr, uint32_t w) {
         case 0x09:  // MMI2
             if (sa == 0x0e) {  // PCPYLD
                 out = {b.lo, a.lo};
+                break;
+            }
+            if (sa == 0x12) {  // PAND
+                out = {a.lo & b.lo, a.hi & b.hi};
+                break;
+            }
+            if (sa == 0x13) {  // PXOR
+                out = {a.lo ^ b.lo, a.hi ^ b.hi};
                 break;
             }
             if (sa == 0x1e) {  // PEXEW: troca as palavras pares de rt (0 e 2)

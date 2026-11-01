@@ -1234,7 +1234,7 @@ std::vector<Field> vehicle_fields(drv::APlayerVehicle& v) {
     I(0xb4, v.gun_firing, "gun_firing");
     I(0xb8, v.unknown_b8, "unknown_b8");
     I(0xbc, v.unknown_bc, "unknown_bc");
-    I(0xc0, v.surface_type, "surface_type");
+    I(0xc0, v.aiming, "aiming");
     I(0xc4, v.unknown_c4, "unknown_c4");
     I(0xd0, v.vehicle_type, "vehicle_type");
     for (uint32_t i = 0; i < 4; ++i) {

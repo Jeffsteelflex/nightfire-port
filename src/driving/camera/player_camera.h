@@ -10,10 +10,13 @@
 // O nightfire-cxbx (NightfireResearch: PlayerCamera*.cpp, WorldCamera.cpp, DirectorQueue.cpp, leitura do Xbox) deu os
 // nomes dos campos; o leiaute e as contas são os do PS2.
 //
-// O que não foi portado (conta em camera_pending()): os outros modos (Bumper, Dashboard, Spline, Ellipse, Fixed,
-// Tumble, as animações, o AutoDrive: a câmera fica parada neles), a câmera do capotamento (o pedido de Tumble quando o
-// carro pode ser reposto: PBondCar::GetResetAvailable ainda é zero), os pedidos do diretor com espera ou com outra
-// âncora e os corpos simples perto da câmera. As explosões (driving/game/explosion.h) sacodem a câmera desde a seção 22.
+// O AutoDrive, as câmeras animadas do mundo e do trilho vieram com a seção 23 (player_camera_modes.cpp); os modos
+// Bumper, Dashboard, Tumble (o capotamento: o PBondCar::GetResetAvailable de verdade) e Ellipse (a pausa), a entrada do
+// carro, as animações relativas ao carro (o RAnimEngine de verdade), os pedidos do diretor com outra âncora, os corpos
+// simples (âncoras e a elipse em volta deles) e a mira do fuzil com a seção 30 (player_camera_views.cpp). As explosões
+// (driving/game/explosion.h) sacodem a câmera desde a seção 22. O que não foi portado (conta em camera_pending()): os
+// modos Spline e Fixed (Paris não os alcança: nenhum Spline é selecionável nem tem id; o camera.ini de Paris não tem
+// Fixed).
 
 #include <cstdint>
 #include <memory>
@@ -28,6 +31,7 @@
 namespace drv {
 
 class PhysicsObject;
+struct AIGroundVehicle;
 struct Simulation;
 class TrackWorld;
 
@@ -39,6 +43,11 @@ struct CameraAnchor {
     uint16_t flags = 0;    // +0x44 bit 0: um corpo simples
     int16_t body = -1;     // +0x46 a vaga na Simulation
     PhysicsObject* object = nullptr;  // (port)
+    // O que o SetAnchor e o GetAnchorRenderOffset leem do objeto de desenho da âncora (+0x48; seção 30): o grupo do
+    // modelo (+0xc, a primeira palavra: o UGroup em que o DataLocateTag acha os 'Cams' das animações relativas ao carro;
+    // p32, 0: nenhum) e o deslocamento do desenho (a entrada +0x50 da tabela virtual, o RVehicle::GetRenderOffset).
+    uint32_t model_group = 0;
+    float render_offset = 0.0f;
 };
 
 // RPlayerCamState (0x5c bytes, +0x354): o estado do jogador que a câmera consulta.
@@ -150,12 +159,14 @@ struct PlayerCameraData {
     float distance_rate;        // +0x220
     uint8_t unknown224[0xc];
     float noise[4];             // +0x230
-    float unknown240[4];        // +0x240
-    int32_t unknown250, unknown254;
+    float dash_force[4];        // +0x240 a inércia do Dashboard (a aceleração da âncora suavizada; seção 30)
+    float dash_steer;           // +0x250 o giro do Dashboard pelo volante (RPlayerCamState +0x4c)
+    float dash_glance;          // +0x254 a olhada do Dashboard (RPlayerCamState +0x50)
     float vertigo;              // +0x258 o seno da inclinação do braço
     float rate;                 // +0x25c a suavização do braço
     float car_angle;            // +0x260 o ângulo entre a frente do carro e a da câmera no plano (voltas; AutoDrive)
-    int32_t unknown264, unknown268;
+    int32_t ellipse_facet;      // +0x264 a faceta do Ellipse (o passo na volta; seção 30)
+    int32_t ellipse_height;     // +0x268 a altura do Ellipse (o índice em "heights")
     int32_t transition_override;  // +0x26c
     int32_t shake_time;         // +0x270
     float shake_amount;         // +0x274
@@ -229,11 +240,18 @@ struct CameraContext {
     int32_t* audio_turn = nullptr;
     // A tela do RRenderer (fgRenderer +0x50 a largura, +0x54 a altura).
     int32_t screen_w = 640, screen_h = 448;
+    // O AIVehicle do primeiro carro da Simulation (a entrada +0x58 da tabela virtual do PBondCar, que o
+    // GetAnchorLinearVelocity pergunta; nulo: nenhum, como um carro sem motorista). O nf_driving dá o rail_player_vehicle.
+    AIGroundVehicle* (*player_vehicle)() = nullptr;
+    // A mira do fuzil (o AimZoom e o AimRelease do RPlayerCamState, seção 30): o AVehicle +0xc0 do carro do jogador (o som
+    // da mira; nulo: nenhum) e o GHud::AimOn/AimOff (1/0; nulo: sem HUD).
+    int32_t* audio_zoom = nullptr;
+    void (*hud_aim)(int32_t on) = nullptr;
 };
 
 // O RAnimEngine::Handle que o LoadSingleAnimation cria para um registro 'Cams' (0x40 bytes) sem animação (+0x1c nulo):
 // o cabeçalho (0x40 bytes: +0x1c a contagem 1) e a cópia do registro em +0x40, como o construtor do PS2 os escreve. As
-// câmeras animadas (+0x1c não nulo) precisam do RAnimEngine, não portado: contam em camera_pending().
+// câmeras animadas (+0x1c não nulo) usam o Handle de verdade do RAnimEngine (engine_handle, seção 30).
 struct CameraAnimHandle {
     uint8_t bytes[0x80] = {};
 };
@@ -257,6 +275,8 @@ public:
     uint8_t director_flags = 0;
     // Contadores do port.
     uint64_t updates = 0, heli_updates = 0, collisions = 0, ground_hits = 0, barrier_hits = 0, object_hits = 0;
+    uint64_t rail_velocity_reads = 0;  // GetAnchorLinearVelocity com o carro no trilho (seção 30)
+    uint64_t ellipse_hits = 0;  // CheckObjectCollisions: o olho levado para fora da elipse de outro corpo
 
     // As peças (portadas; públicas para o nf_driving_check).
     void UpdateMomentumHeliCam(const CameraContext& ctx);
@@ -320,8 +340,63 @@ public:
     void TriggerAnimationCamera(const CameraContext& ctx, const uint8_t* cams, uint16_t transition, uint16_t delay,
                                 int32_t distribute, int32_t fov);
     bool LoadSingleAnimation(const uint8_t* cams);
-    bool PlayCurrentAnimation();
+    bool PlayCurrentAnimation(const CameraContext& ctx);
     void UpdateWorldAnimationCam(const CameraContext& ctx);
+
+    // ---- seção 30: os outros modos, a entrada do carro, as animações relativas ao carro (player_camera_views.cpp) ----
+    // [driving] 0x1bddc8 RPlayerCamState::DriveCamInputHandler(int, float): a entrada da câmera na configuração do carro
+    // (trocar de câmera, olhar para trás, o freio de mão que levanta a câmera Heli, o volante do Dashboard)
+    void DriveCamInputHandler(const CameraContext& ctx, int32_t action, float value);
+    // [driving] 0x1be570 RPlayerCamState::AimZoom e 0x1be660 AimRelease: a mira do fuzil das mãos de Bond (o
+    // AICharacterHands::DoArmed e DoAiming) liga e desliga o zoom do AutoDrive (o campo de visão do braço), o som da mira
+    // e a luneta do HUD.
+    void AimZoom(const CameraContext& ctx);
+    void AimRelease(const CameraContext& ctx);
+    // [driving] 0x1ba5c0 NextCameraMode(unsigned short): o próximo modo selecionável
+    void NextCameraMode(uint16_t delay);
+    // [driving] 0x1bc048 SetCameraLookBack(bool), 0x1bcb88 PauseOff, 0x1bb9e8 SetPauseCamera
+    void SetCameraLookBack(int32_t on);
+    void PauseOff();
+    void SetPauseCamera();
+    // [driving] 0x1b3b40 UpdateBumperCam, 0x1b3ce0 UpdateDashboardCam, 0x1b3788 UpdateTumbleCam, 0x1b4c30 UpdateEllipseCam
+    void UpdateBumperCam(const CameraContext& ctx);
+    void UpdateDashboardCam(const CameraContext& ctx);
+    void UpdateTumbleCam(const CameraContext& ctx);
+    void UpdateEllipseCam(const CameraContext& ctx);
+    // [driving] 0x1b5998 UpdateRelativeAnimationCam, 0x1bc9f0 TriggerCarAnimationCamera(id, transição, espera,
+    // âncora, bandeiras), 0x1bba38 DirectorSetAnchor, 0x1d6860 RWorldCamera::LoadSingleAnimationFromList(id)
+    void UpdateRelativeAnimationCam(const CameraContext& ctx);
+    void TriggerCarAnimationCamera(uint32_t anim_id, uint16_t transition, uint16_t delay, CameraAnchor* anchor,
+                                   uint16_t flags);
+    bool DirectorSetAnchor(const CameraContext& ctx, const DirectorQueueData& q);
+    bool LoadSingleAnimationFromList(uint32_t anim_id);
+    // [driving] 0x1d61b8 RWorldCamera::UpdateAnimationCam(MATRIX4 &, char): a câmera na chave corrente da animação do
+    // registro (o RAnimEngine), o olho na posição interpolada; devolve o IsSystemPlaying (1 tocando).
+    int32_t UpdateAnimationCam(float out[4][4], int32_t flags);
+    // [driving] 0x1d65e0 RWorldCamera::AnchorRelativeCamera(bool, CameraAnchorInfo *), 0x1d5fa8 GetAnchorRenderOffset,
+    // 0x1d5940 GetAnchorAcceleration(COORD4 &), 0x1d5610 SetViewingTransform(COORD4 *, COORD3 *, int) (sem o lift)
+    void AnchorRelativeCamera(const CameraContext& ctx, int32_t smooth, const CameraAnchorInfo& info);
+    float GetAnchorRenderOffset();
+    void GetAnchorAcceleration(const CameraContext& ctx, float out[4]);
+    // A cópia do registro no RAnimEngine::Handle (+0x40): o do port (um registro sem animação) ou o de verdade.
+    uint8_t* anim_record();
+    // A função do modo pelo ponteiro para membro da tabela (o UpdateCamera e o RPlayerCamera da pilha do
+    // SetOldCameraMode).
+    void RunModeUpdate(const CameraContext& ctx, uint32_t fn);
+    // O caminho do SetOldCameraMode (0x1bb340) com transição de 2 quadros ou mais para um modo que não é Heli com
+    // ruído: um RPlayerCamera montado na pilha (o construtor 0x1b2620, a âncora desta, a função do modo pedido) dá o
+    // ponto de partida, que vira um registro 'Cams' (relativo ao carro com `arg4` 1, do mundo senão) pedido antes do modo.
+    void SetOldCameraModeTransition(const CameraContext& ctx, int32_t mode, uint16_t delay, uint32_t transition,
+                                    uint32_t arg4);
+    // O mundo do último construct/UpdateCamera (o SetOldCameraMode, chamado pelos eventos sem ele, monta a câmera da
+    // pilha com ele).
+    const CameraContext* ctx_ = nullptr;
+    // Os registros 'Cams' de 0x40 bytes que o SetOldCameraMode cria (o operator new do PS2) para os pedidos com a
+    // bandeira 8: o diretor os apaga depois de usá-los.
+    std::vector<std::unique_ptr<uint8_t[]>> old_mode_records;
+    uint32_t engine_handle = 0;  // (p32) o RAnimEngine::Handle de um registro com animação (seção 30)
+    uint64_t view_updates = 0, rel_anim_updates = 0, drive_inputs = 0, mode_switches = 0, pause_cams = 0,
+             car_anim_requests = 0, anchor_changes = 0;
     void TriggerAIPathAnimationCamera(const CameraContext& ctx, uint32_t ai_spline, uint16_t transition, uint16_t delay,
                                       int32_t fov);
     bool LoadAISplinePathAnimation(uint32_t ai_spline);
@@ -337,6 +412,24 @@ public:
     // Os registros que o diretor ainda vai ler (o +0x18 dos pedidos da animação do mundo: no PS2 o ponteiro do registro
     // 'Cams' do CARP; aqui o p32 dele, que já aponta para os dados da pista).
     uint64_t autodrive_updates = 0, anim_updates = 0, ai_path_updates = 0, input_actions = 0;
+    // Só do port (docs/driving.md seção 33): o giro da mira do AutoDrive pelo mouse, em voltas (rumo positivo para a
+    // direita, inclinação positiva para cima). O UpdateAutoDriveCam soma o pedido ao rumo e à inclinação da mira antes do
+    // LimitPitchYaw (os limites do braço valem como para o direcional), vezes o fov atual sobre o padrão do modo (a
+    // luneta fechada gira menos); o update o zera depois da função do modo (fora do AutoDrive, com o jogo parado ou com o
+    // míssil guiado ele é jogado fora). Sem pedido, o caminho do PS2 inteiro.
+    void AddMouseAim(float yaw_turns, float pitch_turns) {
+        mouse_aim_[0] += yaw_turns;
+        mouse_aim_[1] += pitch_turns;
+        ++mouse_aim_stats.requests;
+    }
+    struct MouseAimStats {
+        uint64_t requests = 0, applied = 0, limited = 0, dropped = 0;
+        double yaw = 0.0, pitch = 0.0;  // as voltas somadas (já vezes o fov)
+    };
+    MouseAimStats mouse_aim_stats;
+    float mouse_aim_[2] = {0.0f, 0.0f};
+    // O pedido aplicado (UpdateAutoDriveCam o chama antes do LimitPitchYaw; público para os testes).
+    void ApplyMouseAim(const AutoDriveArmInfo& arm, float default_fov);
     int8_t FindHeliArmInd(const CameraContext& ctx, int32_t mode) const;
     void SetupCameraZoom();
     void SetCameraZoom(int32_t kind, float target, int32_t smooth);
@@ -354,6 +447,7 @@ public:
     const float* GetAnchorLinearVelocity(const CameraContext& ctx);
     bool GetAnchorResetAvailable();
     void AnchorCamera(const CameraContext& ctx, int32_t smooth, const float offset[3]);
+    // (lift nulo: o 0x1d5610, sem os dois deslocamentos da direção)
     void SetViewingTransform(const float up[4], const float lift[2], const float* velocity);
     void WorldSetCameraZoom(float target, float step);
 

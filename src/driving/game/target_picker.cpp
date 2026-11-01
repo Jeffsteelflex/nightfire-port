@@ -5,7 +5,8 @@
 // Divergências (cada uma também na função):
 //  - a lista do PS2 (+0x2c, um list<WTargetable *> do STL da SGI) é um vetor do port na mesma ordem (o RegisterTarget
 //    põe no fim, o UnregisterTarget tira todos os iguais, como o list::remove);
-//  - o ATargeting (+0x7c, os bipes da trava) não foi portado: o estado pedido fica em target_picker_sound();
+//  - o ATargeting (+0x7c, os bipes da trava; driving/sound/audio.h) é um só, do port (o PS2 o cria no construtor); o
+//    estado pedido também fica em target_picker_sound();
 //  - o tan do 0x0022a128 é o tan do newlib em double emulado (o fptodp, o __kernel_tan e o dptofp): o port usa o
 //    std::tan em double e arredonda para float (conferido; um ulp de diferença em double some no float);
 //  - a câmera do jogador vem de current_player_camera() (o DAT_00333ed8 do PS2: +4 o RPlayerCamera e +0 o RViewCamera,
@@ -33,6 +34,7 @@
 #include "driving/physics/simulation.h"
 #include "driving/physics/world_collision.h"
 #include "driving/real/vu0_math.h"
+#include "driving/sound/audio.h"
 #include "platform/ps2_float.h"
 #include "platform/ptr32.h"
 #include "platform/vu0_macro.h"
@@ -47,7 +49,14 @@ namespace {
 TargetPickerEnv g_env;
 TargetPickerStats g_stats;
 int32_t g_sound_state = 0;
+ATargetingData g_targeting;    // o ATargeting do +0x7c
 std::vector<uint32_t> g_list;  // o list<WTargetable *> do +0x2c
+
+// ATargeting::SetState(+0x7c) com o estado pedido.
+void targeting_state(int32_t s) {
+    g_sound_state = s;
+    ATargeting_SetState(g_targeting, s);
+}
 
 // As constantes do .data (0x33aa28..0x33aa34) e a tabela das zonas por modo (0x39a9e0).
 const float kAutoDriveTargetLerpRate = ps2::ffloat(0x3d4ccccdu);  // 0,05
@@ -370,7 +379,8 @@ void WTargetPicker_Construct() {
     p.sort = 1;
     p.list = 0;
     g_list.clear();
-    p.targeting_sound = 0;  // o ATargeting (não portado)
+    ATargeting_Construct(g_targeting);  // __builtin_new(0xc) + ATargeting::ATargeting
+    p.targeting_sound = nf::p32_u(&g_targeting);
     g_sound_state = 0;
 }
 
@@ -702,11 +712,11 @@ void WTargetPicker_MoveTargetingCursors() {
         const float t = ee::mul(ee::cvt_s(int32_t(uint32_t(sim.steps) - uint32_t(start))), sim.dt);
         if (ee::lt(kLockTime, t)) {
             p.lock = 2;
-            g_sound_state = 2;
+            targeting_state(2);
             ++g_stats.locks;
         } else {
             p.lock = 1;
-            g_sound_state = 1;
+            targeting_state(1);
         }
         ++g_stats.sound_states;
         p.cursor[0] = wf(p.selected, 4);
@@ -714,7 +724,7 @@ void WTargetPicker_MoveTargetingCursors() {
     } else {
         p.lock = 0;
         p.world_target[3] = ps2::ffloat(uint32_t(sim.steps));
-        g_sound_state = 0;
+        targeting_state(0);
         ++g_stats.sound_states;
         WTargetPicker_GetScreenPos(p.world_target, p.cursor);
     }

@@ -3231,8 +3231,9 @@ pontos (x, z, velocidade) que o piloto segue do ponto do 683 até a ponte, onde 
   limite de giro do AutoDrive (`LimitPitchYaw`, o rumo a -113 graus) pouco mais de um segundo antes. Aos 85 s o 727 passa
   ao carro (o objetivo 2801); o piloto segue a rota, acha a van, o Q-Pulse a para (`AttackWithEmp`, 1 acerto em 9
   disparos) e a regra ganha. **Desde a seção 26 este comando perde na etapa 12** (os raios do fuzil acordam dois postes
-  do cais, ver lá); o que ganha hoje: `--gunner-limit 0.9 --gunner 3,11,4,13,6,7,5,8@0.15 --gunner-tyres --autopilot
-  "1@ROTA" --autopilot-fire --drive-input none:260`.
+  do cais, ver lá); depois dela, `--gunner-limit 0.9 --gunner 3,11,4,13,6,7,5,8@0.15 --gunner-tyres --autopilot
+  "1@ROTA" --autopilot-fire --drive-input none:260`; **desde a seção 29** (o sorteio do `PBondCar::InitAudioObject`
+  nos carros da IA) o que ganha é `--gunner-limit 1.2 --gunner 3,11,4,6,13,7,5,8@0.1` com o resto igual.
 - **"Mission Failed", a van foge** (`paris_lose_van.png`, o estado 4 na etapa 29 aos 260 s): o mesmo sem
   `--autopilot-fire`. Hoje: o comando que ganha, acima, sem `--autopilot-fire` (o estado 4 na etapa 29 no fim dos
   260 s; `paris_perde_van.png` da seção 26).
@@ -3726,6 +3727,1305 @@ dias, as fases 2-4 em 7-13), Paris fica em **6-11 dias** e as fases 2-4 em **6-1
 
 As seções 26 e 27 foram feitas ao mesmo tempo e cada uma contou a sua estimativa sem a outra (a 26: Paris 5-9 dias, fases 2-4 5-10; a 27: Paris 6-11, fases 2-4 6-12). Somadas, as duas tiram os passageiros, os raios dos gatilhos e as falas e a música: Paris 4-8 dias, fases 2-4 4-9.
 
+## 28. A fase 3: os filmes de Paris e o HUD de verdade (o `PlayMPC`, as legendas, a galeria do HUD, as miras)
+
+Paris tem os filmes e o HUD do PS2: o filme de abertura antes do laço do jogo, o `paris2` no meio da missão (o
+`ESetVideo`, 78), o de fim depois da vitória, com as legendas da EA quando ligadas; e o HUD desenhado pela galeria
+`hudNTSC.gal` como o `GHud` do PS2 o desenha (o objetivo, as mensagens, a mensagem de botão, o cronômetro, a vida e o
+escudo, a arma e a munição, o aparelho, o "stylin", o resultado, a cortina de sangue, os golpes na tela, as tarjas, o
+escurecer e as miras com as marcas dos alvos). Tudo do MIPS do `DRIVING.ELF`, conferido contra o original no
+interpretador (a parte 24 do `nf_driving_check`, `--so filmes_hud`), e os dois métodos de desenho do HUD lidos do
+microprograma da VU1 e conferidos no `--verify`. O nightfire-cxbx (NightfireResearch) serviu de leitura para o lado do
+Xbox (o `PlayMPC` lá decodifica MAD a 25 quadros por segundo e para com A, B ou Start; o PS2 usa MPEG-2 a 29,97 e para
+com Start ou X); nada foi copiado.
+
+### Os filmes
+
+**O formato.** Os filmes das missões de carro são `ntsc\eng\<nome>.mpc` no `MISC.VIV` (Paris: `paris_intro`, `paris2`,
+`paris_outro`): uma sequência de pedaços {etiqueta de 4 bytes, u32 LE o tamanho com o cabeçalho}. Os `'MPCh'` levam o
+vídeo elementar MPEG-2 (uma imagem por pedaço; o primeiro com o cabeçalho de sequência: 640 x 448, 29,97 quadros por
+segundo, imagens B) e os `'SCHl'`/`'SCCl'`/`'SCDl'`/`'SCEl'` o som da EA, como num `.asf` (o cabeçalho PT, EA-XA). As
+legendas são `data\loading\<nome>.sub`: um número de linhas e linhas `FRAME_<quadro>=<rótulo do .loc>` (0 apaga).
+
+**Como o PS2 toca.** O `RunTheGame` (0x00175d78) chama a função sem nome 0x00175af8 antes do laço (o filme de abertura
+da pista) e depois dele (o de fim, se a missão foi ganha: UberBond +0x978 == 0, ou com o +0x5d8); o
+`ESetVideo::~ESetVideo` (0x001592d8) toca um filme no meio da missão (o nome do evento termina em "mad": as três últimas
+letras viram "mpc"). O `PlayMPC` (0x20 bytes) cria o `RCMP::AV_PLAYER` (0x68: um `STREAM` do librealfilez com dois
+canais, `'M'` o vídeo e `'SC'` o som), pausa a entrada, a vibração e o som do jogo (`ASoundManager::Pause`/`Resume`) e
+roda o `Play`, que só volta no fim: o primeiro quadro (`GetFirstFrame`: o `AUDIO_PLAYER`, um `SNDSTRM` "tap" com o pedido
+segurado, solto depois), e a cada volta o quadro desenhado, as legendas (`DrawSubtitlesCallback` com o número do
+quadro), a espera até o relógio sincronizado com o som pedir o próximo quadro (`AV_PLAYER::IsTimeForDecode`: (o tempo do
+som + 33 ms) x quadros por segundo passa do quadro + 1; o `SyncedAudioTime` corrige o relógio do `AV_MS_TIMER` de 100 Hz
+pelo tempo tocado do pedido do fluxo), a leitura do controle (`PlayMPC::ReadInput`: Start 0x800 ou X 0x40 param) e o
+`GetFrame`, que decodifica até o quadro do relógio (pula os atrasados).
+
+**As legendas.** O `GSubtitles` (0x94 bytes) e o `GSubtitleSplitter` (0x64) do `GHud.obj`: o `.sub` vira pares {quadro,
+rótulo}; o `SetupFMVSubtitles` troca a legenda quando o quadro passa do seguinte (a duração = a diferença de quadros /
+30); o `WordWrap` quebra o texto em até 10 pedaços de 52 caracteres nos espaços, cada um por um tempo proporcional ao
+tamanho; o `DrawSubtitles` os desenha centrados 67 pixels acima do pé da tela na fonte `data\loading\loading.sfn`, cor
+0x7fffffff. As do jogo (`DisplaySubtitle`) usam o relógio do passo.
+
+**A fonte da EA.** `FONT_create`, `FONT_drawtextx`, `FONT_getrectx`, `FONT_getkern` e o `FONT_drawtextfa` do
+librealfilez, com o driver de fontes do EAGL (a tabela 0x00348be0) que escreve um pacote do GIF com pares A+D direto
+para o GS (a textura, TEST, ALPHA, PRMODE, a cor, um SPRITE por caractere). O `FONT_drawtextfa` passa o texto como o
+formato do `vsprintf` da newlib, sem argumentos: "50% HEALTH" sai "50HEALTH" (o ' ' é um flag do '%', o 'H' não é
+conversão), "%%" sai '%'. O port escreve as mesmas palavras de 64 bits e o PC as interpreta (`render/gs2d.h`: o GS do
+2D, SPRITE, TRIANGLE, TRISTRIP e TRIFAN com o UV ou o ST/Q).
+
+**No port.** O vídeo vai ao decodificador de MPEG-2 do port (`platform/mpeg2_decoder.h`, pela fachada com a escolha
+"own": o mesmo resultado em todas as plataformas) e à conversão do IPU; o som ao SND do port (o `SCHl` e os `SCDl` do MPC
+no `SNDSTRM` da seção 27, o mixador do EE e a SPU2). O laço do `Play` fica do lado do `nf_driving` (o `MovieHost`): o
+quadro na área 4:3 da janela, as legendas, a espera um VBlank do relógio do som por vez, o Start para. O `--movie-frame
+N[@k]` captura o quadro N do k-ésimo filme; sem `--audio-dump` (as capturas mudas) o relógio é só o `TIMER`.
+
+### O HUD
+
+**A galeria.** O `GHud::GHud` (0x0023ae30) lê `data\gfx\data\hudNTSC.gal` (o `GGallery` de 1.051.392 bytes no
+`MISC.VIV`: canvases, grupos, puppets com chaves 'gk' interpoladas, fontes, 6 texturas SHPS), a cortina
+`data\render\blood.ssh` (do VIV da missão) e a fonte das legendas, e guarda nos primeiros 0x2a0 bytes do `GHud` (0x500
+bytes, o `__builtin_new` do `RRenderHigh`) os ponteiros de cada puppet que os `Draw*` usam (os aparelhos, a íris, as
+peças das armas; os deslocamentos de -10 em y de algumas). A `GGallery` portada (31 funções: `GET_*`, `STATE_*`,
+`BITMAP_*`, `FONT_*`, `QUAD_*`, `SPRITE_*`, `TRANSFORM_Vertices`) desenha pelo módulo `Draw` do EAGL (os lotes no
+scratchpad: `DrawSprite`, `DrawBox`, `DrawQuad`, `DrawBatchedTexturedQuad`, `DrawBatchedSprite`) com os materiais simples
+`USimpleMaterial`/`USimpleTexturedMaterial` (os métodos `MatDebug`/`MatDebugTexture`), e o texto pela fonte da EA.
+
+**O quadro.** O `GHud::Render` (0x0023cbc0) anda o tempo do quadro (+0x368, o passo), o `GOrthoHudView::DoRender`
+(0x0023aad0) monta a vista ortográfica (NTSC: a escala y = altura / 480 e 32 pixels de deslocamento, guardados no
++0x468..+0x474) e desenha as tarjas (30 quadros), o escurecer, a cortina de sangue e os golpes na tela, e o `GHud::Draw`
+(0x0023cf88) chama os `Draw*`: o objetivo (a caixa que entra e sai), a mensagem da missão, a mensagem de botão (o texto
+partido no símbolo `*A*`/`*G*`/`*P*`/`*D*` pelo `GetButton`, o botão desenhado no meio; com o +0x2fc positivo o texto é
+o rótulo `LOCALE_Symbol(+0x2fc)`), o cronômetro (o bipe nos últimos 10 s), a vida e o escudo (as barras que piscam abaixo
+de 25%), a arma e a munição, o aparelho, o "stylin", o resultado da missão e o voo pelo fio. O `PostRender` manda o
+`EExit` quando o resultado acaba: o fim do `RunTheGame` (o `nf_driving` toca o filme de fim aí).
+
+**As miras.** O `WTargetPicker::DrawTargetingSystem` (0x0022bda0) passa a mira e a trava ao `GHud`
+(`SetTarget`, `SetTargetLockState`, `AimOn`), e o `GHud::DrawCrossHairs` (0x0023f328) desenha conforme a arma: as
+marcas dos alvos do `WTargetPicker` (tipos 0x15/0x1c com as setas para os alvos fora da tela; o tipo 2 com o limite de
+snow2a e o `ONLY_TARGET_WITH_EMP`), a barra de recarga (0x1e), a mira que se fecha na trava
+(`DrawZoomingCrossHairs`, `DrawFadingCrossHairs`), a luneta do fuzil de Bond (0x1a) com o `RPlayerCamera::GetZoomPercent`
+(0x001b8960). Os setters que os outros módulos chamam (`SetAutoDrive`, `GadgetOn`, `Stylin`, `TriggerDamageFlash`)
+mudam o `GHud` de verdade.
+
+**No PC.** Os materiais e os pacotes da fonte vão ao quadro do HUD (`render/hud_gfx.h`) e o `nf_driving` os desenha por
+cima da cena com a vista do `DoRender` (`driving_app/drv_hud2d`: a tela do PS2 na área 4:3; os lotes da largura inteira
+da tela, as tarjas, o escurecer, os golpes e a cortina, vão de borda a borda). `--debug-hud` volta ao HUD mínimo da seção
+19.
+
+### Os métodos de desenho do HUD (o `--verify`)
+
+O `MatDebug` (o `USimpleMaterial`: os quadrados sem textura) foi lido do microprograma da VU1 (o leiaute: +0 a contagem,
++1..+4 a matriz, +5 as coordenadas, +0x79 as cores, +0xed o estado com o PRIM em +0xee, a saída em +0xf6, dois qwords
+por vértice) e o `MatDebugTexture` (da seção 25) ganhou as faixas e os SPRITE que o HUD usa. O `nf_driving --check
+--verify` roda os dois no `ps2::VuMachine` contra a referência em C++, com a câmera sorteada e com a do HUD:
+
+| Método | Execuções | Vértices | Diferentes |
+|---|---|---|---|
+| `MatDebug` (listas, faixas e SPRITE; a cópia no `DRIVING.ELF` igual) | 1.000 | 7.993 | st 0, rgba 0, xyz 0 |
+| `MatDebugTexture` com faixas e SPRITE (500 com a câmera do HUD) | 1.000 | 8.664 | st 0, rgba 0, xyz 0 |
+
+### Os arquivos
+
+| Arquivo | O que tem |
+|---|---|
+| `render/play_mpc.h` | o `MpcFile` (só do port), o `PlayMPC` e o `RCMP` (`AV_PLAYER`, `AUDIO_PLAYER`, `AV_MS_TIMER`, o decodificador), o `ESetVideo`, a 0x00175af8 e os filmes do `RunTheGame`, o `GLocale::GetSubDirectory` (16 funções) |
+| `render/subtitles.h` | o `GSubtitles` e o `GSubtitleSplitter` (19) |
+| `render/ea_font.h` | a `FONT` da EA e o driver de fontes do EAGL (7) |
+| `render/gs2d.h` | só do port: os pacotes do GIF interpretados no PC, as imagens do 2D |
+| `render/ggallery.h` | a `GGallery` (31), o módulo `Draw` (9), o `USimpleMaterial::Draw`, `GSystem::MATH_TransformPoints`, `COLOR_Interpolate`, `COLOR_ReduceAlpha` |
+| `render/hud_gfx.h` | o quadro do HUD: os materiais e os pacotes da fonte, e os lotes do PC |
+| `game/hud_draw.h` | o `GHud::GHud`, `Render`, `GOrthoHudView::DoRender`/`PostRender`, `Draw` e os `Draw*` (34 do `GHud`), as miras, o `WTargetPicker::DrawTargetingSystem`, o `RPlayerCamera::GetZoomPercent`, o `BuildTranslate`, o `fptoui` (uma definição só, declarada no `drv.h`) |
+| `game/hud.h` | o `GHudData` com 0x500 bytes e os campos nomeados, o `GHud::Reset` fiel (sem zerar o objeto) |
+| `sound/audio_pause.h` | o `ASoundManager::Pause`/`Resume` dos filmes |
+| `fx/fx_render.h`, `fx/fx_verify.h` | a referência do `MatDebug` e a conferência das listas no `ps2::VuMachine` |
+| `data/mips_interp.cpp` | PSUBW, PSUBB, PAND, PXOR (a fonte e os filmes) |
+
+### O que se vê
+
+As capturas (`--width 1280 --height 720`, em `out/agent_drv_hud/shots/` do checkout principal, fora do git): a caixa
+da mensagem "Wrong Way! Follow the Van" com "30 Missile" (a seção do carro), a vida no começo, a mira da seção do
+helicóptero com "15 Sniper Rifle", os golpes na tela com a vida baixa (o vermelho e a barra danificada), o `paris2` com a
+legenda, e o `paris_outro` (o quadro 300 da Torre Eiffel) depois da vitória de 260 s da partida documentada.
+
+### A conferência (a parte 24 do `nf_driving_check`, `--so filmes_hud`)
+
+O código original roda no interpretador com os arquivos do disco (as três fontes, os nove `.sub`, o `IDL_ENG.loc`, o
+`hudNTSC.gal`); `--so filmes_hud.filmes` e `--so filmes_hud.hud` rodam uma metade. Com `--casos 4000`:
+
+- a `FONT` da EA com o driver do EAGL (`FONT_getrecta` e `FONT_drawtexta` sobre as três fontes do disco): 4.000 casos,
+  1.279.096 palavras do GIF, 136.954 caracteres: 0 diferentes;
+- o `GSubtitles` e o `GSubtitleSplitter`: 4.000 operações (423 cargas dos `.sub`, 1.565 quadros de filme, 1.416
+  desenhos, 470 legendas do jogo, 943 pacotes com texto): 0 diferentes;
+- o relógio do `AV_PLAYER` (`SyncedAudioTime`, `IsTimeForDecode`, `SetSpeed`, `AV_MS_TIMER::Update`): 4.000 casos (1.598
+  `SyncedAudioTime`), e o `PlayMPC::ReadInput` 4.000 leituras: 0 diferentes;
+- o `GHud::GHud` original sobre o `hudNTSC.gal` (os puppets, o arquivo, o `Reset`): igual; o
+  `RPlayerCamera::GetZoomPercent`: 1.000 casos, 0 diferentes;
+- o HUD: 4.000 casos de estados sorteados (o `GHud` inteiro, o `WTargetPicker` e os alvos, as armas, o UberBond, a
+  simulação), cada um com uma função: `GHud::Draw` 225, `Render` 211, `GOrthoHudView::DoRender` 429, os `Draw*` (o
+  objetivo 186, a mensagem 137, o botão 204, o cronômetro 152, a vida 216, a arma 143, o aparelho 133, o stylin 141, o
+  resultado 210, o voo pelo fio 76, a cortina 73, os golpes 75, as tarjas 51, o escurecer 64), as miras
+  (`DrawCrossHairs` 555, `DrawZoomingCrossHairs` 139, `DrawFadingCrossHairs` 110, `DrawTargetingSystem` 128, `AimOn`
+  61) e os setters (`SetAutoDrive` 71, `GadgetOn` 62, `Stylin` 85, `TriggerDamageFlash` 63); comparados os materiais
+  gravados no quadro (19.395), os pacotes da fonte (1.578, 615.188 palavras), os sons (186), a matriz da vista e o `GHud`
+  depois: 0 diferentes.
+
+São 1.040.784.655 instruções do original no interpretador (as funções matemáticas da newlib, `atan2f`, `sinf`, `cosf`,
+ligadas às do port, como nas outras partes).
+
+O que ela achou no porte: o NLOOP da tag do GIF do driver de fontes (o 0x00348b9c é o índice da última palavra, não o
+fim), o deslocamento do `OutputGifTags` (os qwords da textura em sp + 0x10), o texto da mensagem de botão (o rótulo do
++0x2fc, não a cadeia do +0x2f8), o `FONT_drawtextfa` que formata o texto (o '%' de "50% HEALTH"), o `GHud::Reset` que não
+zera o objeto, e o `fptoui` que o porte tinha em três cópias (a do `fx/particles.cpp` errava os negativos; nenhum
+argumento delas é negativo).
+
+### Divergências
+
+- O decodificador da Sony (a libmpeg e a CSC do IPU) é o do port; o `STREAM` de dois canais e o `SNDSTRM` "tap" dão
+  lugar a um `SNDSTRM` comum que lê o próprio MPC (as mesmas amostras, o mesmo segurar e soltar); o `PlayMPC` não aloca
+  no heap do REAL; o `EAGL_VD` é o anfitrião (o quadro inteiro na área 4:3).
+- As texturas do HUD e da fonte são imagens do port (o `TEX0` leva o número da imagem no TBP0); o FRAME, o ZBUF e o FBA
+  do contexto do EAGL ficam 0.
+- O `GHud::GHud` não cria o `RViewCamera`, o `GOrthoHudView` nem o `ActionQueue` "HUDQ": a pausa e as trapaças do HUD
+  ficam fora (o `nf_driving` não pausa; o `DrawPauseMenu`/`DrawPauseErrors` contados).
+- O `DoRender` guarda a escala e o deslocamento no `GHud` (+0x468.., como o PS2) e o PC os aplica às posições dos
+  materiais.
+- O voo pelo fio do míssil guiado (`FUN_0023eab0`) é falso (Paris não tem esse modo); o `AMenuSound::Trigger` fica
+  anotado na ordem; o `DAudio::DrawTargets` (depuração) não.
+- Os buffers da mensagem de botão: 0x40 bytes na pilha do PS2, 0x100 no port (os textos do jogo cabem; um maior é
+  guardado e contado).
+
+### O custo
+
+Não medido (o computador estava em uso: nenhuma janela).
+
+### O que falta e a estimativa
+
+Do HUD: o menu de pausa e os erros (`DrawPauseMenu`, `DrawPauseErrors`, a fila "HUDQ" e as trapaças), o efeito do
+`RSniperZoom` na luneta, o som das armas do carro que a mira pede (`car_call`, anotado), o `ATargeting`, o modo do voo
+pelo fio, o lado da câmera do `RPlayerCamState::AimZoom`, os modos de tela larga, o `InputConfigManager::GetLocaleID`
+(a troca dos rótulos dos botões pela configuração do controle). Dos filmes: os das outras missões (o
+mesmo código; só os nomes) e uma comparação com o PCSX2. As linhas "os filmes da missão" (2-3 dias) e "o HUD de verdade"
+(1-2) da seção 19 estão feitas. Sobre a nota do fim da seção 29 (Paris em 2-5 dias e as fases 2-4 em 12-21, antes deste
+trabalho), saem os filmes e o HUD; o que resta de Paris é a câmera da seção do helicóptero (1-2 dias), o crossfade e o IK
+do `ActPoser` (0,5-1), o resto do HUD (0,5) e o que a seção 29 deixou dos efeitos e do som (0,5-1): Paris fica em **2-4
+dias** e as fases 2-4 em **11-19 dias**.
+
+## 29. A fase 3: o que faltava em Paris (os riscos das balas, os clarões, os destroços, o mixador do IOP, os sons)
+
+Os tiros de Paris têm o risco da bala e o clarão do cano, as explosões jogam destroços e acendem clarões, e o mundo, o
+trânsito, os inimigos e o chão fora do asfalto têm som. Tudo do MIPS do `DRIVING.ELF` (e do `SNDDRV.IRX`, marcas
+`// [snddrv]`), conferido contra o original no interpretador (a parte 25 do `nf_driving_check`, `--so restos`); os
+três métodos de render novos lidos dos microprogramas e conferidos no `nf_driving --check --verify`.
+
+### Como o PS2 faz
+
+**O banco de ajustes.** Os números dos efeitos vêm dos `.tun` de texto da pista (`data\tuning\Render\FX\<pista>.tun`, o
+`default.tun` sem ele; o do clarão `Render\Glare\default.tun`): o `DTuningFile::Reader::FindItem` acha o item
+`"<sistema>{<sub>}"` (o 0x001440e0 tira os espaços), o `OptionParser` acha a chave no começo da linha (seguida de
+espaço ou `=`, os separadores ` =#([` pulados, o `]` e o `)` do fim tirados), o `ParseData_Colour` lê `r,g,b,a` em
+`a<<24|b<<16|g<<8|r`, e os `dbattrib_*` gravam inteiros pelo `sscanf`.
+
+**Os riscos das balas.** O `RBulletStreak::Init` (0x001d7620) lê os sete tipos de `BulletStreakType` (Henchmen,
+Vanquish, SuperSnowmobile, SUV, Captain, Ultralight, Sentinel: a cor, a forma, a largura, o comprimento, a velocidade,
+a quantidade) e as quatro formas (as texturas `wtrc`, `ytrc`, `otrc`, `btrc` do `common.ssh`); o tipo também dá a
+velocidade das balas lentas (o `Shell`). O `RayShell::DrawTracers` (0x001993e8) põe um risco por bala da passada
+(`RBulletStreak::Add`, os dois tipos de coordenada) do ponto do efeito da arma (`RSceneObj::LocateFX`; as mãos de Bond,
++0x164) ao acerto, e o `DrawFlashes` (0x00199678) acende uma luz posicional no cano (`AddPositionalLight`, w = 6, cor
+0,2). O `RBulletStreak::Draw` monta os quatro `UVolatileMaterial` (o `GeoPrimState` do construtor estático 0x001d82e0) e
+o `UVolatileMaterial::Draw` (0x002cb938) os entrega ao `EAGL::DynamicModel::Draw` com o microprograma do
+`MatDebugTexture` (o UV desempacotado V2 com a linha (0, 0, 1, 1): Q = 1).
+
+**Os clarões.** O `RGlareManager` (0x3438 bytes: 256 `GlareData` de 0x40, os 80 `GlareType` do `.tun`) junta os clarões
+do quadro: os das trilhas `'gg'` da galeria (`GFXGallery::GLARE_Interpolate` entre as duas chaves em volta da idade da
+tela, `GLARE_Draw` três vezes com o tremor do gerador do `GSystem`, 0x0033ba74), os das lâmpadas das instâncias
+(`AddModelGlare`: o pisca, a direção contra a câmera) e os dos grupos de efeitos do mundo (`DrawGroupDrawEffects`);
+o `DrawGlares` (0x001f2058) os desenha com o `RenderSpritesRot` (a textura `flar`).
+
+**Os destroços.** O `RDebris` tem 23 `RDebrisType` (0xd20 bytes de dados cada: deslocamentos, velocidades, quatérnios,
+cores, o controle, o passo e a vida) com os modelos do `.data` (0x00338e28: o tipo 4 é o 16 x 0,6 e o 22 o 16 x 2,5,
+0x001d93e8). As trilhas `'gd'` da galeria (`GFXGallery::DEBRIS_Draw`, a tabela de modos 0x0039c980) lançam os pedaços
+(`RDebrisType::Add`: quatro números do `RRandom` do render por pedaço); o `RDebrisType::Draw` os entrega ao
+microprograma `BondDebris` (209 instruções: a matriz de cada pedaço do quatérnio, a queda pelo passo e pela gravidade
+-0,002, o `ESIN` do giro).
+
+**O mixador do IOP.** As vozes de modo de render 0x100 (os timbres de EA-XA da memória do IOP: os bancos `h*` dos
+personagens, os `a*` do ambiente e alguns `g*`) não vão à SPU2: o `SNDIOP_updateiopvoices` (0x00007cf4) lê a cada tick
+as 16 entradas da tagbuf (+0x1a0: o endereço do cabeçalho da amostra, o pitch, os volumes por saída, o do reverb) e
+chama o mixador do módulo: `MIX_playinit` (o desempacotador pelo formato: 0x0a = EA-XA, sem laço `unpackxaf`, com laço
+`unpackxalf` até o bloco do começo do laço e daí `unpackxalfsection`, que volta a ele com o estado guardado), `MIX_play`,
+`MIX_setpitch` (o reamostrador 0xa0: o mais perto, ou linear com a qualidade acima de 0x18), `SNDMIX_setdrygain` (o
+volume com sinal x 0x102 ou << 8). No rótulo 1 da tagbuf o `MIX_audioslice` puxa a cadeia de cada voz (o `decxa16c`: o
+EA-XA em inteiros com a tabela `xafp`), rampa os ganhos que mudaram em 16 amostras (passos de 1/17), soma `amostra x
+(ganho >> 8)` nas duas saídas e leva o último valor de uma voz que parou a zero em 16 amostras; o `SNDIOP_ee48_iop48`
+junta isso (>> 7) às amostras do EE. O reverb do mixador (`MIX_initreverb`) o jogo deixa desligado: o barramento do
+`AFX` é o 0x40 (só a SPU2) e o `SNDfxinitbus(0, ...)` do começo manda o modo 0, que o RPC 2 de 4 bytes desliga.
+
+**Os personagens.** O `AICharacter` guarda no +0x94 um `ACharacter` (0xc0: um `ABaseSound` na mixagem "Characters",
+3..25 m) criado na primeira fala (`AICharacter::GetACharacter`). O `ACharacter::Say` (0x002fbe00) escolhe o timbre numa
+roda de nomes do `.data` pela primeira e a segunda letra (`HenchFall`, `HYell`, `HDeath`, `HScream`, `HGrunt`; os
+pedestres `MPed`/`FPed`, que procuram um timbre presente), põe o alcance (50..300 m) e cria a voz de uma vez só no
+banco Actors; o `ACharacter::Play` a toca com o caminho e a apaga quando acaba nas vistas em uso; o fim do
+`AICharacter::Execute` põe o som na posição do personagem ou, sem voz, apaga o `ACharacter`.
+
+**Os sons da galeria.** Na primeira passada de uma trilha `'gs'` (até oito por tela, no +0x70) o `CANVAS_Draw` lê a
+chave (+0x30: o volume em %, a categoria do banco, o nome, o pitch em %, o alcance) e, se o nome não é `"(null)"`, cria
+um `ASound("Object Sounds")` (sem laço com a bandeira 0x800 da tela); o `GFXGallery::SOUND_Play` (0x002363b0) troca a
+mixagem por "Giotto", põe o timbre, o volume, o pitch e o alcance; nos quadros seguintes só leva a posição da tela e a
+velocidade de quem disparou. O `CANVAS_HasStopped` apaga os sons quando as partículas da tela acabam (os de uma vez só
+seguram a tela até acabar); o `PurgeAllEffects` apaga todos. Os 19 efeitos com som do `gall1.gal`: os `SFX_*` dos
+objetos (poste, hidrante, cabine, portão...), o `Cr_Dmg6` do carro, os vidros `Wd_Glass*` e o vapor `Wd_Steam2`.
+
+**Os outros carros.** O `PBondCar::InitAudioObject` (0x00186878), chamado no fim do construtor, cria o objeto de som
+pela classe: 1 e 3 um `ATrafficVehicle` na mixagem "Traffic Cars" com a buzina do `SFX_HORN` (10..200 m); 2 um na
+"Opponents" (ou o `AHelicopter` com `IS_HELI`), 4 um na "Opponents" ou "Friendly", ambos com a afinação sorteada
+(`SimRandom` x 0,2 x 2^-16: **um número do gerador da simulação por carro**) e a sirene `SFX_copsiren` com o
+`HAS_SIREN` (30..400 m, ou 100..600 m voando). O `ATrafficVehicle::Play` (0x002e5598) suaviza as rotações
+(`AVehicle::CalculateRpm`: com buzina, pelas marchas de 15 m/s), toca o motor em duas vozes (`SFX_<motor>LdEn` e
+`LdEx`, 0,66 x (1 -/+ facing / 2)) e o ruído da rua pela velocidade; a IA liga a buzina (o
+`CheckTrafficCollision`: o caminho fechado; o `AHorn::Play` faz rajadas de 3 a 5 com o `random` da libc) e a sirene (o
+modo de ataque 13), e zera o objeto no `UnSpawn`. O fim do `PBondCar::Simulate` alimenta o objeto como o do jogador.
+
+### Os arquivos
+
+| Arquivo | O que tem |
+|---|---|
+| `fx/tuning_db.h` | o banco de ajustes (8 funções: o `OptionParser`, o `FindItem`, o `FindIndexedItem`, o `ParseData_Colour`, os `dbattrib_*`) |
+| `fx/bullet_streak.h` | o `RBulletStreak` (a tabela, as formas, o `Add` dos dois tipos, o `Draw`, o `Frame`), o `UVolatileMaterial`, o `RayShell::DrawTracers` e o `DrawFlashes` |
+| `fx/glare.h` | o `RGlareManager` (o construtor, os UV, o `AddGlare`, o pisca, o `AddModelGlare`, o `DrawGlares`), o `GLARE_Interpolate`/`GLARE_Draw` da galeria, o `DrawGroupDrawEffects`, o `GSystem::RANDOM_Startup` |
+| `fx/debris.h` | o `RDebris` e o `RDebrisType` (os modelos do `.data`, o `Add`, o `Draw`), o `DEBRIS_Draw` da galeria, a matriz de cada pedaço do `BondDebris` |
+| `fx/gfx_gallery.h` | as trilhas `'gg'`, `'gd'` e `'gs'` do `CANVAS_Draw`; o `GET_Key`, `GET_Keys`, `DataIndex`; o fim dos sons no `CANVAS_HasStopped` e no `PurgeAllEffects` |
+| `fx/fx_render.h`, `fx/fx_verify.h` | os lotes do PC dos três métodos e o `BondDebris` no `ps2::VuMachine` |
+| `sound/iop_mix.h` | o mixador do IOP do `SNDDRV.IRX` (32 funções: `MIX_*`, `SFILTER_*` do EA-XA e do reamostrador, `decxa16c`, `mixiop`) |
+| `sound/snddrv_iop.cpp` | o `SNDIOP_updateiopvoices`, o `setiopvoicevol`, o `mixvoicefree`; o `MIX_create` no `SNDIOP_init` e o `MIX_audioslice` no `SNDIOP_mix` |
+| `sound/audio_character.cpp` | o `ACharacter` (`Say`, `Play`, o construtor, o destrutor) |
+| `sound/audio_sound.cpp` | o `ASound` (os dois construtores, que saíram de `game/missile.cpp`) e o `GFXGallery::SOUND_Play` |
+| `sound/audio_traffic.cpp` | o `ATrafficVehicle`, o `AHorn`, o `ABasic` (a sirene), o `AVehicle::ChooseHorn` e o `CalculateRpm`, a parte do `InitAudioObject` das classes 1 a 4 |
+| `game/bond_car.cpp` | o `PBondCar::InitAudioObject` (as chaves e o sorteio) e o objeto apagado no destrutor |
+| `driving_app/drv_fx.cpp` | o lado do `nf_driving` (as texturas, os lotes, os clarões do mundo, a linha `efeitos_restos`) |
+
+### O que se vê e se ouve em Paris
+
+A partida ganha (`--gunner 3,11,4,6,13,7,5,8@0.1 --gunner-limit 1.2 --gunner-tyres --autopilot "1@ROTA"
+--autopilot-fire --drive-input none:260`, "Mission Accomplished" aos ~210 s, 1.102,7 de vida) põe 5.526 riscos de
+bala (2.820 desenhos, 33.156 vértices), 372 clarões de cano, 43.200 clarões da galeria (86.400 retângulos) e 725
+destroços lançados (51.475 pedaços desenhados). Capturas em `out/agent_drv_rest/shots/` do checkout principal:
+`p30.png`/`p102.png` (os riscos dos atiradores na seção do carro), `g1.png` (o clarão `Wp_Glare`), `ex3.png` e
+`ex3_crop.png` (`--play-effect Ex_SmB00@1@14 --play-effect Sm_Debris@1@10 --drive-input none:1.5`: 25 lançados, 775
+pedaços). Os clarões das lâmpadas do mundo (os tipos 68/69) têm a bandeira 1 desligada em Paris: nenhum (como no PS2).
+
+O som (WAVs no mesmo lugar; `python tools/sound.py analyse <wav>`):
+
+- o mixador do IOP na partida ganha: 20 vozes começadas, 2.375.008 amostras, ativas de 39,9 s a 202,1 s, pico do
+  mixador 21.902 (de 32.767): o `SFX_truckbeep` (o banco do ambiente, a ré de um caminhão, até o volume 112 quando o
+  carro passa), o `SFX_nightclb` (a música de uma boate) e o `SFX_OffRN` (fora do asfalto);
+- o trânsito (`--car-pos -138,20,555,-0.40 --fire-trigger 703 --drive-input "none:2 W:3 none:3"`, `traf.wav` contra
+  `traf_main.wav` do executável do main): no primeiro segundo -19,8/-21,2 dB RMS contra -29,7 (os motores dos carros
+  parados no cruzamento, 167 cruzamentos/s contra 376), depois igual; 20 objetos de som, 4.807 `Play`;
+- os sons da galeria (`--play-effect SFX_lamppost3@1@12 --play-effect Wd_GlassHuge@2.5@10 --play-effect
+  SFX_firehydrant@4@8`, `gsnd2.wav`): o poste +9 dB RMS sobre o carro parado, o vidro +16 dB, o hidrante em laço
+  (2,7-3 kHz de cruzamentos: o chiado da água) até o fim;
+- os personagens: nada. Os passageiros só falam ao levar um tiro (`Human::ApplyDamage` -> `PlayZoneInjuryAnim`), que
+  vem depois do `AICharacter::Execute` do passo; o `EAudioUpdate` do mesmo quadro toca o `ACharacter` novo ainda na
+  origem (fora dos 300 m), a voz de uma vez só acaba muda e o `Execute` seguinte apaga o `ACharacter`: cada fala é a
+  primeira de um `ACharacter` novo (5 falas em 80 s, nenhum `SNDBANK_play`). É a ordem dos eventos que o port segue
+  (a confirmar no PCSX2); os capangas a pé dos outros níveis falam dentro do `Execute` (`HandleInterrupts`) e teriam a
+  posição. Das rodas do `.data`: 8 das 11 mortes e 2 dos 4 gritos são nomes nulos ou sem o terminador
+  (`"SFX_HDeath3SFX_HDeath4"`): mudos também no PS2.
+
+O sorteio do `InitAudioObject` muda a partida: com ele (o que o PS2 faz) a vitória documentada antes
+(`--gunner 3,11,4,13,6,7,5,8@0.15 --gunner-limit 0.9`) falha na seção do helicóptero (o caminhão 6 escapa, etapa 12);
+o atirador `3,11,4,6,13,7,5,8@0.1` com `--gunner-limit 1.2` ganha. Os outros finais com a mesma rota: sem `--autopilot-fire` a van foge (etapa 29); `--gunner 3,11,4,6,13,7,5,8 --gunner-limit 1.0` deixa os passageiros destruírem o carro ("Mission Failed", etapa 10: 295 balas, 1.890 de dano); a perda pelos tiros documentada na seção 26 (`--gunner-limit 0.9` sem o `@`) agora falha na etapa 12. A missão anda igual com e sem o som (o mesmo
+estado, vida e regras: o som não volta à simulação).
+
+### A conferência
+
+A parte 25 do `nf_driving_check` (`--so restos`, `--casos 4000`): o código original no interpretador MIPS (com a VU0
+em modo macro) lado a lado com o porte. Ganchos nativos: o `sprintf`, o `sscanf`, o `strlen`/`strstr`/`strchr`/
+`strcpy`/`strncpy`/`strcat`/`strcasecmp` (o newlib usa o PSUBB, que o interpretador não tem), o `operator new` e o
+`free`, o `printf`, as texturas falsas, o `DynamicModel::Draw`, o `LocateFX`, o `DrawArray::Draw`, o 0x0028c318; nos
+sons, o `AIndex::Lookup` e o `SNDbankpatpresent` (uma regra fixa sobre o nome nos dois lados), o `AVoice::AVoice`,
+`Set` e `Play`, o `AMix::*`, o `UMemory::FastAlloc`/`FastFree`, o `AVehicle::Play` e as buscas do `AttributeSet`.
+
+| O que | Casos | Diferentes |
+|---|---|---|
+| `FindItem` e `FindIndexedItem` (os `.tun` de Paris e textos sorteados) | 20.504 | 0 |
+| `ParseData_Colour` | 1.104 | 0 |
+| as tabelas do `RBulletStreak` e do `RGlareManager` | 721 | 0 |
+| o construtor estático (os `UVolatileMaterial`) e o `RBulletStreak::Init` | 2 | 0 |
+| `RBulletStreak::Add` (COORD4 e COORD3) | 4.000 | 0 |
+| `RBulletStreak::Draw` (`UVolatileMaterial::Draw`) e `Frame` | 200 | 0 |
+| `RayShell::DrawTracers` | 4.000 | 0 |
+| `RayShell::DrawFlashes` (`AddPositionalLight`) | 1.000 | 0 |
+| `CreateUVsFromTexIDs`, `AddGlare`, `GlareBlinkBrightness`, `AddModelGlare` | 40 + 3 x 4.000 | 0 |
+| `DrawGlares` | 500 | 0 |
+| `GLARE_Interpolate`, `GLARE_Draw`, `GET_Key`/`GET_Keys`/`DataIndex` | 3 x 4.000 | 0 |
+| `GSystem::RANDOM_Startup`, `DrawGroupDrawEffects` | 40 + 1.000 | 0 |
+| `RDebris::RDebris` (os 23 tipos), `Add` e `Reset`, `Draw` | 1 + 4.000 + 500 | 0 |
+| `GFXGallery::DEBRIS_Draw`, os modelos dos tipos 4 e 22 (0x001d93e8) | 4.000 + 20 | 0 |
+| `ACharacter::Say` (as rodas, os contadores, o alcance), `ACharacter::Play` | 2 x 4.000 | 0 |
+| `GFXGallery::SOUND_Play` | 4.000 | 0 |
+| `ATrafficVehicle::Play` (com o `CalculateRpm` e o `IsTracked` originais) | 4.000 | 0 |
+| `AHorn::Play` (o `random` original sobre as seis palavras do port) | 4.000 | 0 |
+| `PBondCar::InitAudioObject` (as classes 1 a 5, o sorteio) | 4.000 | 0 |
+
+O `nf_driving --check --verify`: os clarões no `RenderSpritesRot` (2.000 retângulos, 12.000 vértices), os riscos das
+balas no `MatVolatileTexture` (= o microprograma do `MatDebugTexture`; 1.553 triângulos, 4.659 vértices) e o
+`BondDebris` (1.500 execuções, 38.252 vértices dos modelos lidos do `DRIVING.ELF`): 0 diferentes. O mixador do IOP não
+roda no interpretador: `tests/test_driving_sound.cpp` confere o `decxa16c` (filtro 0: nibble x 4096; filtro 1: o
+decaimento de 240/256; o resto negativo de um pedido que não é múltiplo de 28) e o mixador inteiro com amostras
+conhecidas (o fim de uma voz sem laço e o aviso ao driver, o pitch 2, o laço do segundo bloco, a rampa de 16 amostras, o
+estalo do fim só onde havia ganho).
+
+O que a conferência achou no porte: o `AHorn` divide sem sinal (`divu`), o `ATrafficVehicle` multiplica a carga pelo
+(volume x mixagem), o `ACharacter::Say` cai num laço sem fim nas mulheres pedestres sem timbre presente (o sinal que o
+pararia nunca é ligado: o port para depois de uma volta e conta).
+
+### Divergências
+
+- O reverb do mixador do IOP não está portado (o jogo o deixa desligado); os outros formatos do mixador (PCM, MicroTalk)
+  terminam a voz (nenhum timbre do disco no IOP os usa); um bloco além da memória do IOP do port dá zeros.
+- O `CalculateRpm` do trenó (o tipo 5 acima de 1 m/s) usa o `logf` do port (fora da conferência); o `AHelicopter` e o
+  `PlaySnowmobileSpecifics` não estão portados (contados); nenhum dos dois em Paris.
+- Os objetos de som (`ACharacter`, `ASound` da galeria, `ATrafficVehicle`) ficam em registros: o `audio_shutdown` apaga
+  todos os sons, e quem ainda os aponte os vê como acabados. Sem o som ligado (as capturas sem `--audio-dump`) eles não
+  são criados; o sorteio do `InitAudioObject` sim (é parte da simulação).
+- O nome nulo das rodas do `ACharacter::Say` vai ao `AIndex::Lookup` como -1 (o PS2 leria o endereço 0 como texto).
+
+### O custo
+
+Não medido (o computador estava em uso: nenhuma janela). A partida ganha de 260 s com o WAV roda fora da tela em
+poucos minutos.
+
+### O que falta e a estimativa
+
+Dos efeitos: o risco da granada, o `ScorchWorld` das balas e do radar (as marcas de tiro nas paredes: 0x001ea8e8,
+~370 linhas com quatro `CheckHitWorld`), o `TriggerFX`/`RenderEffect` e as luzes dinâmicas das instâncias
+(`AddDynamicLightEffect`), o `RColorize`, os eventos 36, 130, 173, 252/253 e 279. Do som: o `ASmackable` (os objetos
+derrubados: o `Smackable::Simulate` pergunta ao som se a voz da batida ainda toca antes de dormir, então ele volta à
+simulação), as armas do carro (`AGun`, `ATurret`, `AZoomObj`), o alarme (`ACarAlarm`), o `WSoundGroup` do mundo, o
+`AHelicopter` e os trenós. Sobre as contas das seções 26 e 27 somadas (Paris 4-8 dias, fases 2-4 4-9), os efeitos que
+faltavam e o som do IOP, dos personagens, da galeria e do trânsito saem: Paris fica em **3-6 dias** e as fases 2-4 em
+**3-7 dias**.
+
+A atualização do nightfire-cxbx de 15/10/2026 (seção 8 do `docs/cxbx.md`) traz em C++ a camada de jogo inteira deles. O inventário dela mostra que as outras missões não cabem nos "1-3 dias" da seção 19: os pedestres, os helicópteros inimigos, os inimigos a pé e nas motos, os sentries, as minas, a moto de neve, o submarino e mais de cem eventos, perto de 500 funções. O estudo foi feito antes da seção 29 entrar (contou Paris em 4-8 dias sem a referência e 3-6 com ela, as fases 2-4 em 17-29 e 13-22); com a seção 29 feita e a referência, Paris fica em **2-5 dias** e as fases 2-4 em **12-21 dias**.
+
+## 30. A fase 3: as câmeras e os gatilhos que faltavam em Paris (a âncora do trilho, os modos do carro, as animações relativas, a luneta)
+
+A câmera de Paris tem todos os modos que o vanquish alcança: o triângulo troca entre a Heli, o Bumper e o Dashboard, o
+L2 olha para trás, o capotamento chama o Tumble, a vitória e a derrota fora do AutoDrive põem a câmera da pausa (o
+Ellipse), as animações 'Cams' do modelo do carro tocam pelo `RAnimEngine` de verdade, o `SetOldCameraMode` volta com
+transição, e na seção do helicóptero a câmera segue a velocidade do trilho (a divergência que o estudo do nightfire-cxbx
+achou, `docs/cxbx.md` seção 8). O L1 do fuzil de Bond fecha a câmera e desenha a luneta (`RSniperZoom`). Os gatilhos
+também são tocados pelos corpos simples e pelas instâncias movidas pelos trilhos. Tudo do MIPS do `DRIVING.ELF`,
+conferido contra o original no interpretador (a parte 26 do `nf_driving_check`, `--so cameras`). O nightfire-cxbx
+(NightfireResearch: `PlayerCamera*.cpp`, `WorldCamera.cpp`, leitura do Xbox) deu nomes de campos; o leiaute e as contas
+são os do PS2.
+
+### Como o PS2 faz
+
+**A âncora.** O `RWorldCamera` olha para uma âncora (o `PhysicsObject`: +0x40 o tipo, +0x44 as bandeiras, o bit 0 um
+corpo simples, +0x46 a vaga, +0x48 o objeto de desenho). O `IsAnchorValid` (0x1d5838) a solta se ela não é um veículo
+nem um corpo simples ou se a vaga passa de 0x30. O `SetAnchor` (0x1d5ef0) lê no grupo do modelo do objeto de desenho a
+lista 'Cams' (os registros de 0x40 bytes das animações relativas ao carro: +0x108 a lista, +0x10c a contagem; o
+vanquish tem um, sem animação, os carros da IA de Paris nenhum; sem 'Cams' a lista de antes fica). A matriz, a posição,
+a velocidade escalar e a velocidade linear vêm do corpo rígido ou, num corpo simples, do quatérnio (a matriz no global
+0x3d76a0), do +0x10 e do +0x20. O `GetAnchorLinearVelocity` (0x1d5d50) tem um caminho a mais: numa âncora de corpo
+rígido (qualquer uma), se o **primeiro carro da `Simulation`** tem um `AIVehicle` num trilho (`GetSplinePath`
+0x13e0b0), a velocidade é a do `RPathHandle` do trilho (+0x60, +0x88), não a do corpo. Na seção do helicóptero o carro
+de Bond anda no trilho: a câmera Heli usa essa velocidade para o tremor e a inclinação do braço. O
+`GetAnchorAcceleration` (0x1d5940) dá a força do corpo nas direções x e z dele sobre a massa (só os veículos; sem
+âncora válida a saída não é tocada); o `GetAnchorRenderOffset` (0x1d5fa8) é o `RVehicle::GetRenderOffset`; o
+`GetAnchorResetAvailable` (0x1d5e38) pergunta ao `PBondCar::GetResetAvailable` (0x192ff0, o contador do capotamento).
+
+**A entrada do carro.** Fora do AutoDrive o `CameraInputCallback` (0x1bcc00) chama o
+`RPlayerCamState::DriveCamInputHandler` (0x1bddc8): com o jogo andando e sem animação, cinema ou controle da CPU, o
+`GAMEACTION_CHANGECAMERA`/`UP` (o triângulo) chama o `NextCameraMode` (0x1ba5c0: o próximo modo selecionável, pulando
+os que o triângulo não mostra), o `DOWN` o `PrevCameraMode`, o `CAMLOOKBACK` (L2) o `SetCameraLookBack` (0x1bc048) e a
+soltura o desfaz, o freio de mão levanta a câmera Heli por 0x78 quadros, o volante e o `CAMROTATEX` giram o Dashboard.
+O `PauseOff` (0x1bcb88, o `~EResume`) refaz o olhar para trás que ficou preso na pausa; o `SetPauseCamera` (0x1bb9e8)
+esvazia a fila do diretor e pede o modo da pausa, o Ellipse: o `EPlayerWin` e o `EPlayerLose` o chamam quando não estão
+no AutoDrive.
+
+**Os modos.** O vanquish tem 22 modos no `camera.ini`. Os selecionáveis (os que o triângulo percorre) são o 0 (Heli,
+tipo 2), o 2 (Bumper, tipo 1024) e o 9 (Dashboard, tipo 1). O Tumble é o 10 (tipo 32), a pausa o 13 (Ellipse, tipo 8),
+a animação do mundo o 14 e a relativa ao carro o 15 (tipo 64).
+
+- O `UpdateBumperCam` (0x1b3b40) põe o olho no braço do modo no referencial do carro e olha pela frente dele.
+- O `UpdateDashboardCam` (0x1b3ce0) põe o olho no painel, com a inércia da aceleração da âncora suavizada (+0x240), o
+  giro pelo volante (+0x250), a olhada (+0x254) e a vertigem pela inclinação do carro; com o L2, o braço de trás.
+- O `UpdateTumbleCam` (0x1b3788) gira em volta do carro capotado pelo braço do modo anterior (a Heli, vezes o
+  `tumble_arm_scale`) ou (0, 3, -6), na direção em que o carro anda; o diretor o pede quando o `GetResetAvailable` do
+  carro liga (o `SetTumbleCam` com o `GetMaxTumble`).
+- O `UpdateEllipseCam` (0x1b4c30) dá uma faceta por quadro numa elipse de raios `xRad` e `zRad` em volta da frente do
+  carro, a altura pela lista `heights` (interpolada no segundo e no quarto quarto da volta; o cosseno do 0x1b2480).
+- O Spline, o Fixed e o Collision não são alcançados em Paris: nenhum modo Spline é selecionável nem tem id, o
+  `camera.ini` de Paris não tem Fixed (o `TriggerFixedCamera` do `HandleNuclearSequence` não faz nada) e ninguém chama o
+  `SetCollisionCam`.
+
+**As animações.** O evento 97 `EPlayCarCameraAnim` (0x153c48) acha a âncora (o carro do elemento da IA acordado; sem
+elemento, o primeiro carro da `Simulation`; senão o dono da vaga +0x18 dos corpos rígidos, ou dos simples pelo +0x14) e
+chama o `TriggerCarAnimationCamera` (0x1bc9f0), que pede o modo relativo com a âncora e o número da animação. No
+diretor, o `DirectorSetAnchor` (0x1bba38) troca a âncora; com transição (fora da câmera do míssil) o olho fica onde
+estava e a câmera olha na mesma direção a partir dele. O `LoadSingleAnimationFromList` (0x1d6860) acha o registro
+'Cams' cuja primeira animação é do sistema pedido e cria um `RAnimEngine::Handle` novo; o
+`UpdateRelativeAnimationCam` (0x1b5998) põe a câmera no registro relativo ao carro (o referencial da frente no plano),
+pelo `AnchorRelativeCamera` (0x1d65e0), com a transição pela curva do `RCameraSpline`; o `UpdateAnimationCam`
+(0x1d61b8) põe o olho na chave corrente da animação do `RAnimEngine` (`GetFirstSystemInstance` 0x1a3040). Os 7
+registros 'Cams' do mundo de Paris que têm animação (os que a seção 23 deixou contados) tocam pelo mesmo caminho
+(`PlayCurrentAnimation` 0x1d6970: o estímulo 8 no sistema da animação).
+
+**O `SetOldCameraMode` com transição.** Com 2 quadros ou mais para um modo que não é Heli com ruído, o 0x1bb340 monta
+um `RPlayerCamera` inteiro na pilha (o construtor 0x1b2620, a âncora desta câmera), roda uma vez a função do modo
+pedido e transforma o ponto a que ele chegou num registro 'Cams' de 0x40 bytes (o `operator new`; a bandeira 8 do
+pedido faz o diretor apagá-lo): relativo ao carro com o quarto argumento 1, do mundo senão; o registro vai à fila antes
+do modo. Os globais do módulo (o olho do tremor, o anti-vertigem, o `fgZoomButton`) são os mesmos das duas câmeras.
+
+**A mira do fuzil.** O `AICharacterHands::DoArmed`/`DoAiming` das mãos de Bond chama o `RPlayerCamState::AimZoom`
+(0x1be570): sem míssil guiado (0x1be6f8), a mira presa no zoom do braço do AutoDrive (o `InitAimZoom`: a câmera vai de
+33 para 20 graus), os giros da mira zerados, o som da mira (o `AVehicle` +0xc0) e o `GHud::AimOn`; o `AimRelease`
+(0x1be660), fora de um `CameraLockOn`, desfaz tudo e chama o `GHud::AimOff`. (O PS2 compara a arma corrente com 0x1f e
+0x16, mas o desvio cai sempre no mesmo lugar.)
+
+**A luneta.** O `RSniperZoom` (0xca0 bytes, `RSniperZoom.obj`, 0x1ed480 a 0x1ed8d8) é um pós-processamento: o
+`RRenderWorldCamera::DrawPostProcessingEffects` chama o `GrabBackBuffer` (o modo de cinema da missão o desliga), que
+copia o quadro já desenhado, reduzido, para um buffer de 64 x 64 (o `ROffscreenBuffer::MakeTexCopy` com a imagem
+subamostrada do `RPostProcessing`), e o `Draw` desenha dois anéis em faixa de triângulos (42 vértices cada, o vértice
+pelo 0x1ed7b0) com essa cópia em volta do cursor da mira (o `RPlayerCamera` +0x1c0): o de dentro, dos 65 aos 150
+pixels, entra do transparente ao cinza 0x5c com o alfa da luneta; o de fora, dos 150 aos 530, vai do cinza ao preto. A
+imagem fica embaçada e escura em volta do círculo que o `GHud::DrawCrossHairs` desenha por cima; o `DrawCrossHairs` da
+luneta liga e dá o alfa, o `AimOff` desliga.
+
+**Os gatilhos.** O `WTriggerManager::Update` (0x22f0c0) confere, depois dos corpos rígidos acordados e antes dos raios
+dos tiros: os corpos simples com o bit 0x100 (`SetCanHitTrigger`: as explosões fortes, os humanos) pelo
+`Process(unsigned, SimpleRigidBody &)` (0x22dae8: as células em volta do corpo, o raio pelo menos 1,5; o toque 0x10 no
+tipo 1, 0x08 nos 2 e 8, 0x40 nos 4 e 5, mais 0x80 se o dono é do jogador; os gatilhos com 0x80 só para os do jogador;
+o `CheckCollide` 0x22eec0 é o cilindro do gatilho com os dois raios somados e a direção pela velocidade), e as
+instâncias movidas pelos `RPathHandle` sem mestre pelo 0x22d5a8 (o SYM sugere `Process(CARP::Instance &)`: os gatilhos
+com `kTrigInstances`; o tamanho vem da palavra +0x3c da instância, três campos de 10 bits vezes 0,25 ou 16 pelo bit 30;
+com o bit 31 o `CheckCollide(raio, acima, abaixo)` 0x22f030, sem ele o `CheckCollide(raio)` 0x22efb0; só o raio da
+instância entra, não o do gatilho). Os dois disparam com o `FireEvents`.
+
+### Os arquivos
+
+| Arquivo | O que tem |
+|---|---|
+| `camera/player_camera_views.cpp` | a entrada do carro (`DriveCamInputHandler`), `NextCameraMode`, `SetCameraLookBack`, `PauseOff`, `SetPauseCamera`; os modos Bumper, Dashboard, Tumble e Ellipse; `GetAnchorRenderOffset`, `GetAnchorAcceleration`, `AnchorRelativeCamera`; o `SetOldCameraMode` com transição; `DirectorSetAnchor`, `TriggerCarAnimationCamera`, `LoadSingleAnimationFromList`, `UpdateAnimationCam`, `UpdateRelativeAnimationCam`; o `AimZoom` e o `AimRelease` |
+| `camera/player_camera.cpp` | as âncoras de corpo simples (`IsAnchorValid`, `GetAnchorMatrix4`, `Position`, `Speed`), o `SetAnchor` com os 'Cams' do modelo, o `GetAnchorLinearVelocity` com o trilho, o `GetAnchorResetAvailable` de verdade, os corpos simples do tipo 8 no `CheckObjectCollisions`, o Tumble no diretor |
+| `camera/player_camera_modes.cpp` | o `PrevCameraMode` com `divu`, as câmeras animadas do mundo pelo `RAnimEngine` (`LoadSingleAnimation`, `PlayCurrentAnimation`), a entrada fora do POV |
+| `camera/camera_math.h` | o cosseno do Ellipse (0x1b2480) |
+| `render/sniper_zoom.h` | o `RSniperZoom` (o leiaute de 0xca0 bytes, o construtor, `GrabBackBuffer`, o vértice do anel, `SetupVerts`, `Draw`) |
+| `render/anim_engine.h` | `GetFirstSystemInstanceIndex` e `GetFirstSystemInstance` (a câmera animada) |
+| `game/camera_events.h` | o 97 `EPlayCarCameraAnim` (a âncora de um dono de corpo pelo `anchor_for`) e a câmera da pausa da vitória e da derrota |
+| `game/triggers.h` | os corpos simples e as instâncias dos trilhos no `WTriggerManager` (6 funções) e o `Update` com os três |
+| `game/bond_car.h` | o `PBondCar::GetResetAvailable` (0x192ff0) |
+| `driving_app/drv_renderer.h`, `drv_renderer_d3d11.cpp` | o lote de pós-processamento com a cópia reduzida do quadro (`kDrvSceneCopyTexture`) |
+| `driving_app/nf_driving.cpp` | a âncora com o grupo do modelo e o deslocamento do desenho, as âncoras dos outros carros, a entrada do carro, o `AimZoom`/`AimRelease` das mãos, a luneta, a linha `camera_vistas` do relatório |
+
+### O que se vê em Paris
+
+- Na seção do helicóptero a câmera Heli usa a velocidade do trilho: o olho muda, e com ele a mira do atirador de
+  depuração, que mira pela câmera. Os três finais com os comandos de sempre (`--gunner 3,11,4,6,13,7,5,8@0.1
+  --gunner-limit 1.2 --gunner-tyres --autopilot "1@ROTA"`, capturas em `out/agent_drv_cam/final_m/` do checkout
+  principal):
+  - com `--autopilot-fire --drive-input none:260`, "Mission Accomplished" na etapa 2 com 1.156,9 de vida (1.102,7 sem
+    a seção 30); a linha `camera_vistas` conta 3.110 leituras da velocidade do trilho;
+  - sem `--autopilot-fire`, a van foge (etapa 29, 1.156,9 de vida);
+  - com `--gunner 3,11,4,6,13,7,5,8 --gunner-limit 1.0 ... --autopilot-fire --drive-input none:210`, os passageiros
+    destroem o carro ("Mission Failed", etapa 10: 291 balas, 1.850 de dano, e 4 explosões, 584,9; no main, com 260 s,
+    295 balas, 1.890 e 523,4).
+- A derrota pelos tiros, fora do AutoDrive, põe a câmera da pausa: o Ellipse gira em volta do carro destruído (3.330
+  quadros até a captura dos 210 s).
+- O L1 da seção do helicóptero fecha a câmera de 33 para 20 graus e desenha a luneta: o quadro reduzido, embaçado e
+  escurecido em volta do círculo da mira (`--drive-input "none:7 L1:2" --width 960 --height 540`: a captura
+  `out/agent_drv_cam/final_m/zoom.png` do checkout principal aos 9 s, `luneta 1` na linha `camera_vistas`).
+- O triângulo (a tecla de trocar de câmera do `drivecfg.def`) passa pela Heli, o Bumper e o Dashboard na seção do carro;
+  o L2 olha para trás. `--fire-trigger 727@1 --drive-input "none:5 TRI:0.1 none:1"` deixa a câmera no modo 2 (o
+  Bumper), e com mais um `TRI:0.1 none:1` no 9 (o Dashboard: `tri2.png` em `out/agent_drv_cam/final_m/`, a rua vista
+  da altura do painel; o interior do carro não aparece).
+- Os gatilhos: nas três partidas os corpos simples do jogo acordam poucos gatilhos (1 de 2.423 conferências na partida
+  ganha) e nenhuma instância de trilho de Paris toca um (0 de 32.988).
+
+### A conferência (a parte 26 do `nf_driving_check`, `--so cameras`)
+
+O código original roda no interpretador MIPS com a VU0, com o CARP do vanquish (um registro 'Cams' no 'Arti') e o
+`camera.ini` do disco. Ganchos nativos, além dos da parte 19: o `UGroup::DataLocateTag` e o `GetArray` (o grupo do
+modelo da âncora), as entradas da tabela virtual dos objetos (o `AIVehicle` do carro, o `GetRenderOffset` do objeto de
+desenho), o `RegisterEvent::LookupEvent`, o `AIElementController::RedirectCarpElement` e o percurso da lista do
+`RPathEngine`. A câmera é comparada inteira (0x370 bytes, os ponteiros pelos endereços correspondentes), com o
+`RPlayerCamState`, os globais, a fila do diretor (os registros do `SetOldCameraMode` pelo conteúdo), o `RCameraSpline`,
+a cópia do registro no `RAnimEngine::Handle` e a lista do motor; nos gatilhos, os gatilhos, os globais do
+`WTriggerManager`, o `EventDynamicData` e os eventos criados. Com `--casos 4000 --quadros 600` (a rodada inteira):
+
+| O que | Casos | Diferentes |
+|---|---|---|
+| o `LoadFile` do vanquish, o construtor e o `SetAnchor` | 1 + 1 | 0 |
+| `IsAnchorValid` | 367 | 0 |
+| `SetAnchor` (os 'Cams' do modelo) | 4.000 | 0 |
+| `GetAnchorMatrix4`, `GetAnchorPosition`, `GetAnchorSpeed` | 521 + 539 + 582 | 0 |
+| `GetAnchorLinearVelocity` (61 com o primeiro carro num trilho) | 472 | 0 |
+| `GetAnchorAcceleration`, `GetAnchorRenderOffset`, `GetAnchorResetAvailable` | 501 + 496 + 522 | 0 |
+| `UpdateCamera` quadro a quadro em Paris (725 entradas do carro, 60 modos pedidos) | 2.000 | 0 |
+| `WTriggerManager::CheckCollide` (corpo simples; ponto e raio; ponto, raio, acima e abaixo) | 585 + 482 + 528 | 0 |
+| `WTriggerManager::Process` (corpo simples; instância de um `RPathHandle`) | 1.155 + 750 | 0 |
+| `WTriggerManager::Update` (rígidos, simples e instâncias) | 500 | 0 |
+| `RSniperZoom`: o vértice do anel (0x1ed7b0) e o `SetupVerts` | 1.227 + 2.773 | 0 |
+
+Das âncoras, 1.652 são de corpo simples e 389 inválidas. Os 2.000 quadros do `UpdateCamera` passam pela âncora andando
+por Paris entre pedidos sorteados: `NextCameraMode` 19, `SetCameraLookBack` 17, `PauseOff` 13, `SetPauseCamera` 22,
+`TriggerCarAnimationCamera` 22, `SetOldCameraMode` 27 (17 com transição: o `RPlayerCamera` da pilha), `EndCameraAnim`
+29, `SetLastSelectableCameraMode` 5, o destrutor do 97 3, `ForceCameraChange` 14, `RestartCamera` 9, miras 26,
+reposições do carro 9 (o Tumble), pausas 17 e corpos simples perto do olho 25; os quadros por tipo de modo: Heli 356,
+Bumper 92, Dashboard 45, Tumble 214, Ellipse 103 e as animações 1.190 (a relativa ao carro 1.026, 936 tocando no
+`RAnimEngine` original, que roda a cada quadro); a âncora trocada para outro carro em 117 quadros e para um corpo simples
+em 18; 944 `UpdateRelativeAnimationCam` e 122 desvios do olho em volta de outros corpos; nada pendente no port. Nos
+gatilhos, 3.114 disparos (corpos simples conferidos 2.120, tocaram 167, do jogador 300; instâncias conferidas 3.150,
+tocaram 2.944). O interpretador rodou 72.451.033 instruções do original; a rodada inteira (todas as partes, com a 28 da seção 32), 3 min 8 s.
+
+Com `--so cameras --casos 4000` as sementes 7 e 123 também dão 0 diferentes em todas as linhas (727 e 704 entradas do
+carro, 51 e 62 modos pedidos; 83.514.439 e 74.588.990 instruções). As partes 8 (a câmera), 14 (os gatilhos dos corpos
+rígidos e dos raios) e 19 (a seção do helicóptero) seguem com 0 diferentes.
+
+Os 7 testes de `tests/test_driving_cameras.cpp` (nf_tests: 985 no x86 e no headless, 988 no x64, 0 falhas) conferem
+propriedades independentes: o `NextCameraMode` pula os modos que o triângulo não mostra, o anterior do modo 0 pelo
+`divu`, a entrada que gira o Dashboard e levanta a Heli, a velocidade da âncora pelo trilho do primeiro carro, o
+ponto do gatilho só com o raio da instância, o corpo simples com os dois raios e os raios dos anéis da luneta, que
+fecham a volta.
+
+O que ela achou no porte:
+
+- o `PrevCameraMode` da seção 23 fazia o resto com sinal; o PS2 usa `divu`, e o anterior do modo 0 é (2^32 - 1) % 22 =
+  3, não o último;
+- a vertigem do Dashboard negava as duas inclinações; o PS2 nega só a da subida;
+- o `GetAnchorAcceleration` sem âncora válida zerava a saída; o PS2 não a toca.
+
+### Divergências
+
+- As pistas que o PS2 deixa com o lixo da pilha (o w de alguns vetores locais copiados para o olho e para o +0x2f0 no
+  primeiro quadro do Bumper, do Dashboard e do Ellipse) ficam com o valor anterior ou zero; a parte 26 não as compara.
+- O `UpdateRelativeAnimationCam`, no primeiro quadro de um registro com animação e transição suave saindo de um modo com
+  transição suave, multiplica por uma matriz cujas linhas 1 a 3 são o lixo da pilha: o port usa zeros; sem animação e
+  sem transição, decide o fim pelo s6 do chamador (lixo): o port usa 0. Os 97 de Paris estão em listas de regras que os
+  finais não alcançam e o registro do vanquish não chega ao segundo caso; a parte 26 só pede animações com transição
+  saindo de modos sem transição suave.
+- O `NextCameraMode` e o `PrevCameraMode` com zero modos: o PS2 para na divisão por zero, o port volta.
+- O `LoadSingleAnimationFromList` num registro sem animação (o PS2 leria o endereço 0) conta em `guards`.
+- A luneta: a cópia do quadro e o desenho dos anéis são do renderizador do port (a cena reduzida numa textura, os anéis
+  na área 4:3 da janela, a textura amostrada no mesmo ponto da janela); o `ROffscreenBuffer` e o
+  `USimpleTexturedMaterial` não são portados.
+- O 97 sem âncora (um dono que não é carro) não troca a âncora e conta (`sem_ancora` na linha `camera_vistas`).
+
+### O custo
+
+Não medido (o computador estava em uso: nenhuma janela).
+
+### O que falta e a estimativa
+
+Da câmera: o Spline, o Fixed e o Collision (Paris não os alcança; as outras missões talvez) e uma comparação dos modos
+com o PCSX2. Dos gatilhos: as listas dinâmicas da grade (um objeto derrubado só é achado nas células antigas). A linha
+"a câmera da seção do helicóptero" (1-2 dias) das contas das seções 28 e 32 sai. Sobre a conta da seção 32 (Paris 2-3,5
+dias para jogar de ponta a ponta como agora, 4,5-8 com tudo o que o PS2 desenha; as fases 2-4 13-23), o que resta para
+jogar como agora é o crossfade e o IK do `ActPoser` (0,5-1), o resto do HUD (0,5: o menu de pausa e a fila "HUDQ", o
+`ATargeting`, o som das armas do carro, o voo pelo fio, os modos de tela larga) e o som que a seção 29 deixou
+(0,25-0,5): Paris fica em **1,25-2 dias** para jogar como agora e **3,75-6,5 dias** com as marcas de pneu, as
+partículas dos carros, o desenho do Q-Pulse e o `Handle` dos carros da IA da seção 32 (2,5-4,5); as fases 2-4 em
+**12-21 dias**.
+
+## 31. A fase 3: os sons que faltavam em Paris e o resto do HUD (as armas, a mira, os objetos, a pausa, as trapaças)
+
+Paris toca agora todos os sons que o PS2 toca nas suas cenas: as armas do carro e do helicóptero (o `AGun`, o `ATurret`),
+a respiração da luneta (o `AZoomObj`), os bipes da trava (o `ATargeting`), o alarme (o `ACarAlarm`), os sons sem posição
+do HUD, da missão e das armas do POV (o `AMenuSound`), o "helicopter" do jogador (o `APlayerHeli`), os objetos
+derrubados (o `ASmackable`) e os sons parados do mundo (o `WSoundGroup` e o `AWorldSound`). O HUD ganhou a pausa: o
+Start abre o menu de MISSÃO, OBJETIVOS, CONTROLES e PONTOS sobre o jogo parado, com a moça de fogo animada ao fundo (o
+`GGirl`), as perguntas de recomeçar e de sair, o menu de fim de missão depois de "Mission Failed", as nove trapaças com
+o jogo parado e a página do controle desligado. Tudo do MIPS do `DRIVING.ELF`, conferido contra o original no
+interpretador (a parte 27 do `nf_driving_check`, `--so som_hud`). O nightfire-cxbx (NightfireResearch:
+`WeaponSound.cpp`, `VehicleSoundKinds.cpp`, `Hud*.cpp`, leitura do Xbox) serviu de leitura e deu nomes; o leiaute e as
+contas são os do PS2.
+
+### Como o PS2 faz
+
+**Os sons das cenas** (`SupportPS2.lib` `UDevCons.obj` e `BondAudioPS2.lib` `AMix.obj` no SYM). O `ASceneObj` é o
+`ABaseSound` dos objetos com armas (+0xb0 a arma ligada, +0xb4 atirando, +0xb8/+0xbc a torre girando, +0xc0 o zoom da
+mira mudou, +0xc4 o tiro em laço). O `AGun` (0x002f6e60 o construtor, 0x002f7078 o `SetFirePatch`, 0x002f7188 o
+`Play`, 0x002f7300 o destrutor) toca o tiro em laço enquanto o dono atira e sustenta o fim por 10 passos, ou um
+`AOneShotSound` por tiro quando o dono não sustenta o laço; os cartuchos caem com o `rrandom` (comparado em dupla, como o
+PS2: `fptodp` + `dpcmp`). O `ATurret` (0x002e4930, 0x002e4980 o `Play`, 0x002e5148) liga os motores dos dois eixos pela
+velocidade do giro. O `AZoomObj` (0x002dc500, 0x002dc5a0 o `InTheZone`, 0x002dcb10 o `Play`, 0x002dcbb0) entra na
+"zona" quando o zoom muda: abaixa as mixagens dos outros sons e toca a respiração de Bond. O `ACarAlarm` (0x002debc8,
+0x002dec38) é o alarme que o `AVehicle::StartAlarm` liga. O `ATargeting` (0x002e6a88, 0x002e6ac8 o `SetState`) bipa a
+trava do `WTargetPicker` (o +0x7c, criado pelo construtor dele) e o do `GHud` (+0x39c) existe só nas pistas
+`junglea_mis13a`, `snow2a_mis4` e `uw_mis11`. O `AMenuSound` (o `AMenuSoundPriv` 0x002f4780/0x002f4918 e os três
+`Trigger` 0x002f4a20, 0x002f4aa0, 0x002f4b10) toca os sons sem posição pela categoria do banco ou pelo nome. O carro do
+jogador na seção do helicóptero é do tipo "helicopter": o `APlayerHeli` (0x002f1428, 0x002f16b8 o `Play`, 0x002f1ae8)
+toca o rotor, a metralhadora e a luneta, e o `PBondCar::ChangeCarType` troca o objeto de som para o `APlayerVehicle` do
+`SFX_ENGINE` do novo carro.
+
+**Os objetos derrubados.** O `Smackable` guarda o `ASmackable` (0x002ef6f0 o construtor, 0x002ef7d0 o `PlayLanding`,
+0x002ef7f8 o `PlayCollision`, 0x002ef8d0 o `IsStillActive`, 0x002ef9d0 o `Play`, 0x002efc80 o `Detatch`) no +0x84 e no
++0x4c (`PhysicsObject::SetAudioObject`); o `Smackable::Simulate` passa a ele a posição e a velocidade e não dorme
+enquanto a voz do choque toca (`IsStillActive`). Os choques alternam entre o timbre baixo, o médio e o alto pelo global
+0x00355ea0. Os timbres vêm da "PhysicsData" pelo leitor 0x00194d48 (o nome no índice do banco da categoria 2 ou da 1).
+Em Paris eles são lidos na carga da pista, antes de o `ASoundManager::Init` carregar os bancos, e ficam -1, como no
+PS2: os objetos derrubados de Paris são mudos e o sono deles não muda.
+
+**Os sons do mundo.** O `WSoundGroup` (0x002278f8 o construtor, 0x002279d0 o `Start`, 0x00227d80/0x00227e58/0x00228470
+os três `Add`, 0x00228560 o `End`, o `Clear`) guarda os `WSound` por número num `map` da STL; o `WWorld::Open` o enche
+com os registros 'Audi' da pista e com os caminhos animados cujo objeto tem um `DEFAULTSOUND`. O `AWorldSound`
+(0x002dcd50 o construtor, 0x002dd178 o `Play`, 0x002dd380/0x002dd500/0x002dd5b8 o `SetWarningVoice`, o `SetTiming` e o
+`SetRepeat`) repete o timbre com intervalos e vezes sorteados e toca a voz de aviso quando o objeto vai passar perto do
+carro do jogador. O 'Audi' de Paris não tem registros: o grupo fica vazio.
+
+**As chaves dos atributos.** O `AttributeSystem::ProcessDafiSection` (0x0016d130) compara as chaves com `strcasecmp`. O
+port comparava com a caixa: o "Mass=900" do `Paris_Bench` (e 790 e 600 de outros dois objetos) não valia. Agora vale,
+e isso muda a partida (ver "O que se vê em Paris").
+
+**A fila "HUDQ" e a pausa** (`GHud.obj`). O `GHud::GHud` cria uma fila de ações, que o `ActionQueueManager::FeedQueue`
+enche com todas as ações do `IOModule`; o `GHud::Render` (0x0023cbc0) a esvazia em cada quadro desenhado: o Start
+(0x47) liga a pausa (`PauseOn` 0x00241048) ou, no modo de cinema, pula a cena (`SMissionManager::SkipCinematic`); com a
+pausa aberta o Start a fecha (`PauseOff` 0x002411a0), e no menu de fim de missão (a página 5) escolhe recomeçar
+(`RestoreLives` e o +0x43c) ou sair (o código de saída do UberBond +0x978 e o +0x440); o 0x4a (o
+`FRONTENDACTION_SKIPMOVIE`) pula a cena sem a pausa; o 0x21-0x23 (a troca da arma secundária) mostra a arma por 3 s;
+o resto vai, com o jogo parado, ao `PauseMenuMsgHandler` (0x00241210: as quatro páginas, os objetivos, as configurações
+do controle e o eixo invertido, as perguntas) e ao `CheatMsgHandler` (0x00241bb8: as ações 0x59-0x62 entram no fim do
+registro +0x4ac..+0x4e8, e o `CheckCheatInput` 0x00241b38 confere as nove sequências do .data 0x0033ae58..0x0033b170:
+L1, pares de botões, R1). O `PauseOn` cria o `EPause` (a tabela virtual 0x00370be8), cujo destrutor (0x00153488) para a
+simulação (`Simulation::PauseSimState` 0x001fee28: o estado 3 e o anterior no +0xdb0), a missão
+(`SMissionManager::Stop`) e o som (`ASoundManager::Pause`) e zera o jogo correndo (0x0032c460); o `PauseOff` cria o
+`EResume` (0x00370900; o destrutor 0x001568f0 faz o contrário, mais o `RPlayerCamera::PauseOff` e a entrada +0xbc da
+tabela virtual do carro do jogador). O `DrawMissionResult` do resultado 5 ("Mission Failed") chama o `PauseOn`, que abre
+a página 5 com "Restart" escolhido. O `SetControllerUnplugged` (0x0023cb58) abre a página dos erros (o
+`DrawPauseErrors` 0x00241f40). O `GHud::Draw` desenha no fim, com o jogo parado, o `DrawPauseMenu` (0x002426a0: as abas,
+a seta piscando `DrawBlinkingArrow` 0x002422b8, os textos do `.loc` quebrados pelo `WordWrap` 0x002424a0 e desenhados
+pelo `DrawFont` de várias linhas 0x00244600 e pelo `DrawFontCentered` 0x00244490, os botões de cada configuração pelo
+`InputConfigManager::GetLocaleID` 0x00166dc0, que troca alguns textos em Paris, na `snow1a_mis3` e nas pistas `uw_`, e
+os pontos pelo `SMissionManager::TallyScores` 0x00205c30, que arredonda os pontos para cima de 50 em 50 quando faltam 2
+ou menos) ou o `DrawPauseErrors`. A língua é o `GLocale::GetLanguage` (0x00249f98: o UberBond +0x988, 8 vira 6, o resto
+acima de 5 vira 7).
+
+**A moça do fundo** (`GFXGallery.obj`: `GGirl::InitGirl` 0x00239718, `KillGirl` 0x002397c0, `DoGirl` 0x00239848,
+`ClearTexture` 0x002398f8, `UpdateTexture` 0x00239988, `DrawTexture` 0x0023a368, `DrawPoint` 0x0023a3d0). O mesmo truque
+do fundo da pausa a pé (CLAUDE.md, "The animated pause background"): o dado 'fi' 0 da galeria do HUD (o
+`hudNTSC.gal`) é uma animação em RLE de uma silhueta de mulher; cada quadro é pintado em duas texturas de 128 x 128 x 32
+(uma desenhada, a outra preenchida) com as cores de uma tabela de 128 x 128 x 3 bytes com sinal do .data (0x0039d918) que
+corre a cada quadro, e desenhado como um sprite de 256 x 256 (cor 0x7f7f7f7f) ao lado do
+menu, espelhado ou não pelo 0x0033ab50, a 30 quadros por segundo.
+
+**Os gritos dos passageiros.** A seção 29 dizia que eles acabavam mudos pela ordem dos eventos; o MIPS diz o contrário.
+O `AICharacter::GetACharacter` (0x00118988) cria o `ACharacter` com a posição zerada; o fim do `AICharacter::Execute`
+(0x00118e4c, chamado pelo `Human::Simulate` 0x0017f980 no `SimulateGame`) copia a linha 3 da matriz do personagem
+(+0x30..+0x38) para ele enquanto há voz (+0xb0), ou o apaga; o `ASoundManager::BuildPaths` (0x002ec238, no
+`EAudioUpdate`) só chama o `Play` de um som cujo |posição - ouvinte|² está abaixo do +0x64 (90.000 para os capangas)
+ou cujo volume do quadro anterior passou de 0. Uma fala que nasce depois do `Execute` do passo (o tiro de um
+`EFireWeapon`, no fim da passagem) fica na origem, longe do ouvinte, e a voz espera: o `Execute` seguinte a põe no
+personagem e o `EAudioUpdate` a toca. Nas três partidas de Paris o gemido `SFX_HGrunt1` de um passageiro baleado (aos
+62 s) toca por 36 quadros com 0,19 a 0,23 de volume do caminho. Só um ouvinte a menos de 300 m da origem tocaria a voz
+lá, o que não acontece em Paris.
+
+### O porte
+
+| Arquivo | O quê |
+|---|---|
+| `sound/audio_scene.cpp` | `ASceneObj`, `AGun`, `ATurret`, `AZoomObj`, `ACarAlarm`, `ATargeting`, `AMenuSoundPriv`/`AMenuSound`, `APlayerHeli`, `ASmackable`, os `AVehicle::Activate*` |
+| `sound/audio_world.cpp` | `AWorldSound`, `WSound`, `WSoundGroup` |
+| `sound/audio.{h,cpp}`, `audio_internal.h`, `audio_vehicle.cpp`, `audio_voice.cpp` | as interfaces (`audio_patch_id`, `ASmackable_*`, `world_sounds_open`, `audio_change_player_car`, `scene_audio_stats`), o registro `audio_trace` dos sons novos |
+| `game/smackable.{h,cpp}` | o `ASmackable` no +0x84/+0x4c, o fim do `Simulate` com o `IsStillActive` (`Smackable_SleepStep`) |
+| `game/attributes.cpp` | as chaves sem caixa, os seis campos de som da "PhysicsData" |
+| `game/hud_pause.{h,cpp}` | a fila "HUDQ", a pausa, o menu, as trapaças, os eventos `EPause`/`EResume` (os números do port 0x1000/0x1001), o `TallyScores`, o `GetLocaleID`, o `GetLanguage`, o `GGirl` |
+| `game/hud_draw.{h,cpp}` | o `GHud::Render` com a fila, o `GHud::Draw` com a pausa, o `PauseOn` do `DrawMissionResult`, os ganchos `pause_on`/`pause_draw` do `HudDrawEnv` |
+| `game/events.cpp`, `heli_section.cpp`, `target_picker.cpp`, `weapons.cpp`, `fire_weapon.cpp`, `missile.cpp`, `mission.cpp`, `hud.cpp` | os `AMenuSound::Trigger` que eram anotados agora tocam; o `ATargeting` do `WTargetPicker` e do `GHud`; o `ChangeCarType` troca o objeto de som |
+| `physics/simulation.h` | o +0xdb0 (o estado antes da pausa) |
+| `render/gs2d.{h,cpp}`, `driving_app/drv_hud2d.cpp` | `ui_image_update`: a imagem da moça trocada a cada quadro e subida de novo |
+| `driving_app/nf_driving.cpp` | a fila "HUDQ" no `DriveInput`, o `HudPauseEnv` (o `InputConfigManager`, o mapa das ações, o `timeScale`, o `ACCUMULATE_SCORES`, o `PauseOff` da câmera), a tabela de cores lida do `DRIVING.ELF`, `START` e `DU`/`DD`/`DL`/`DR` no `--drive-input` (Enter na janela), as linhas `pausa_hud` e `cena_som` do relatório |
+
+### A conferência (a parte 27 do `nf_driving_check`, `--so som_hud`)
+
+O código original no interpretador MIPS (com a VU0 em modo macro) lado a lado com o porte, `--casos 4000`. Os sons: os
+dois lados escrevem as mesmas linhas, na ordem (as vozes criadas, tocadas com os seis números do `AVoice::Play` e
+soltas, as mixagens pedidas, as transições, os sons apagados, os `AMenuSound::Trigger`), e depois os campos dos objetos e
+das vozes vivas são comparados; ganchos nativos dos dois lados: o `AMix`, o `AVoice::AVoice`/`Play`/`~View`, o
+`UMemory`, o `ABaseSound::operator new/delete`, o `__builtin_new/delete`, o `AIndex::Lookup` e o `ABank::Get` (os bancos
+de teste), as cadeias do `basic_string`. A pausa roda no `HudEmu` da parte 24 (o `GHud::GHud` original sobre o
+`hudNTSC.gal`), com estados sorteados do `GHud`, da missão, dos objetivos, do `InputConfigManager`, do `Scheduler` e do
+UberBond, e compara o `GHud` inteiro, os materiais e os pacotes de fonte desenhados, os sons, os eventos criados, o
+estado da moça e os dois buffers dela.
+
+| Função | Casos | Diferentes |
+|---|---|---|
+| `AMenuSoundPriv` (construtor, `Play`), `AMenuSound::Trigger` (as três) | 20.000 | 0 |
+| `ATargeting` (construtor, `SetState`) | 20.000 | 0 |
+| `ACarAlarm` (construtor, `Play`) | 8.000 | 0 |
+| `AZoomObj` (construtor, `InTheZone`, `Play`, destrutor) | 32.000 | 0 |
+| `ATurret` (construtor, `Play` em sequências, destrutor) | 14.014 | 0 |
+| `AGun` (construtor, `SetFirePatch`, `Play` em sequências, destrutor) | 18.518 | 0 |
+| `ASmackable` (construtor, `PlayLanding`, `PlayCollision`, `IsStillActive`, `Play`, `Detatch`, destrutor) | 9.849 | 0 |
+| `Smackable::Simulate` (o som e o sono) | 4.000 | 0 |
+| `AWorldSound` (construtor, `Play` em sequências, `SetWarningVoice`, `SetTiming`, `SetRepeat`) | 25.025 | 0 |
+| `WSoundGroup` (`Start`, os três `Add`, `End`, `Clear`: a árvore da STL do original) | 14.005 | 0 |
+| `APlayerHeli` (construtor, `Play`), `AVehicle::Activate*` e `StartAlarm` | 10.010 | 0 |
+| o leitor dos sons da "PhysicsData" (0x00194d48) | 4.000 | 0 |
+| `GGirl::DoGirl` | 519 | 0 |
+| `GHud::CheatMsgHandler` | 346 | 0 |
+| `GHud::Draw` (com a pausa) | 278 | 0 |
+| `GHud::DrawBlinkingArrow`, `DrawPauseErrors`, `DrawPauseMenu` | 1.254 | 0 |
+| `GHud::PauseMenuMsgHandler`, `PauseOff`, `PauseOn` | 889 | 0 |
+| `GHud::Render` (a fila "HUDQ") | 554 | 0 |
+| `GHud::SetControllerUnplugged` | 160 | 0 |
+| `SMissionManager::TallyScores`, `WordWrap`, `InputConfigManager::GetLocaleID`, `GLocale::GetLanguage` | 16.000 | 0 |
+
+Os desenhos da pausa somam 17.196 materiais e 3.550 pacotes de fonte; a moça, 1.493 quadros e 249 recomeços; o
+interpretador roda 4,7 bilhões de instruções. A parte 24 (`--so filmes_hud`) continua com 0 diferentes: o `GHud::Draw`
+dela troca o `DrawPauseMenu`/`DrawPauseErrors` do porte por nada (`HudDrawEnv::pause_draw`), como o original lá os tem
+enganchados.
+
+O que ela achou no porte: o `DrawMissionResult` do resultado 5 só contava o `PauseOn` (agora o chama); o `PauseOff`
+sem o mapa das ações não gravava o UberBond +0xa14/+0x98c; o `GGirl::KillGirl` não zera o 0x0033ab28 (a animação em
+curso), e o port o zerava.
+
+A queda da conferência completa (2026-10-19): o `nf_driving_check . --casos 4000 --quadros 600` do x86 caía em duas de
+três rodadas no `SNDstop` do `~AWorldSound` (`0xc0000005`, um endereço lido diferente a cada rodada; antes, já se vira
+uma queda sem pilha logo depois do `Smackable::Simulate`, que é a mesma: o `AWorldSound` vem em seguida). A causa estava
+só na conferência: as vozes de aviso que o `~AWorldSound` deixa (como no PS2) eram apagadas fora do registro a seco,
+com os handles sorteados (0 a 30), e o `SNDstop` real ia ao SND que as partes anteriores (13, 23) desligaram com o
+`audio_shutdown`. O `SNDSYS_restore` libera as vozes no heap do SND sem esquecer o ponteiro nem o número delas (62),
+igual ao PS2 (0x00307688 só zera o `inited`), e o `ASystem::Shutdown` do porte devolve o heap ao Windows: o
+`SNDVOICEI_get` lia memória já liberada (uma instrumentação mostrou `iniciado 0 vozes 62` e o heap nulo no começo da
+parte 27). No jogo não acontece: o `audio_shutdown` apaga essas vozes antes do `ASystem_Shutdown`, com o SND ligado. A
+correção: a parte 27 começa com o `snd_power_on` (o SND sem vozes, em que o `SNDVOICEI_get` devolve -8) e apaga as vozes
+de aviso a seco, no `port_clear_sounds`. Na mesma rodada apareceu a variação das contagens do `Update` da parte 15 (os
+casos que criaram eventos mudavam de rodada para rodada, sempre com 0 diferentes): o sorteio das regras ligadas andava
+pelo `map` de ponteiros do porte, cuja ordem segue o heap; agora anda na ordem dos endereços emulados, e a saída é a
+mesma em todas as rodadas.
+
+### Divergências
+
+- O `EPause` e o `EResume` não têm número de 'el': entram na fila dos eventos com os números do port 0x1000 e 0x1001,
+  na mesma ordem dos outros.
+- O `EResume` do PS2 espera o controle ficar estável (`PAD_isstable`, com `sceGsSyncV`): o port não espera.
+- A entrada +0xbc da tabela virtual do carro do jogador (o `EResume`) não é chamada: contada (`sem_carro` na linha
+  `pausa_hud`).
+- O `Bond_SetExitToDriving` (as trapaças da `snow2a_mis4` e o recomeço em cadeia da `CHAIN_RESTART_MISSION`, que Paris
+  não tem) fica anotado.
+- O `GGirl` desenha numa imagem do port (`ui_image`) trocada e subida de novo a cada quadro, não numa textura da VRAM.
+- Um `GetButton` sem símbolo no texto da dica (o PS2 desenharia o sprite do ponteiro nulo) não desenha o ícone: contado.
+- O `ACarAlarm::ACarAlarm` constrói a voz com a mixagem do +0x64 antes de escrevê-lo (lixo do `__builtin_new` no PS2):
+  o port usa a "Horns" (nada no `DRIVING.ELF` chama o `AVehicle::StartAlarm`).
+- O `ATargeting` do `WTargetPicker` e o do `GHud` são estáticos do port (o PS2 os aloca); o `map` do `WSoundGroup` é um
+  `std::map`; as cadeias do `AGun` são `std::string`.
+- O recomeço e a saída do menu de fim de missão chegam ao `GOrthoHudView::PostRender` (o `ERestart`/`EExit`); o
+  `nf_driving` sai no `EExit` e conta o `ERestart` (não recomeça a missão).
+
+### O que se vê em Paris
+
+- O Start (Enter na janela, `START` no `--drive-input`) abre o menu de pausa sobre o jogo parado, com a moça de fogo à
+  direita; o direcional troca as abas e os itens (`--fire-trigger 727@1 --drive-input "none:4.3 W:1 none:1 START:0.1
+  none:2"`: a página MISSION com CONTINUE, RESTART, QUIT; `... START:0.1 none:1 DR:0.1 none:0.5 DR:0.1 none:1.5`: a
+  página CONTROLS com a "DRIVING CONFIG" e os botões; capturas em `out/agent_drv_snd/pausa/` do checkout principal);
+  um segundo Start fecha a pausa e o carro segue. A linha nova `pausa_hud` do relatório conta as pausas, as ações da
+  fila, as cenas puladas, as trapaças, os recomeços e as saídas, e os quadros da moça.
+- Depois de "Mission Failed" o menu de fim de missão abre (a página 5, "Restart"); o X do piloto de depuração (o
+  acelerador) escolhe o recomeço (`recomecos` na linha `pausa_hud`), que o `nf_driving` só conta.
+- Os sons novos na partida ganha (a linha nova `cena_som`): 32 `AMenuSound` (os objetivos, o fuzil de Bond, o fim das
+  manobras), 26 mudanças da trava (`ATargeting`), 395 `ASmackable` criados (mudos: os timbres -1 de Paris); o
+  `APlayerHeli` toca na seção do helicóptero.
+- As chaves sem caixa mudam a massa do banco e de dois objetos do pátio, e com isso a partida: o comando da vitória da
+  seção 29 (`--gunner 3,11,4,6,13,7,5,8@0.1 --gunner-limit 1.2 ...`) agora termina com 86,8 de vida sem a seção 30 e, com
+  ela, perde na etapa 10 (os passageiros destroem o carro). Os três finais, com a mesma rota (`--gunner-tyres
+  --autopilot "1@ROTA" --drive-input none:260`):
+  - `--gunner 3,11,4,6,13,7,5,8 --gunner-limit 1.2 --autopilot-fire`: "Mission Accomplished" na etapa 2 com 1.036,0 de
+    vida;
+  - o mesmo sem `--autopilot-fire`: a van foge ("Mission Failed", etapa 29, 1.036,0 de vida);
+  - `--gunner 3,11,4,6,13,7,5,8 --gunner-limit 1.0 --autopilot-fire`: os passageiros destroem o carro ("Mission
+    Failed", etapa 10).
+- A saturação da saída na partida ganha inteira (260 s, `--audio-dump`): 827 amostras cortadas na saída e 45 no núcleo
+  0, o pico sem o corte +2,5 dB (o main do mesmo dia: 427 e 50, +1,8 dB); os cortes a mais caem aos 10-20 s (a seção do
+  helicóptero, onde o `APlayerHeli` agora toca), aos 60 s e aos 140-170 s (a seção do carro), como antes. A van que foge: 851;
+  a derrota: 2.730 (+4,1 dB, as explosões em volta do carro destruído).
+
+### O custo
+
+Não medido (o computador estava em uso: nenhuma janela).
+
+### O que falta e a estimativa
+
+Do som: o `ASmackable` toca mudo em Paris (os timbres -1 pela ordem da carga, como no PS2); o `WSoundGroup` fica vazio
+(o 'Audi' de Paris não tem registros), o que só outras pistas exercitarão. Do HUD: o recomeço da missão pelo menu (o
+`ERestart` no `nf_driving`: recarregar a pista e o estado da missão) e o `Bond_SetExitToDriving`; o voo pelo fio e os
+modos de tela larga já são lidos pelo desenho e sorteados na conferência, mas Paris não entra no voo pelo fio. Sobre a
+conta da seção 30 (Paris 1,25-2 dias para jogar como agora, 3,75-6,5 com tudo o que o PS2 desenha; as fases 2-4 12-21),
+saem o resto do HUD (0,5) e o som que a seção 29 deixou (0,25-0,5): Paris fica em **0,5-1 dia** para jogar como agora
+(o crossfade e o IK do `ActPoser`) e **3-5,5 dias** com as marcas de pneu, as partículas dos carros, o desenho do Q-Pulse
+e o `Handle` dos carros da IA da seção 32; as fases 2-4 em **11-20 dias**.
+
+## 32. A fase 3: o que ainda faltava em Paris (os efeitos das instâncias, os clarões dos canos, as marcas dos tiros, os eventos; os pedestres)
+
+Os objetos do mundo e os carros acendem, apagam, suprimem e danificam os efeitos dos seus artigos (clarões, luzes
+dinâmicas, efeitos da galeria), as armas dos capangas e as mãos de Bond desenham o clarão do cano, os tiros nas paredes
+deixam marca (e a marca desce ao chão ao pé delas), e os eventos 36, 39, 130, 173, 252/253 e 279 rodam. Tudo do MIPS do
+`DRIVING.ELF`, conferido contra o original no interpretador (a parte 28 do `nf_driving_check`, `--so efeitos_ped`).
+Paris não tem pedestres: o porte confirma e roda o caminho de zero pedestres.
+
+### Os pedestres
+
+O `AICharacterPedestrian::Init` (0x00125bb8, chamado pelo `GameLoop_StartUp` com o `NUM_PED_TYPES_PS2` dos atributos do
+mundo) acha o conjunto pelo nome da missão (`GetPedBase` 0x001266a8: `snow1a` 1, `snow2a` 2, `junglea` 3, `jungleb` 4,
+`uw_` 5, `junglec` 6, o resto 0), grava a contagem dos tipos achada na tabela `PedSets` (0x3277b0, 0x70 bytes por
+conjunto) e cria 16 pedestres só se o conjunto tem tipos ou especiais. O `paris.atr` dá `NUM_PED_TYPES_PS2 = 0` e Paris
+é o conjunto 0 (16 tipos no `.data`, nenhum especial): a contagem vira 0, nenhum pedestre, nenhuma rua especial
+(`WRoadNetwork::GetSpecialRoads` acha as ruas pela bandeira, e Paris não as tem). O `Manage` (0x001262f0, no
+`EAIUpdate`) só anda o atraso das falas e a posição do jogador. Portados o `GetPedBase`, o `Init`, o `Manage` e o
+`InvalidateFurthestPed` (0x00126818) no caminho sem pedestres; os 44 do `AICharacterPedestrian` (o andar, as falas, o
+`KillSelf`, as texturas do `LoadPedTextures`) ficam para as missões que os têm (contados em `unported`).
+
+### Como o PS2 faz
+
+**Os efeitos das instâncias.** O `RAnimEngine::Handle` de um objeto de cena guarda as cópias dos efeitos (`'ef'`, 0x40
+bytes) dos artigos das instâncias e quatro máscaras de 64 bits (+0x20 os ligados, +0x28 os de dano, +0x30 os da galeria,
++0x38 os acionáveis). O `RSceneObj::TriggerFX` (0x001caba8, a entrada +0x84 da tabela virtual) liga (0/1), desliga
+(2/3), suprime as telas (4/5, `SuppressEffects`), liga os de dano das zonas novas (9, `DamageEffects`) e manda o
+estímulo 0x12 das zonas novas (10); os tipos ímpares escolhem pelo identificador (`FindEffectByID`), os pares pela
+máscara de zonas. O `ToggleEffect` (0x001ca198) dá uma tela da galeria ao efeito do tipo 6 (`GFX::Trigger` presa à
+instância, com a velocidade do objeto) e a limpa ao desligar (`GFX::Purge` -> `CANVAS_PurgeSceneObj`: a tela vira "uma
+vez só" e para de nascer). O objeto guarda um prazo de 600 quadros: vencido e longe da câmera (170 m), os da galeria se
+desligam (`DecayEffects`). A cada quadro o `RenderEffects` (0x001ca930) desenha os ligados: a matriz da instância (no
+chão com a bandeira 0x100, `AdjustEffectPosition`), o tipo 2 um clarão do `RGlareManager::AddModelGlare`, o 5 uma luz
+dinâmica (`RHighLevelLightManager::AddDynamicLightEffect` 0x001af8c0, com a onda do 0x001af708: a fase pela
+frequência, o ciclo ligado, o triângulo das bandeiras 0x800/0x4000), o 6 e o 8 nada (a galeria desenha); os que pedem o
+sistema da instância tocando se desligam sem ele. O `RVehicle::TriggerFX` (0x001d3c28) troca o 7 pelo dissolver da cor,
+o 6 pelas faíscas, o 8 pelo clarão do cano e o 0xb/0xc pelas lâmpadas (+0x268).
+
+**Os clarões dos canos.** O `RMuzzleFlash` (o `Init` 0x001e5488 com o `InitPOVLayer` 0x001e4b48): o modelo de 26
+vértices do `.data` girado um quarto de volta, cinco texturas e o quadrado do POV com 24 texturas. O `EActorMuzzleFlash`
+(o evento 39, criado pela chave "Fire" da animação de uma arma) leva o ponto do efeito pela matriz da instância ao
+`ActWeapon::StartMuzzleFlash` (0x00116720: oito vagas; a força 0,75 + RRandom x 0,25 + a distância ao jogador / 400) e o
+`ActWeapon::ManualRender` (0x001169c8) desenha cada vaga viva por 4 passos, a força x 0,75^idade: o `Draw` (0x001e55f0) no
+referencial da arma, ou o `DrawPOV` (0x001e5808) na arma do jogador, com o tamanho e a textura pela última arma
+disparada e o giro do UV sorteado. O dos carros: `RVehicle::StartMuzzleFlash` (0x001d38d8) e a parte do
+`RVehicle::RenderFX` (0x001d3278). Os dois desenham pelo `UVolatileMaterial::Draw` com a matriz do modelo (o
+`MatVolatileTexture` da seção 29), sem escrever o Z (o 0x002913f8, que a seção 29 tinha lido como o perfil do PS2, é o
+`SetZWritesEnable`), mistura Cs + Cd.
+
+**As marcas dos tiros.** O `RScorchWorld::ScorchWorld` (0x001ea8e8, chamado pelo `Shell::ApplyWorldDamage` e pelo radar):
+recusa a face de subtipo 2 ou tipo 6; acima de 0,33 o tamanho, procura a superfície nas duas pontas do eixo e ao longo
+da referência com três `CheckHitWorld` (até duas vezes, pela metade); a marca a 3,5 cm da face (mais nas inclinadas);
+numa parede, se o chão ao pé dela fica mais perto que o tamanho e é plano (|y| >= 0,98), uma segunda marca no chão,
+oito vezes mais longa.
+
+**Os eventos.** 36 `EPlaySystemAnim` (0x00154ad8: o estímulo no sistema do `Handle` do objeto, achado pelo evento, pelo
+registro da instância ou pela vaga da `Simulation`), 39 `EActorMuzzleFlash` (0x001479c0), 130 `ESetCollisionGeometry`
+(0x00157be0, com o `WCollisionMgr::SetCollisionArticle` 0x00213720: a instância de colisão da instância de render troca
+o artigo pelo `'ca'` pedido, guardando o original num mapa; -1 sem colisão), 173 `ESuppressEffect` (0x0015d320: o
+TriggerFX 5 pelo identificador ou o 4 pela zona), 252/253 `ESwitchEffectOff/On` (0x0015d538/0x0015d650, com o
+`PVehicle::MissionEditorSwitch` 0x001984b8 do carro do elemento) e 279 `ESetReflectiveObject` (0x001589f0 com o
+`Simulation::SetReflectiveObject` 0x00201b68: a assinatura do objeto refletido; ninguém a lê no port).
+
+### Os arquivos
+
+| Arquivo | O que tem |
+|---|---|
+| `ai/pedestrian.h` | os globais dos pedestres, o `GetPedBase`, o `Init`, o `Manage` e o `InvalidateFurthestPed` (o caminho sem pedestres) |
+| `fx/scene_fx.h` | o `TriggerFX` e o que ele move (`ToggleEffect`, `TriggerEffects`, `SuppressEffects`, `DamageEffects`, `DecayEffects`), o `RenderEffects`/`RenderEffect`/`AdjustEffectPosition`, o `RVehicle::TriggerFX`, a onda e o `AddDynamicLightEffect`, o `GFX::Purge`/`SuppressEffect`/`SetIntensity` e os `CANVAS_*` |
+| `fx/muzzle_flash.h` | o `RMuzzleFlash` (o construtor estático, `InitPOVLayer`, `Init`, `Draw`, `DrawPOV`), os clarões do `ActWeapon` e do `RVehicle` |
+| `fx/decals.h` | o `RScorchWorld::ScorchWorld` |
+| `fx/fx_events.h` | os eventos 36, 39, 130, 173, 252/253, 279 |
+| `physics/world_collision.h` | o `WCollisionMgr::SetCollisionArticle` (o artigo, a referência e o grupo: três leituras) |
+| `carp_runtime.h` | o `UGroup::DataCountType` (0x002d5700) |
+| `game/events.cpp` | o evento 39 na tabela (o criador 0x00147a60) |
+| `driving_app/drv_fx.cpp`, `drive_actors.cpp`, `nf_driving.cpp` | as texturas dos clarões, os desenhos com a matriz, os efeitos de cada carro antes dos clarões do mundo, a linha `efeitos_cena` |
+
+### O que se vê em Paris
+
+A partida ganha da seção 29 (`--gunner 3,11,4,6,13,7,5,8@0.1 --gunner-limit 1.2 --gunner-tyres --autopilot "1@ROTA"
+--autopilot-fire --drive-input none:260`) continua ganha do mesmo jeito (etapa 2, 1.102,7 de vida, as mesmas regras e
+eventos): 570 `TriggerFX` (272 efeitos ligados, 259 desligados, 6 telas da galeria, 5 efeitos de dano, 12 estímulos de
+zonas, 233 lâmpadas dos carros), 396 clarões de cano dos atores (os capangas nas janelas e as mãos de Bond), 76 marcas
+de tiro nas paredes e no chão (2 descidas ao pé da parede), os eventos 36 (11), 39 (396), 130 (1), 173 (6), 252/253 (2)
+e 279 (2, um sem carro). `eventos_sem_porte` continua vazio. Os pedestres: o sistema ligado, conjunto 0, nenhum.
+Um clarão capturado: `NF_DRV_FLASH_LOG=1` imprime o passo de cada clarão novo (`clarao_cano passo 1503 tempo 25.050
+s`) e a posição de cada desenho (`clarao_desenho centro 202.23 -5.73 778.73 escala 0.077 arma ...`); com a partida
+ganha até `--drive-input none:25.07` e `--shot-look-at 202.23,-5.73,778.73@2.5,0.8,20` (depuração: o desenho olha um
+ponto do mundo, como o `--shot-look` olha um elemento) o atirador do teto solar do carro branco aparece com o cone
+amarelo do clarão à frente das mãos (`out/agent_drv_fxp/fl25look3.png` do checkout principal). A captura achou um erro
+do lado do PC: as cinco texturas do `Draw` iam em CLAMP e os UV do modelo vão de 0,9 a 2 (o `Init` apaga os bits de
+baixo do +0x10 da textura: REPEAT); o lote agora leva o seu CLAMP_1 (`DrvFxBatch::clamp`). A arma do capanga não
+aparece nas mãos dele (nem antes desta seção: o desenho das armas dos atores, seção 24/26, a confirmar).
+
+Os outros finais com a mesma rota ficam como estavam: sem `--autopilot-fire` a van foge ("Mission Failed", etapa 29;
+o único `DecayEffects` dessas partidas acontece nela, num carro cuja cópia da instância o port guarda no rig: o
+`nf_driving` dá a matriz pelo `scene_fx_env().transform`), e `--gunner 3,11,4,6,13,7,5,8 --gunner-limit 1.0
+--gunner-tyres --autopilot-fire --drive-input none:210` deixa os passageiros destruírem o carro ("Mission Failed",
+etapa 10, vida 0).
+
+### A conferência (a parte 28 do `nf_driving_check`, `--so efeitos_ped`)
+
+O código original no interpretador MIPS (com a VU0 em modo macro) lado a lado com o porte, `--casos 4000`. Ganchos
+nativos (a mesma regra nos dois lados): o `memset`, o `printf`, o `operator new`, o `strstr`; o `GFX::Trigger`/`Purge`/
+`SuppressEffect`/`SetIntensity` (gravados), o `ProcessStimuli` e o `ProcessStimuliZones` (gravados), o
+`GetInstanceSystemID`/`IsSystemPlaying` (uma tabela sorteada), o `GetInstancePosition` e o `GetWorldHeightAtPoint`
+(sorteados pela posição), o `AddModelGlare`, o `StartColourDissolve` e o `TriggerSparks` (gravados), o `LookupBool` e os
+atributos de física do dono, o `UVolatileMaterial::Draw` (gravado: o material, o tipo, a contagem, a matriz, o ALPHA_1,
+as três listas e a textura) e o `SetZWritesEnable`, as texturas falsas, o `GetPosition`, o `RedirectCarpElement`, o
+`GetSceneObjFromInstance`, o `GetPlayerObject`/`GetSig`, o `find`/`insert_unique` do mapa da STL (um `std::map`: a
+biblioteca, não o jogo) e o mundo sintético da parte 21 (o `FindClosestFace` e um `CheckHitWorld` sintéticos; o
+`HeightAtPoint` e o `AddDecal` originais).
+
+| O que | Casos | Diferentes |
+|---|---|---|
+| `AICharacterPedestrian::GetPedBase` (os nomes das missões e sorteados) | 1.000 | 0 |
+| `Init` (sem pedestres, com ruas especiais numa rede falsa) | 400 | 0 |
+| `Manage` e `InvalidateFurthestPed` | 3.200 | 0 |
+| `RSceneObj::TriggerFX` (`TriggerEffects`, `SuppressEffects`, `DamageEffects`, os estímulos) | 2.156 | 0 |
+| `RVehicle::TriggerFX` (com o `StartMuzzleFlash`) | 248 | 0 |
+| `ToggleEffect`, `DecayEffects` | 416 + 395 | 0 |
+| `RenderEffects` (`AdjustEffectPosition`, `RenderEffect`, `AddDynamicLightEffect`) | 785 | 0 |
+| a onda (0x001af708) e o `AddDynamicLightEffect` sozinhos | 2 x 4.000 | 0 |
+| `GFX::Purge`, `SuppressEffect`, `SetIntensity` (os `CANVAS_*`) | 1.296 + 1.355 + 1.349 | 0 |
+| `RMuzzleFlash::Init` (`InitPOVLayer`: os materiais, o modelo, as texturas) | 1 | 0 |
+| `RMuzzleFlash::Draw`, `DrawPOV` | 813 + 792 | 0 |
+| `ActWeapon::StartMuzzleFlash`, `ManualRender` (os clarões) | 798 + 814 | 0 |
+| `RVehicle::StartMuzzleFlash`, `RenderFX` (os clarões) | 409 + 374 | 0 |
+| os eventos 36, 39, 130, 173, 252/253, 279 | 572 + 588 + 548 + 603 + 1.118 + 571 | 0 |
+| `WCollisionMgr::SetCollisionArticle` (`DataLocateTag`, `DataCountType`) | 4.000 | 0 |
+| `RScorchWorld::ScorchWorld` (2.497 marcas, 462 descidas ao chão) | 4.000 | 0 |
+
+Os clarões não trazem método de render novo: o `MatVolatileTexture` já conferido na seção 29, com a matriz do modelo
+(o `EAGL::DynamicModel::SetModelMatrix`) multiplicada no lote do PC.
+
+O que a conferência achou no porte: o `SetCollisionArticle` lia o grupo do artigo em duas leituras (a instância de
+render +0x1c, depois o grupo); o PS2 faz três (+0x1c o artigo, a primeira referência dele, o grupo). O único 130 de
+Paris roda sem mudar a partida.
+
+### Divergências
+
+- Os carros da IA e do trânsito do port não têm o `RAnimEngine::Handle` das cópias dos efeitos: o `TriggerFX` deles
+  (fora o do `RVehicle`: lâmpadas, clarões) é contado e não faz nada (`guardas`, 177 na partida ganha). No PS2 os efeitos
+  das instâncias deles (a fumaça e o fogo do dano) apareceriam.
+- O `StartColourDissolve` (o tipo 7) e as faíscas do `RVehicleParticle` (o tipo 6) são contados.
+- O `AICharacterPedestrian` com pedestres não está portado (nenhum em Paris).
+- O 279 grava a assinatura que o reflexo do carro leria; o port não desenha o reflexo.
+
+### O custo
+
+Não medido (o computador estava em uso: nenhuma janela).
+
+### O que falta e a estimativa
+
+Paris usa as marcas de pneu (`PBondCar::InitTyreTracks` 0x001870b0 dá ao Vanquish duas trilhas; o `ControlTyreTracks`
+0x0018bf08, o `RTyreTrack` 0x001f4fb0-0x001f5a48 e o `DrawTyreTracks` 0x001c59e8, pelo mesmo `UVolatileMaterial`:
+0,5-1 dia), as partículas dos carros (`RVehicleParticle` 0x001edf38-0x001f0148: a poeira, a fumaça do dano, as
+faíscas; 0,5-1,5 dia) e o desenho do Q-Pulse (`REmp`, 0x001db038-0x001de470, 13 KB: 1-1,5 dia), e o
+`RAnimEngine::Handle` dos carros da IA e do trânsito (as cópias dos efeitos dos artigos deles: 0,5 dia); o `RColorize`
+(o modo do `RLightManager`, sempre 0 no port), o dissolver da cor e o risco da granada (nenhuma granada em Paris) ficam
+para depois. Sobre a conta da seção 28 (Paris 2-4 dias, as fases 2-4 11-19): sai a parte dos efeitos do "o que a
+seção 29 deixou" (fica o som, 0,25-0,5 dia), e entram as marcas de pneu, as partículas dos carros, o desenho do Q-Pulse
+e o `Handle` dos carros da IA, que nenhuma conta tinha (2,5-4,5 dias; Paris joga e termina igual sem eles). Paris fica
+em **2-3,5 dias** para jogar de ponta a ponta como agora e **4,5-8 dias** com tudo o que o PS2 desenha; as fases 2-4 em
+**13-23 dias** (o que as seções 30 e 31 fizerem sai destas contas).
+
+## 33. Os controles de PC das missões de carro (teclado, mouse e controle; só do port)
+
+O usuário jogou Paris no `nf_driving` com teclado e mouse e achou três problemas: o WASD mexia a mira e só A/D andavam
+(no eixo X), o mouse não fazia nada, e o controle de Xbox não funcionava (o `nf_driving` só lia o índice 0 do XInput;
+corrigido antes, no d08dc81, com o primeiro controle conectado). O teclado imitava o controle do PS2 botão a botão (W o
+X, S o quadrado, A/D o direcional esquerdo nos extremos), igual em todo lugar; na seção do helicóptero a configuração é
+outra (o `povcfg0.def`, em que o direcional esquerdo mira) e o W, que apertava o X, não mirava nada. Agora a entrada
+das missões de carro segue a do jogo a pé: uma tabela de comandos de PC, um alvo no controle do PS2 por modo, o mouse
+na mira, a troca automática de aparelho. Tudo só do port; o jogo continua lendo só o controle do PS2.
+
+### O que o PS2 faz com cada botão
+
+O `IOModule` lê o `PS2PadDevice` (os 16 botões com pressão e os dois direcionais) e o `InputToAction` dá as ações pelo
+`.def` em uso (seção 14). Dirigindo é o `drivecfg.def`; na direção automática o `SMissionManager::SetAutoDrive` troca para
+a configuração do POV (o `povcfg0.def` é o padrão: o `uber_bond` traz 0); o menu de pausa do HUD lê as do `FrontEnd.def`
+(que sempre estão na tabela). O que interessa de cada um:
+
+| Botão do PS2 | `drivecfg.def` (dirigindo) | `povcfg0.def` (a mira do helicóptero) | `FrontEnd.def` (a pausa) |
+|---|---|---|---|
+| direcional esquerdo x | `STEER`, `CAMROTATEX` | `CAMROTATEX` (o rumo da mira) | esquerda/direita |
+| direcional esquerdo y | `STEERVERTICAL` (só os submarinos), sons | `CAMROTATEY` (a inclinação) | cima/baixo |
+| direcional direito | nada | `CAMROTATEX2/Y2` (a mira também) | nada |
+| X | `GAS` | nada | aceitar, pular filme |
+| quadrado | `BRAKE` | `POVRELOAD` | (trapaças) |
+| bola | `HANDBRAKE` | nada | inverter |
+| triângulo | `CHANGECAMERA` | `CAMSPIN` (só snow1a_mis3) | voltar |
+| R1 | `FIRESECONDARY` (os mísseis) | `FIRESECONDARY` (o fuzil) | nada |
+| L1 | `FIREGADGET` (o Q-Pulse) | `AIMZOOMRIGHT`/`AIMRELEASE` (a luneta) | nada |
+| R2 | `TOGGLESECONDARYDOWN` | `POVRELOAD` | nada |
+| L2 | `CAMLOOKBACK` | `TOGGLESECONDARYDOWN` | nada |
+| D-pad ←/→ | `TOGGLESECONDARYUP/DOWN` | `TOGGLESECONDARYUP/DOWN` | esquerda/direita |
+| D-pad ↑/↓ | nada | `CAMZOOMIN/OUT` (só com a luneta) | cima/baixo |
+| Start | (a pausa: a fila "HUDQ", seção 31) | a pausa | a pausa (de novo: volta) |
+| Select | nada | `RESUMEAUTODRIVE` | nada |
+
+O direcional direito não faz nada dirigindo: no carro o PS2 não olha em volta com ele (o olhar para trás é o L2), então o
+mouse também não olha em volta na seção do carro.
+
+### A tabela (`platform/drive_controls.h`)
+
+Neutra e sem nada do Nightfire além do controle do PS2 (vai para o `nightfire.exe` quando as missões de carro entrarem
+no jogo). Cada comando tem até duas entradas do teclado, do mouse ou da roda (os nomes de `nf::input_name`) e um alvo
+no controle do PS2 em cada modo; o `nf_driving` escolhe o modo a cada quadro: **menu** com a pausa do HUD aberta
+(`GHud` +0x2a0), **mira** com a configuração do POV em uso (`InputConfigManager` tipo 1), **mira com luneta** com a
+luneta fechada (`RPlayerCamState` `zoom_held`), **condução** no resto. Uma entrada que está em vários comandos vale, em
+cada modo, para o primeiro da tabela com alvo nele (Enter aceita no menu e é o Start fora dele; a roda aproxima com a
+luneta e troca de arma sem ela).
+
+| Comando (`[driving_bindings]`) | Padrão | Dirigindo | Mirando | Com a luneta | Na pausa |
+|---|---|---|---|---|---|
+| `menu_accept` | Enter, espaço | — | — | — | X (aceitar) |
+| `menu_back` | Backspace | — | — | — | triângulo (voltar) |
+| `zoom_in` | roda para cima | — | — | D-pad ↑ (aproximar) | — |
+| `zoom_out` | roda para baixo | — | — | D-pad ↓ (afastar) | — |
+| `accelerate` | W, ↑ | X (acelerar) | esquerdo para cima (mirar) | esquerdo para cima | D-pad ↑ |
+| `brake` | S, ↓ | quadrado (frear, ré) | esquerdo para baixo | esquerdo para baixo | D-pad ↓ |
+| `steer_left` | A, ← | esquerdo à esquerda | esquerdo à esquerda | esquerdo à esquerda | D-pad ← |
+| `steer_right` | D, → | esquerdo à direita | esquerdo à direita | esquerdo à direita | D-pad → |
+| `handbrake` | espaço | bola (freio de mão) | — | — | — |
+| `fire` | botão esquerdo, Ctrl | R1 (a arma: os mísseis) | R1 (o fuzil) | R1 | — |
+| `special` | botão direito, Shift | L1 (o aparelho: o Q-Pulse) | L1 (fecha a luneta) | L1 | — |
+| `weapon_next` | roda para baixo, E | D-pad → | D-pad → | (a roda é o zoom) D-pad → | — |
+| `weapon_prev` | roda para cima, Q | D-pad ← | D-pad ← | (a roda é o zoom) D-pad ← | — |
+| `reload` | R | — | quadrado (`POVRELOAD`) | quadrado | — |
+| `change_camera` | F | triângulo (trocar câmera) | triângulo (`CAMSPIN`) | triângulo | — |
+| `look_back` | C | L2 (olhar para trás) | — | — | — |
+| `pause` | Esc, Enter | Start | Start | Start | Start (volta ao jogo) |
+
+O **mouse** na mira (os dois modos de mira): o movimento gira a mira direto, em radianos (a sensibilidade, radianos por
+contagem), como a mira do jogo a pé faz com `psiInput_TakeMouseLook`; para cima é para cima (Y invertido opcional). Fora da
+mira o movimento não faz nada. A **roda**: cada entalhe é um toque do alvo de 4 ticks, com um quadro solto antes do
+próximo (o `IOModule` vê cada um como um aperto novo). Os **botões do mouse** só valem com o mouse capturado; o clique que
+captura e um botão seguro ao sair da pausa ficam de fora até serem soltos (nem o clique do menu, nem o da captura atiram).
+
+O **controle do PC** vai pela posição dos botões, como antes (A = X, B = bola, X = quadrado, Y = triângulo, LB/RB =
+L1/R1, LT/RT = L2/R2, Back = Select, os direcionais e o D-pad); o primeiro conectado, relido a cada 60 leituras se não há
+nenhum, então um controle ligado com o jogo aberto passa a valer. **Troca de aparelho** como o `psiInput_ActiveDevice` do
+jogo a pé: os direcionais vêm do último aparelho usado (uma tecla ou botão do mouse da tabela apertado, o mouse mexido,
+a roda; ou um botão, um gatilho ou um direcional novo do controle, além de 10000 de 32767), os botões dos dois somam (OU,
+a pressão a maior).
+
+O `nightfire.ini` (ou o arquivo de `--config`; na janela, sem ele, o `nightfire.ini` ao lado do `nf_driving.exe`; as
+capturas só leem com `--config`): `[driving_bindings]` uma chave por comando (`fire = mouse1, ctrl`; vazio: nenhuma;
+ausente: o padrão; as entradas do controle, `pad_*`, são ignoradas) e `[driving]` `mouse_sensitivity` (radianos por
+contagem; sem ela vale a `[controls] mouse_sensitivity` do jogo a pé, e sem as duas 0,0022) e `mouse_invert_y` (sem ela, a
+`[controls] mouse_invert_y`). Ainda não há tela de teclas.
+
+### A mira pelo mouse na câmera do AutoDrive
+
+`RPlayerCamera::ApplyMouseAim` (só do port, `driving/camera/player_camera_modes.cpp`): o `nf_driving` pede o giro em
+voltas (`AddMouseAim`), e o `UpdateAutoDriveCam` (0x1b72f0) o soma ao rumo (`ad_yaw`) e à inclinação (`ad_pitch`, que no
+PS2 cresce para baixo: `-asin` da frente em y) logo antes do `LimitPitchYaw` final, vezes o fov atual sobre o fov padrão do
+modo (com a luneta a mira anda menos), e já o prende pelos limites do braço (o mesmo `LimitPitchYaw`); o `centering`
+(`CAMCENTRE`) para. O `UpdateCamera` joga fora o pedido que nenhum `UpdateAutoDriveCam` usou (outro modo, o jogo
+parado, o míssil guiado). Sem pedido nada muda: as partes 19 e 26 do `nf_driving_check` continuam com 0 diferenças, e os
+três finais de Paris pelos comandos de sempre dão o mesmo (o relatório igual linha a linha). Em Paris o braço do AutoDrive
+deixa o rumo de -60 a cerca de -31 graus perto da inclinação de partida (o fuzil aponta para o lado do rio e da rua) e a
+inclinação de cerca de -23 (para cima) a 20 graus: o mouse e o direcional param ali do mesmo jeito.
+
+### O que diverge do PS2
+
+- O mouse inteiro (o PS2 não tem); o giro do mouse não passa pela inércia do direcional (`target_yaw_rate`, a curva
+  `kAutoDriveCurve`) nem pelo cursor da zona morta da luneta (`dz_pitch/dz_yaw`): gira a câmera direto.
+- O teclado é um controle digital: os direcionais vão aos extremos (o PS2 aceita qualquer valor), os botões com a
+  pressão inteira (255).
+- W e S mirando são o direcional esquerdo em y (no controle, o mesmo movimento); dirigindo continuam o X e o quadrado.
+- Esc é o Start (antes saía do `nf_driving`), como no jogo a pé; "sair" na pausa do HUD (`PauseMenuMsgHandler`, que o
+  port só contava) e fechar a janela acabam o programa; com a pausa aberta o mouse fica solto (`Window::set_menu_mode`) e o
+  Alt+Tab o solta; um clique o captura de novo.
+- O `povcfg0.def` é o único previsto pela tabela; com outra configuração do POV (o PS2 deixa escolher oito) os botões do
+  PS2 seguem aquele arquivo, e alguns comandos podem cair em outra ação (por exemplo o `reload` no quadrado).
+
+### O roteiro das capturas
+
+O `--drive-input` ganhou os passos do mouse, que passam pela tabela (o alvo do modo do momento): `mlook=dx,dy` (contagens
+por segundo durante o passo), `lmb`, `rmb` e `wheel=n` (n entalhes no começo do passo, positivo para cima, sem o sinal de
++, que separa as teclas). As teclas antigas (W, S, A, D, R1, L1, LU...) continuam sendo o controle do PS2 direto.
+Uma linha nova no relatório:
+
+```
+entrada_conducao aparelho teclado_mouse modo mira trocas 0 | mouse quadros 60 dx 400 dy -300 | mira pedidos 60
+aplicados 60 presos 2 descartados 0 giro 50.42 37.82 rumo -25.20 inclinacao -16.26 | roda entalhes 0 toques 0 |
+botoes 0000 | sensibilidade 0.00220 inverte 0
+```
+
+(o aparelho e o modo, as trocas de aparelho; o mouse; os pedidos da mira, os aplicados, os presos pelos limites, os
+jogados fora, o giro somado e o rumo e a inclinação de agora, em graus; a roda; os botões do PS2 do último quadro.)
+
+Na seção do helicóptero (`--drive --difficulty 0`), o fuzil começa no rumo -60 e na inclinação 20,46 graus (o canto do
+braço); `--drive-input "none:3 mlook=400,0:1 none:0.5"` o leva a -30,68 (o limite), `"none:3 mlook=0,-600:1 none:0.5"`
+a -22,56 (para cima, o limite: o céu e os prédios), `"none:3 mlook=0,-600:0.5 mlook=0,300:0.5 none:0.5"` a 1,56 (de volta
+para baixo), `"none:3 mlook=400,-300:1 lmb:0.15 none:0.35"` atira (`armas ... tiros 1`, o pente 24 → 23, o mesmo que o
+`R1:0.15`), `"none:3 rmb:2"` fecha a luneta (fov 33 → 20) e `"none:3 rmb:0.5 rmb+wheel=3:1.5"` a aproxima (fov 10,5). Na
+seção do carro (`--fire-trigger 727@1`), `"none:4.3 W:1 W+lmb:0.1 W:1.5"` dispara os dois mísseis como o
+`W+R1:0.1` (o relatório igual).
+
+### Testes
+
+`tests/test_driving_controls.cpp` (7): o teclado por modo contra a tabela escrita à mão (os bits do libpad), os botões do
+mouse só capturados e o clique da captura e o da pausa fora até soltar, os entalhes da roda como apertos separados e o
+zoom com a luneta, o giro do mouse só mirando (e o Y invertido), os direcionais do último aparelho e os botões somados (e
+o controle ligado depois), a leitura do `.ini`, e o `ApplyMouseAim` com um braço montado à mão (sem pedido nada muda; o
+pedido pequeno anda pelo fov; o grande para nos limites do braço).
+
+### O que falta
+
+Uma tela de teclas (hoje só o `.ini`); o mouse nos menus de pausa do HUD (só teclado e controle); a tabela para as outras
+sete configurações do POV; levar a tabela ao `nightfire.exe` quando as missões de carro entrarem no jogo (o
+`Menu_PortDrivingSkipped` ainda as pula); conferir na janela, com as mãos, a sensibilidade padrão na mira e a sensação da
+roda na luneta.
+
+## 34. A rampa do guindaste da obra: o modelo próprio dos objetos de cena (o `RSceneObj::UseArticle` e o `Render`)
+
+O usuário jogou Paris em janela e escreveu: "na hora de atirar em um negócio que segura uma ponte eu acho, fica uma viga
+de metal, é bem na parte que os carros passam em uma obra". Era o guindaste da obra da seção do helicóptero: no PS2 ele
+segura uma rampa por um gancho e duas correntes, e o tiro no gancho a solta. No port a rampa, o gancho e as correntes
+nem eram desenhados, e o tiro não fazia nada: sobravam as vigas dos andares da obra.
+
+### O que é, nos dados de Paris
+
+A obra fica em volta de (-320, 0, 120..240): o fosso (`Construction_Pit`), o prédio em construção (`Construction_Floors`,
+`Construction_Beams01/02`, `Construction_Build01..04`), a rampa de terra (`Construction_Ramp`) e o guindaste
+(`Constuction_Crane01`, a grafia do disco). A instância 2066 do mundo (`crane_ramp`, (-315,7, 17,1, 144,7), a bandeira
+0x10: um objeto de cena) é o que ele segura. O grupo do modelo do artigo dela tem uma lista de 16 instâncias ('in', duas
+variantes iguais): a rampa (a instância 0), o gancho (1 e 15, 8,8 m acima), os seis elos de cada corrente (2-7 e 8-13) e
+uma peça na origem (14); todas do sistema de animação 0, com uma animação: o estímulo 8 leva do estado 1 ao 2 em 26
+quadros (a rampa cai), com os eventos 130 `ESetCollisionGeometry` (a colisão da rampa) e 9 `EPlayEffect` na chave 0 e
+outro 9 na 25. Os gatilhos:
+
+- o 566 (uma caixa no andar da obra, y 21,7, tocada pelos carros de tipo 2): quando o caminhão chega ao andar, liga o 711
+  (`EEnableTrigger`), comanda a IA e põe a câmera, o letterbox e o tempo lento;
+- o 711 (uma esfera de raio 2 no gancho, (-316,3, 25,9, 143,9), as bandeiras 0x442: desligado até o 566, tocado pelos raios
+  dos tiros, 0x40): o 36 `EPlaySystemAnim` (o estímulo 8 no sistema 0 da `crane_ramp`), o 242 `ECameraLockOn`, o 193,
+  o 53 que desliga o 720 (a cena da falha) e o 627, o 54 que liga o 740, o 228 `EObjectivePass`, dois 144, o som (164) e o
+  275 `EAwardHitToPlayer`;
+- a regra 5 da lista 0 (a propriedade "BLOWOUT" do elemento 6, o caminhão com o pneu estourado) dispara o 711 e o 740
+  (`EFireRandomTrigger`): o atirador de depuração das partidas documentadas chega aqui pelos pneus, por volta dos 77 s;
+- o 740 (o carro no andar): a cena em que ele pula.
+
+### Como o PS2 faz
+
+O `WWorld::Open` (0x0022faf8) cria um `RSceneObj` para cada instância da pista com a bandeira 0x10 e o byte +7 do 'ps  '
+diferente de 0xff (os 557 de Paris: postes, placas, hidrantes, a entrada do shopping, o arco da universidade, a rampa do
+guindaste...) e chama o `RSceneObj::UseArticle` (0x001c7658) com o grupo do modelo do 'pD' do artigo e esse byte (a
+variante):
+
+- o 0x001c6fb8 acha no grupo a lista 'in' + a variante (sem ela, a 0, se a variante não era a 0); com ela o objeto é feito
+  dessas instâncias, com os estados 'ps' + a variante, e a variante vai ao +0x19; sem ela, de uma instância só: a do
+  mundo com a rotação e a posição da identidade, o gProcAnimFunc 0xff e as bandeiras 0x11 apagadas (sem artigo, o primeiro
+  'as  ' do grupo; sem ele, nada);
+- o `UseInstanceList` (0x001c7940): o `Close` (o `KillEffects`, o `Handle` antigo), o nome (`Name`, ou "<<unknown>>"), o
+  'pD' (+0xc: o primeiro registro do artigo da primeira instância; um artigo de carro, o +0x1e = 1, desenha por último), o
+  `RAnimEngine::Handle::Create` (+0x28: as cópias das instâncias, os sistemas, os efeitos; o estímulo 1 em todos), o bit 25
+  (só se toda cópia tem 0x01 ou 0x40), o `ComputeBoundingRadius` sem medidas, o `InitEffects` (0x001ca048: os efeitos que
+  nascem ligados, a bandeira 0x10, pelo `ToggleEffect`; os de dano ganham a zona) e, com a bandeira 8 da instância (o bit
+  26), o `SetMapNode` da raiz da árvore.
+
+O `RSceneObj::Render` (0x001c85f8) desenha as cópias do Handle (`DrawInstanceList` 0x001ad6b8, `DrawInstance` 0x001ad498):
+a escondida (bit 0 do +0xc) não; a matriz da cópia pelo gProcAnimFunc dela (`GetInstanceMatrix`: 0xff a própria, 0..0x63 a
+animação do `RAnimEngine`, 0xf2 o giro dos 007 da missão) vezes a do objeto; o artigo da passada 2 agora, os outros na
+fila da passada deles; os efeitos do artigo (`DrawGroupDrawEffects`) e os do objeto (`RenderEffects`). Um estímulo no
+Handle (o `EPlaySystemAnim` de um gatilho; o tiro de uma bala no `Shell::ApplyWorldDamage`, 0x13..0x16 pelo dano) toca a
+animação das cópias, e as chaves criam os eventos delas.
+
+### O que o port fazia
+
+O `RSceneObj` do port (seção 15) só tinha o construtor e o corte: o `UseArticle` não era portado e o objeto era desenhado
+como a instância de origem (o modelo do artigo da `crane_ramp`, 20 triângulos de cabo quase invisíveis). Sem Handle:
+
+- a rampa, o gancho e as correntes não apareciam;
+- o 711 (o tiro no gancho, ou a regra do pneu) disparava os eventos, mas o `EPlaySystemAnim` achava o Handle nulo e só
+  contava uma guarda (`efeitos_desenho ... guardas 0/0/1`): a rampa não caía e a colisão dela não mudava;
+- o mesmo com os outros objetos animados de Paris (a entrada do shopping, os hidrantes, o arco da universidade), e o tiro de
+  uma bala num objeto de cena não chegava a ele (o `shells_env().scene_obj_of` não era ligado pelo `nf_driving`).
+
+### A correção
+
+- `driving/scene_article.{h,cpp}`: o 0x001c6fb8, o `UseArticle`, o `UseInstanceList`, o `InitEffects`, o `Close` e o
+  `RSceneObj_Render` (o `Render` com o `DrawInstanceList`/`DrawInstance`: a cópia, o artigo, a passada e a matriz);
+  `WWorld_CreateSceneObjects` (`world_vis.cpp`) chama o `UseArticle` logo depois do construtor, como o `WWorld::Open`;
+- `track.{h,cpp}`: os artigos das cópias (`object_articles_`, os LODs e os nomes) e, no `Track::cull`, um objeto com Handle
+  vira os desenhos das cópias dele (`Draw::own` com a matriz, o artigo e as bandeiras de render); as de outra passada vão
+  para o fim da lista da passada; `Culled::own_objects` para o `RenderEffects`;
+- `render/vehicle.cpp`: o gProcAnimFunc 0xf2 (0x001c0380: o giro em y de (velocidade / 256) x `fTimeData.x` graus; os
+  quatro `007logo` de Paris), que o desenho das cópias agora pede;
+- `nf_driving`: as cópias desenhadas com a matriz delas, os clarões do artigo delas, o `RenderEffects` dos objetos
+  visíveis (`DrvFxApp::frame_scene_objs`), o `WWorld::GetSceneObjFromInstance` também no `shells_env().scene_obj_of` (os
+  estímulos 0x13..0x16 do tiro), e a linha `objetos_cena_modelo` do relatório (os artigos, as listas, os Handles, as
+  cópias, os efeitos ligados, os nós da raiz | os desenhos, as escondidas, as funções não portadas, os quadros do
+  `RenderEffects`, as guardas | os objetos fora do estado 1, com o nome do artigo, o estado e se tocam);
+- `game/smackable.cpp`: o `Smackable::Simulate` pergunta ao Handle se algum sistema toca (o `AnySystemPlaying` do PS2,
+  0x0019e820), que segura o objeto acordado.
+
+### O que se vê em Paris
+
+As capturas ficam em `out/agent_drv_viga/` do checkout principal (fora do git), com o executável antigo ao lado
+(`*_port_antigo.png`):
+
+- `guindaste_antes.png` (`--difficulty 0 --drive-input "none:2.4" --shot-look-at -316,12,140@45,12,200`): a rampa
+  pendurada pelas correntes no gancho, entre os andares da obra; no port antigo, nada ali;
+- `guindaste_caindo.png` (o mesmo com `--fire-trigger 711@2.5` e `none:3.3`: o efeito do tiro no gancho): a rampa caindo
+  ao lado do muro do fosso; `guindaste_depois.png` (`none:6`, `--shot-look-at -316,2,130@45,25,90`): a rampa no fundo do
+  fosso, com as correntes; no port antigo as três ficam iguais à de antes;
+- na partida ganha das seções 24/31 (o atirador estoura os pneus do caminhão 6, a regra dispara o 711): a rampa pendurada
+  aos 76 s (`partida_guindaste_76.png`) e no fosso aos 80 s (`partida_guindaste_80.png`); a linha `objetos_cena_modelo`
+  traz no fim os quatro objetos que a partida anima: `P_Mall_Entrance#1551`, `P_hydrant#1626`, `crane_ramp#2066` e
+  `university_arch#2095`, todos no estado 2.
+
+Os três finais de Paris pelos comandos de sempre (seção 31) acabam como antes: "Mission Accomplished" na etapa 2 com
+1.018,3 de vida (1.036,0 sem a seção 34: a rampa e os outros objetos animados mexem na partida), a van foge sem o
+`--autopilot-fire` (etapa 29) e os passageiros destroem o carro com `--gunner-limit 1.0` (etapa 10); os comandos não mudam.
+A rua da largada de sempre (`--car-pos -327.7,20,-17.7,0.3155 --drive-input "none:1 W:2 W+A:1.2"`) difere em 35 pixels de
+518.400.
+
+### A conferência (a parte 29 do `nf_driving_check`, `--so objetos_cena`)
+
+O CARP de Paris (6,8 MB, carregado e resolvido pelo porte, com os objetos de cena do `WWorld::Open`) vai para a RAM
+emulada com as palavras que o código segue trocadas pelos endereços emulados (a instância do mundo e o artigo, o 'pD' e o
+grupo, o vetor do grupo e os dados das entradas, as instâncias do 'in' e os artigos, as animações, as chaves e as listas
+'el'). Em cada caso um objeto de cena de Paris (a metade dos casos entre os 347 com lista de instâncias ou animações), a
+variante (a do jogo ou sorteada), a bandeira 8 da instância, o tempo e as bandeiras do objeto sorteados; o original e o
+porte lado a lado, comparando o objeto inteiro, o bloco do Handle, os identificadores gravados nos artigos, a lista do
+motor, os eventos e o `EventDynamicData`, e as chamadas que saem (o `KillEffects`, os `ToggleEffect`, o `SetMapNode` da raiz,
+o `ComputeBoundingRadius`); depois, estímulos (o 8 da rampa mais vezes) e `RAnimEngine::Update`, e o `Render` original
+(o `GetInstanceMatrix` pelo gProcAnimFunc, o `EvaluateInstance`, o produto pela VU0) contra o `RSceneObj_Render`. Com
+`--casos 4000` (a rodada inteira, e também as sementes 7 e 123 com `--so objetos_cena`):
+
+| O que | Casos | Diferentes |
+|---|---|---|
+| `RSceneObj::UseArticle` (0x001c6fb8, `UseInstanceList`, `Handle::Create`, `InitEffects`) | 3.038 | 0 |
+| `RSceneObj::UseInstanceList` direto (o argumento do `InitEffects` sorteado) | 962 | 0 |
+| os estímulos e o `RAnimEngine::Update` no Handle do objeto (233 eventos) | 12.019 | 0 |
+| `RSceneObj::Render` (`DrawInstanceList`, `DrawInstance`, `GetInstanceMatrix`; 4.584 desenhos) | 4.000 | 0 |
+
+Ganchos: a memória, as criadoras dos eventos, o que o desenho chama (o `GetArticleViewDistance` devolve uma distância, o
+`DrawArticleModel`, o `DrawGroupDrawEffects`, a fila das passadas e o `RenderEffects` anotam), o `sinf`/`cosf` do newlib
+(os do port, a divergência do `BuildRotate`, como na parte 12) e o que o `UseArticle` chama fora do objeto. A parte achou o
+gProcAnimFunc 0xf2 dos `007logo` (o port não o tinha: sem ele as quatro cópias não eram desenhadas).
+
+As partes que já usavam os objetos de cena: a 11 (o construtor e o corte) chama o `SetMapNode` original da raiz nos objetos
+com a bandeira 8, na ordem do `WWorld::Open`, e copia do porte os campos que o `UseArticle` grava (a parte 29 os confere);
+a 14 (os objetos derrubáveis) roda sem o Handle dos dois lados (o emulado não o tem; os estímulos ficam em ganchos ali).
+Os 5 testes de `tests/test_driving_scene_article.cpp` (nf_tests: 1.004 no x86 e no headless, 1.007 no x64) conferem
+propriedades independentes com grupos, artigos e instâncias montados à mão: a variante pela etiqueta curta, a lista de
+instâncias virando um Handle (o 'pD', o nome, a variante, os bits 25 e 26, os efeitos ligados, o estímulo 8 tocando), a
+instância única com a identidade e o 'as  ', as cópias desenhadas pela matriz do objeto (a escondida não) e o giro do 0xf2.
+
+### Divergências
+
+- O `Close` de um objeto novo: o `KillEffects` (o `GFXGallery::CANVAS_PurgeSceneObjEffects`, pelo
+  `scene_article_env().purge`) não tem o que limpar; o ramo do `Close(true)` (o `URefCounter` do `RCARPFile`) não é
+  alcançado pelo `WWorld::Open` (contado).
+- O `ComputeBoundingRadius` com o `SetDimensions` das instâncias sem medidas: nenhuma em Paris (contado, não gravado).
+- O `SetProcAnimState` do `Render` (vazio no `RSceneObj`): no PS2 uma cópia com o gProcAnimFunc 0xfe/0xef leria os ossos e
+  os parâmetros do último `RSkeletalObj` desenhado; aqui os zerados (nenhuma em Paris: `outras_funcoes 0`).
+- A fila das passadas do `DrawInstance` (0x001ab050): as cópias de outra passada vão para o fim da lista da passada (nenhuma
+  em Paris: `na fila 0`).
+- O `EnableTarget` (a bandeira 0x20 da instância) e os `ProcAnimInstanceAndPointer` do `WWorld::Open` seguem fora.
+
+### O que falta
+
+Os estímulos e o `TriggerFX` do `Smackable::ApplyDamage` (o `RAnimEngine::Handle::ProcessStimuliZones`, 0x001a2b50: os
+pedaços que se soltam de um poste batido) seguem contados; agora que os objetos têm Handle, é o próximo passo natural
+(0,5 dia). Os outros gProcAnimFunc (0xed-0xfd menos os portados) para as outras pistas. O custo do quadro não foi medido.
+
 ## Ferramentas
 
 | Ferramenta | O que faz |
@@ -3741,7 +5041,7 @@ As seções 26 e 27 foram feitas ao mesmo tempo e cada uma contou a sua estimati
 | `tools/ghidra_scripts/XboxVtables.java` | as tabelas virtuais do MSVC sem RTTI e as funções que só elas apontam |
 | `tools/vudis.py` | também `DRIVING.ELF --prog=N` (os três programas da VU0) e `--eagl <objeto.o> <método>` (o microprograma da VU1 de um render method do PS2) |
 | `tools/driving_data.py` | os BIGF da pasta `DRIVING` (`stats`, `list`, `extract`, `ssh`, `carp` (a árvore de UGroup por caminho), `asf`, `eagl`); `test` |
-| `nf_driving` | o desenho (seção 10): um carro girando numa janela (`--data`, `--viv`, `--model`, `--adapter`); `--screenshot` (fora da tela, com o relatório `.txt`: métodos, peças, instâncias, texturas, o estado do GS de cada passada); `--verify` (cada lote da família no interpretador da VU1 contra a referência); `--check` (todos os carros de todos os arquivos, os personagens (seção 16) e as 8 pistas com o mundo de colisão; `--check-viv`); `--ground` (o carro assentado num chão plano, com as rodas, as lâmpadas e a sombra, seção 16); `--track <pista>` (a pista desenhada, com `--car`, `--car-pos`, `--cam`, `--verify`); `--drive` (o carro dirigível, seção 13: `--drive-input`, `--seconds`; com o tráfego, os gatilhos e os objetos derrubáveis da seção 18: `--no-traffic`, `--fire-trigger N`, `NF_DRV_TRIGGERS=1`, `NF_DRV_SMACK_LOG=1`; o som, seção 17: `--audio-dump <wav>`, `--no-audio`, `NF_DRV_SND_LOG`); `--census` (os 115 render methods por microprograma e família); `--view`, `--part`, `--no-spec`, `--no-refl`, `--no-fallback`, `--bench-frames`; `--no-cull` (sem a árvore e as cortinas, seção 15); `--actor <cadeia do jogo>` com `--anim <banco>:<animação>`, `--seconds`, `--list-anims` (um personagem posado e animado, seção 20); na missão (seções 21 e 24): `--autopilot e@x,z[,v];...`, `--autopilot-fire`, `--gunner e1[,e2...][@altura]`, `--gunner-tyres`, `--gunner-limit graus` (seção 26), `--shot-look e@d,h,graus` (seção 26), os direcionais `LU/LD/RL/RR/RU/RD` no `--drive-input`, `NF_DRV_GUN_LOG`, `NF_DRV_GUN_LIMIT`, `NF_DRV_PILOT_LOG`, `NF_DRV_AI_LOG`; o `--audio-dump` leva também a música, as falas e os ambientes da missão (seção 27; a linha `fluxos` do relatório, `NF_DRV_STREAM_LOG`) |
+| `nf_driving` | o desenho (seção 10): um carro girando numa janela (`--data`, `--viv`, `--model`, `--adapter`); `--screenshot` (fora da tela, com o relatório `.txt`: métodos, peças, instâncias, texturas, o estado do GS de cada passada); `--verify` (cada lote da família no interpretador da VU1 contra a referência); `--check` (todos os carros de todos os arquivos, os personagens (seção 16) e as 8 pistas com o mundo de colisão; `--check-viv`); `--ground` (o carro assentado num chão plano, com as rodas, as lâmpadas e a sombra, seção 16); `--track <pista>` (a pista desenhada, com `--car`, `--car-pos`, `--cam`, `--verify`); `--drive` (o carro dirigível, seção 13: `--drive-input`, `--seconds`; com o tráfego, os gatilhos e os objetos derrubáveis da seção 18: `--no-traffic`, `--fire-trigger N`, `NF_DRV_TRIGGERS=1`, `NF_DRV_SMACK_LOG=1`; o som, seção 17: `--audio-dump <wav>`, `--no-audio`, `NF_DRV_SND_LOG`); `--census` (os 115 render methods por microprograma e família); `--view`, `--part`, `--no-spec`, `--no-refl`, `--no-fallback`, `--bench-frames`; `--no-cull` (sem a árvore e as cortinas, seção 15); `--actor <cadeia do jogo>` com `--anim <banco>:<animação>`, `--seconds`, `--list-anims` (um personagem posado e animado, seção 20); na missão (seções 21 e 24): `--autopilot e@x,z[,v];...`, `--autopilot-fire`, `--gunner e1[,e2...][@altura]`, `--gunner-tyres`, `--gunner-limit graus` (seção 26), `--shot-look e@d,h,graus` (seção 26), os direcionais `LU/LD/RL/RR/RU/RD` no `--drive-input`, `NF_DRV_GUN_LOG`, `NF_DRV_GUN_LIMIT`, `NF_DRV_PILOT_LOG`, `NF_DRV_AI_LOG`; o `--audio-dump` leva também a música, as falas e os ambientes da missão (seção 27; a linha `fluxos` do relatório, `NF_DRV_STREAM_LOG`); a linha `camera_vistas` do relatório (seção 30: os modos novos, a entrada do carro, a pausa, as âncoras, o trilho, a luneta, os gatilhos dos corpos simples e das instâncias), os botões `TRI` (trocar de câmera), `L1` (a mira do fuzil) e `L2` (olhar para trás) no `--drive-input` |
 | `tools/ghidra_scripts/ExportDecompiledAt.java` | decompila funções pelo endereço (cria a função se o Ghidra não a tem), sem gravar no projeto |
-| `nf_driving_check` | a física conferida contra o `DRIVING.ELF` (seções 11 e 13): a cobertura do interpretador das VUs (os três programas da VU0 e os 115 render methods), o microcódigo original × o porte à mão, o passo inteiro dos dois jeitos, as funções originais do EE no interpretador MIPS com a VU0 × o porte; a parte 5 (o chão das 8 pistas), a 6 (o carro sobre o chão de Paris), a 7 (os choques, seção 14), a 8 (a câmera; `--so camera` só ela), a 9 (o escalonador; `--so agenda`), a 10 (a entrada; `--so entrada`), a 11 (a visibilidade do mundo e as entradas por quadro dos métodos do mundo, seção 15; `--so visibilidade`), a 12 (o carro desenhado, a sombra, as luzes, a vibração e o Master.def, seção 16; `--so carro`), a 13 (o som: o EA-XA, o núcleo do SND e o som do jogo, seção 17; `--so som`) a 14 (o mundo vivo: a rede de estradas, o navegador, o tráfego, os gatilhos e os objetos derrubáveis, seção 18; `--so trafego`), a 15 (a missão, seção 19; `--so missao`), a 16 (os personagens: a animação, o esqueleto e o `ActPoser`, seção 20; `--so personagens`), a 19 (a seção do helicóptero: o `RPathEngine`, o trilho, os eventos do trilho e de câmera, a câmera do AutoDrive e as animadas, seção 23; `--so helicoptero`), a 20 (as armas ligadas à IA: os tiros, os atores e as mãos, a mira, o `WTargetPicker`, a direção automática e as armas dos motoristas, seção 24; `--so integracao`, `--so integracao.tiros|.atores|.ia`), a 21 (os efeitos: as partículas, a galeria, as luzes, as marcas, o rastro dos mísseis e os eventos de efeito, seção 25; `--so efeitos`) e a 23 (os fluxos: o `SNDI_patchtohdr`, o SND dos fluxos e o mixador do EE, o `AStream`, o `AFader` e os eventos de som, seção 27; `--so fluxos`, `NF_P23_DEBUG`); `--consultas N` |
+| `nf_driving_check` | a física conferida contra o `DRIVING.ELF` (seções 11 e 13): a cobertura do interpretador das VUs (os três programas da VU0 e os 115 render methods), o microcódigo original × o porte à mão, o passo inteiro dos dois jeitos, as funções originais do EE no interpretador MIPS com a VU0 × o porte; a parte 5 (o chão das 8 pistas), a 6 (o carro sobre o chão de Paris), a 7 (os choques, seção 14), a 8 (a câmera; `--so camera` só ela), a 9 (o escalonador; `--so agenda`), a 10 (a entrada; `--so entrada`), a 11 (a visibilidade do mundo e as entradas por quadro dos métodos do mundo, seção 15; `--so visibilidade`), a 12 (o carro desenhado, a sombra, as luzes, a vibração e o Master.def, seção 16; `--so carro`), a 13 (o som: o EA-XA, o núcleo do SND e o som do jogo, seção 17; `--so som`) a 14 (o mundo vivo: a rede de estradas, o navegador, o tráfego, os gatilhos e os objetos derrubáveis, seção 18; `--so trafego`), a 15 (a missão, seção 19; `--so missao`), a 16 (os personagens: a animação, o esqueleto e o `ActPoser`, seção 20; `--so personagens`), a 19 (a seção do helicóptero: o `RPathEngine`, o trilho, os eventos do trilho e de câmera, a câmera do AutoDrive e as animadas, seção 23; `--so helicoptero`), a 20 (as armas ligadas à IA: os tiros, os atores e as mãos, a mira, o `WTargetPicker`, a direção automática e as armas dos motoristas, seção 24; `--so integracao`, `--so integracao.tiros|.atores|.ia`), a 21 (os efeitos: as partículas, a galeria, as luzes, as marcas, o rastro dos mísseis e os eventos de efeito, seção 25; `--so efeitos`) a 23 (os fluxos: o `SNDI_patchtohdr`, o SND dos fluxos e o mixador do EE, o `AStream`, o `AFader` e os eventos de som, seção 27; `--so fluxos`, `NF_P23_DEBUG`), a 25 (os restos de Paris, seção 29; `--so restos`), a 26 (as câmeras e os gatilhos: as âncoras, os modos do carro, as animações relativas, os gatilhos dos corpos simples e das instâncias, a luneta, seção 30; `--so cameras`), a 27 (os sons das armas, da mira e dos objetos e a pausa do HUD, seção 31; `--so som_hud`) e a 28 (seção 32; `--so efeitos_ped`); `--consultas N` |
 | `tools/pcsx2_pine.py` | grava os corpos rígidos de uma missão de carro a cada quadro pela IPC do PCSX2 (`status`, `record`, `test`) |

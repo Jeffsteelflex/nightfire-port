@@ -12,8 +12,10 @@
 #include "driving/anim/actor.h"
 #include "driving/bigf.h"
 #include "driving/car_model.h"
+#include "driving/fx/muzzle_flash.h"
 #include "driving/game/ai_character.h"
 #include "driving/game/attributes.h"
+#include "driving/physics/simulation.h"
 #include "driving/render/anim_engine.h"
 #include "platform/crt_compat.h"
 #include "platform/ptr32.h"
@@ -31,6 +33,7 @@ struct State {
     std::vector<std::string> ssh;  // as texturas dos personagens (data\actors\textures\*.ssh e o Actors.ssh)
     const AttributeCollection* player_attrs = nullptr;
     std::vector<an::ActDrawItem> drawn;  // os desenhos do último quadro (os DrvItem apontam para as paletas)
+    std::vector<VolatileDraw> flashes;   // seção 32: os clarões dos canos das armas desenhadas (o ManualRender)
     int banks = 0, skeletons = 0, models = 0, weapons = 0;
     float cam[16] = {};  // a câmera do último desenho (o relatório)
     std::string errors;
@@ -225,8 +228,11 @@ bool upload(DrvRenderer& renderer, std::string& error) {
     return true;
 }
 
+const std::vector<VolatileDraw>& muzzle_flash_draws() { return g.flashes; }
+
 void draw(std::vector<DrvItem>& items, const float cam[16], float fov) {
     an::act_draw_list(g.drawn);
+    g.flashes.clear();
     std::memcpy(g.cam, cam, sizeof g.cam);
     // A vista (do mundo para a câmera) e a câmera: a matriz da câmera tem as linhas ortonormais.
     float view[16] = {cam[0], cam[4], cam[8], 0, cam[1], cam[5], cam[9], 0, cam[2], cam[6], cam[10], 0, 0, 0, 0, 1};
@@ -265,6 +271,28 @@ void draw(std::vector<DrvItem>& items, const float cam[16], float fov) {
             }
         }
         for (const an::ActDrawItem::Weapon& w : it.weapons) {
+            // Seção 32: o ActWeapon::ManualRender desenha os clarões da arma (no referencial dela; aqui com o osso e o
+            // mundo da TransformToWorldSpace, que no PS2 o desenho do ator já pôs na vista, e a vista das mãos).
+            if (w.weapon) {
+                std::vector<VolatileDraw> fl;
+                ActWeapon_DrawMuzzleFlashes(muzzle_flash(), w.weapon, simulation().steps, simulation().state == 3, &fl);
+                for (VolatileDraw& v : fl) {
+                    float bw[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+                    an::ActWeapon_TransformToWorldSpace(w.weapon, bw);
+                    float m[16];
+                    mul(&v.matrix[0][0], bw, m);
+                    pov(it, m, &v.matrix[0][0]);
+                    v.has_matrix = true;
+                    static const bool log = nf::get_env_narrow("NF_DRV_FLASH_LOG", nullptr);
+                    if (log && !w.instances.empty())
+                        std::printf("clarao_desenho centro %.2f %.2f %.2f escala %.3f arma %.2f %.2f %.2f\n",
+                                    double(v.matrix[3][0]), double(v.matrix[3][1]), double(v.matrix[3][2]),
+                                    double(std::sqrt(v.matrix[0][0] * v.matrix[0][0] + v.matrix[0][1] * v.matrix[0][1] +
+                                                     v.matrix[0][2] * v.matrix[0][2])),
+                                    double(w.instances[0][12]), double(w.instances[0][13]), double(w.instances[0][14]));
+                    g.flashes.push_back(std::move(v));
+                }
+            }
             if (!w.model) continue;
             for (size_t k = 0; k < w.instances.size() && k < w.model->instances().size(); ++k) {
                 const int part = w.model->instances()[k].part;

@@ -1,6 +1,6 @@
 # 007: Nightfire — native PC port
 
-**Version 0.5 (October 2026) — work in progress.**
+**Version 0.6 (October 2026) — work in progress.**
 
 A native Windows rebuild of *007: Nightfire* for the PlayStation 2 (NTSC-U, SLUS-20579), with a first macOS version
 for testing. This is not an emulator.
@@ -31,19 +31,22 @@ The aim is to play the original game the way it was made, plus the PC features i
 - **Audio and movies.** The game's sound driver and the SPU2 in software: effects, 3D sound, reverb, speech with
   subtitles, interactive music. The PSS movies play where the game plays them.
 - **PC controls.** Raw mouse and keyboard, all rebindable; XInput pads through the game's own pad layer; mouse in every
-  menu; optional aim-down-sights and a weapon wheel. New in 0.5: the guided missile is steered by the mouse.
+  menu; optional aim-down-sights and a weapon wheel; the guided missile is steered by the mouse.
 - **Disc.** An `.iso`, a DVD drive or the extracted files; only the US version.
 - **Performance.** 60 fps on integrated GPUs is the target; a Radeon iGPU runs 144 fps or more at 1080p.
 
 ### In progress
 
 - **Driving missions** (Paris, Alpine Escape, Enemies Vanquished, Deep Descent, Island Infiltration). They run in a
-  separate EA engine (`DRIVING.ELF`), being ported function by function (about 1,700 so far, each checked against the
+  separate EA engine (`DRIVING.ELF`), being ported function by function (about 2,000 so far, each checked against the
   original code in an emulated CPU). The game still skips them: they count as done without a medal. In the port's test
   tool (`nf_driving`, build only) **Paris, the first mission, plays from start to end**: the helicopter section, the car
-  chase, the enemy cars and their gunmen, weapons, explosions, the damage, speech and music, won or lost by play
-  (tested with scripted input). Left for Paris: the mission's movies and real HUD, some effects and sounds, a few
-  camera modes; then the other four missions, and running them inside the game.
+  chase, the enemy cars and their gunmen, weapons, explosions, the damage, speech and music, the mission's movies, the
+  real HUD and its pause menu, won or lost by play (tested with scripted input). New in 0.6: the remaining camera modes
+  and sounds of Paris, muzzle flashes and bullet marks, the construction site's crane ramp that falls when its hook is
+  shot, and PC controls for `nf_driving` (mouse aiming in the helicopter section, Esc pauses, keyboard and pad
+  together, rebindable). Left for Paris: tyre tracks, the cars' particles and a few other effects; then the other four
+  missions, and running them inside the game.
 - **macOS.** A universal app (`Nightfire PC.app`, Apple Silicon and Intel, macOS 11+) built and tested by CI on GitHub's
   Mac machines. **Not yet played on a real Mac**: reports are welcome (see "On a Mac" below).
 - **Decompilation of `ACTION.ELF`** (the on-foot game): 2,117 of 2,550 functions (80% of its code).

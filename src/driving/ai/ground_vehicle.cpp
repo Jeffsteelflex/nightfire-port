@@ -2,8 +2,9 @@
 // desmontagens ficam em out/agent_drv_traffic/ do checkout principal (fora do git).
 //
 // Divergências (port), cada uma também na função:
-//  - o som do carro (o AVehicle do PBondCar +0x388): AVehicle::Reset no UnSpawn, o +0x244 (a sirene) no SetAttackMode e
-//    o +0x154 (a buzina) no CheckTrafficCollision só contam em ground_vehicle_stats().audio_resets;
+//  - o som do carro (o AVehicle do PBondCar +0x388): o AVehicle::Reset no UnSpawn, o +0x244 (a sirene) no
+//    SetAttackMode e o +0x154 (a buzina) no CheckTrafficCollision vão ao objeto do port (driving/sound/audio.h: nada
+//    sem o som ligado) e contam em ground_vehicle_stats().audio_resets;
 //  - os estados 1, 2, 3 e 5 do Update, os modos de ataque 13-15 e os de navegação 2, 4 e 5 do DoMoveMode (o jogador,
 //    a direção automática, os trilhos, os agentes) contam em ground_vehicle_pending() e não fazem nada;
 //  - IntersectionGreenLight: o port não tem o RPathEngine (os objetos que andam por trilhos de animação), então o
@@ -15,6 +16,8 @@
 //    endereço 4).
 
 #include "driving/ai/ground_vehicle.h"
+
+#include "driving/sound/audio.h"
 
 #include <cstring>
 #include <functional>
@@ -398,6 +401,7 @@ void AIGroundVehicle_UnSpawn(AIGroundVehicle& v) {
         v.road = -1;
     }
     ++g_stats.audio_resets;  // AVehicle::Reset(GetAudio())
+    if (car) audio_car_reset(car->d.audio);
     v.spawn_timer = 0;
     ++g_stats.unspawns;
 }
@@ -449,7 +453,10 @@ void AIGroundVehicle_SetAttackMode(AIGroundVehicle& v, int32_t mode) {
     v.attack_mode = mode;
     if (mode != 13) return;
     BondCar* car = car_or_guard(v);
-    if (car && car->has_siren) ++g_stats.audio_resets;
+    if (car && car->has_siren) {
+        ++g_stats.audio_resets;
+        audio_car_siren(car->d.audio);  // o +0x244 do som do carro
+    }
 }
 
 // [driving] 0x0012e808 AIGroundVehicle::DoAttackMode (os modos do tráfego: 1, 12 e o padrão; os dos agentes, 13-15, em
@@ -702,7 +709,10 @@ void AIGroundVehicle_CheckTrafficCollision(AIGroundVehicle& v, float point[4]) {
         const float radius = ee::max(oi->half_size[0], oi->half_size[2]);
         if (!TestForCollision(*car, point, ob->pos, radius)) continue;
         if (!oai) ++g_stats.guards;
-        else if (oai->controller != 4) ++g_stats.audio_resets;  // a buzina: o +0x154 do som do carro
+        else if (oai->controller != 4) {
+            ++g_stats.audio_resets;
+            audio_car_horn(car->d.audio);  // a buzina: o +0x154 do som do carro
+        }
         v.collision_ahead = 1;
         ++g_stats.blocked;
         GetCollisionStopPoint(*car, stop, ob->pos, radius);  // a cópia, sem voltar ao ponto (como o PS2)

@@ -7,10 +7,11 @@
 // função do seu número na tabela de RegisterEvent e roda depois, quando o EventManager o apaga).
 //
 // Portado do MIPS do PS2 (a verdade); o nightfire-cxbx (NightfireResearch, src/driving/world/Trigger.cpp e
-// TriggerManager.cpp, a versão de Xbox) deu os nomes e a estrutura. Só o que o carro e o tráfego usam: os corpos
-// rígidos (Process e CheckCollide do RigidBody, as três formas), FireEvents e o Restart que dispara os EStartMission.
-// Os corpos simples, as instâncias dos trilhos (RPathEngine) e os raios (RayShell) não existem no port; a validação
-// dos fluxos de som do Restart também não (contados em trigger_stats()).
+// TriggerManager.cpp, a versão de Xbox) deu os nomes e a estrutura. Os corpos rígidos (Process e CheckCollide do
+// RigidBody, as três formas), FireEvents e o Restart que dispara os EStartMission; os raios dos tiros (RayShell, seção
+// 26); os corpos simples (Process(unsigned, SimpleRigidBody &), o cilindro) e as instâncias movidas pelos RPathHandle
+// sem mestre (Process(CARP::Instance &), o ponto com o tamanho da instância), seção 30. A validação dos fluxos de som do
+// Restart não foi portada (contada em trigger_stats()).
 //
 // Os eventos: o port executa o ESpawnTraffic (o número 28: um carro do tráfego parado ganha a rua no gatilho, com a
 // velocidade do evento) e o EFireRandomTrigger (203: dispara um de até quatro gatilhos, sorteado pelo RRandom; em Paris
@@ -145,6 +146,10 @@ struct TriggerStats {
     uint64_t rays = 0;                   // os raios dos tiros (RayShell) conferidos pelo Process(int)
     uint64_t ray_hits = 0;               // os gatilhos que um raio tocou (o FireEvents com o raio)
     std::map<int32_t, uint64_t> ray_triggers;  // por gatilho (o índice): os toques dos raios
+    uint64_t simple_checks = 0;          // os corpos simples conferidos (Process(unsigned, SimpleRigidBody &))
+    uint64_t simple_hits = 0;            // os gatilhos que um corpo simples tocou
+    uint64_t instance_checks = 0;        // as instâncias dos trilhos conferidas (Process(CARP::Instance &))
+    uint64_t instance_hits = 0;          // os gatilhos que uma instância tocou
     uint64_t guards = 0;
 };
 TriggerStats& trigger_stats();
@@ -155,9 +160,27 @@ WTrigger* trigger_at(int index);
 void WTriggerManager_Init(UData* trgr);
 // [driving] 0x0022cd30 WTriggerManager::Restart (sem a validação dos fluxos de som).
 void WTriggerManager_Restart();
-// [driving] 0x0022f0c0 WTriggerManager::Update: os corpos rígidos acordados e os raios dos tiros (os corpos simples e
-// os trilhos não são conferidos no port).
+// [driving] 0x0022f0c0 WTriggerManager::Update: os corpos rígidos acordados, os corpos simples, as instâncias movidas
+// pelos RPathHandle sem mestre (docs/driving.md seção 30) e os raios dos tiros.
 void WTriggerManager_Update();
+struct SimpleRigidBody;
+// [driving] 0x0022dae8 WTriggerManager::Process(unsigned int, SimpleRigidBody &): um corpo simples com o bit 0x100
+// (SetCanHitTrigger: as explosões fortes, os humanos) contra os gatilhos das células em volta dele (o raio pelo menos
+// 1,5): o toque 0x10 (tipo 1), 0x08 (tipos 2 e 8), 0x40 (tipos 4 e 5), mais 0x80 se o dono é do jogador; os gatilhos com
+// 0x80 só para os do jogador. Dispara com FireEvents(1, vaga).
+void WTriggerManager_ProcessSimple(int slot, SimpleRigidBody& body);
+// [driving] 0x0022eec0 WTriggerManager::CheckCollide(SimpleRigidBody &, WTrigger *): o cilindro do gatilho (qualquer
+// forma) com o raio do corpo somado, a direção pela velocidade.
+bool WTriggerManager_CheckCollideSimple(const SimpleRigidBody& body, const WTrigger& t);
+// [driving] 0x0022d5a8 (o SYM sugere WTriggerManager::Process(CARP::Instance &)): a instância movida por um RPathHandle
+// contra os gatilhos com kTrigInstances. O tamanho vem da palavra +0x3c da instância (três campos de 10 bits vezes 0,25
+// ou 16 pelo bit 30): com o bit 31, CheckCollide(raio, acima, abaixo); sem ele, CheckCollide(raio). Dispara com
+// FireEvents(0, -1, instância).
+void WTriggerManager_ProcessInstance(uint32_t instance);
+// [driving] 0x0022efb0 WTriggerManager::CheckCollide(COORD3 &, float, WTrigger *) e 0x0022f030 (COORD3 &, float, float,
+// float, WTrigger *): o ponto com o raio da instância (o raio do gatilho não entra: como no PS2).
+bool WTriggerManager_CheckCollidePoint(float radius, const float pos[3], const WTrigger& t);
+bool WTriggerManager_CheckCollidePoint3(float radius, float up, float down, const float pos[3], const WTrigger& t);
 // [driving] 0x0022def0 WTriggerManager::Process(int): o raio ativo `index` (RayShell::GetActiveRayShell) contra os
 // gatilhos das células da grade que o segmento cruza (docs/driving.md seção 26).
 void WTriggerManager_ProcessRay(int index);

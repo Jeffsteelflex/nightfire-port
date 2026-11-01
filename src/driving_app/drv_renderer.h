@@ -96,12 +96,15 @@ struct DrvFxVertex {
     float uv[2];
     uint32_t colour = 0x80808080u;
 };
+// A textura de um lote de DrvScene::post: a cópia do quadro (o ROffscreenBuffer do RSniperZoom: a imagem subamostrada).
+constexpr int kDrvSceneCopyTexture = -2;
 struct DrvFxBatch {
     int texture = -1;                   // o índice de set_fx_texture (-1: sem textura, a cor do vértice)
     bool world = false;                 // pos no mundo (vezes a vista e a projeção da cena) ou já no recorte
     uint64_t alpha = 0x8000000044ull;   // ALPHA_1: (Cs - Cd) x As + Cd
     uint64_t test = 0x50002ull;         // TEST_1: ZTE, ZTST GEQUAL, ATST ALWAYS
     bool zwrite = true;                 // o ZMSK do ZBUF_1 (o GeoPrimState padrão grava Z)
+    uint64_t clamp = 0x5;               // o CLAMP_1 (WMS/WMT; 0x5 CLAMP nos dois; 0 REPEAT: os clarões dos canos)
     std::vector<DrvFxVertex> verts;     // três por triângulo
 };
 
@@ -124,8 +127,17 @@ struct DrvScene {
     float light_sources[7][4] = {};
     // Os efeitos (depois das peças, antes da interface).
     std::vector<DrvFxBatch> fx;
+    // O pós-processamento (seção 30: o RSniperZoom), depois dos efeitos e antes da interface: a textura
+    // kDrvSceneCopyTexture é uma cópia reduzida do quadro desenhado até ali (o alfa da textura 0x80).
+    std::vector<DrvFxBatch> post;
     // A interface por cima de tudo (depois das peças, na ordem).
     std::vector<DrvSprite> sprites;
+    // O 2D do GS por cima da interface (seção 28: o HUD das galerias, as fontes, as legendas; driving/render/gs2d.h),
+    // no recorte (world = false), sem teste de Z.
+    std::vector<DrvFxBatch> overlay;
+    // Um filme (seção 28): só o quadro de set_movie_frame na área 4:3 da janela (a tela do PS2 pela altura) sobre o
+    // preto, sem as peças; o overlay por cima.
+    bool movie = false;
 };
 
 class DrvRenderer {
@@ -141,6 +153,8 @@ public:
     bool set_ui_texture(int width, int height, const uint8_t* rgba);
     // Uma textura dos efeitos (RGBA com o alfa na escala do GS, width x height) no índice `slot` (DrvFxBatch::texture).
     bool set_fx_texture(int slot, int width, int height, const uint8_t* rgba);
+    // O quadro do filme (BGRA de 8 bits, o alfa 0x80 da CSC do IPU), desenhado com DrvScene::movie.
+    bool set_movie_frame(int width, int height, const uint8_t* bgra);
     // Desenha o carro girado de `yaw` (radianos), a câmera inclinada de `pitch`, a `dist` vezes o raio.
     void draw(const CarModel& car, float yaw, float pitch, float dist);
     // Desenha uma cena (a pista e os carros, com a câmera dada).

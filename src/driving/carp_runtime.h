@@ -60,6 +60,8 @@ UData* UGroup_DataLocateTag(const UGroup* g, uint32_t tag);
 // [driving] 0x002d5920 UGroup::DataLocateFirst(tag, índice, máximo): índice -1 procura a etiqueta inteira; senão a
 // família curta tag | índice, aceita se a etiqueta casar e o índice achado for <= máximo.
 UData* UGroup_DataLocateFirst(const UGroup* g, uint32_t tag, int32_t index, int32_t max);
+// [driving] 0x002d5700 UGroup::DataCountType: os dados cuja etiqueta de comparação (UData::MatchTag) é `tag` (seção 32).
+uint32_t UGroup_DataCountType(const UGroup* g, uint32_t tag);
 // [driving] 0x002d61b0 UGroup::ResolveOffsets (com 0x002d4930 UData::ResolveOffsets), pelo UGroup::Deserialize
 // (0x002d4ce0): as posições relativas viram endereços, recursivamente.
 void UGroup_Deserialize(UGroup* root);

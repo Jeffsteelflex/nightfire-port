@@ -214,4 +214,141 @@ bool RScorchWorld_ScorchGround(DecalState& s, WorldCollision* wc, WWorldPos& wp,
     return true;
 }
 
+
+// [driving] 0x001ea8e8 RScorchWorld::ScorchWorld(WWorldPos &, COORD4 &ponto, COORD4 &normal, DecalType, float tamanho)
+bool RScorchWorld_ScorchWorld(DecalState& s, WorldCollision* wc, WWorldPos& wp, const float point[4],
+                              const float normal[4], int32_t type, float size, ScorchHitFn check_hit) {
+    ++g_stats.world_scorches;
+    if (!wc) {
+        ++g_stats.guards;
+        return false;
+    }
+    if (!check_hit) check_hit = WCollisionMgr_CheckHitWorld;
+    wc->find_closest_face(wp, point, true);
+    if ((wp.surface[1] & 2) != 0 || wp.surface[0] == 6) {
+        ++g_stats.refused_face;
+        return false;
+    }
+    if (ee::lt(6.0f, size)) size = 6.0f;
+    // O "para cima" de referência (0x391d68: (0, 1, 0, 1)); numa face quase plana (|y| > 0,85, comparado em double:
+    // o fptodp, o dpsub de 0 e o dpcmp do libgcc, iguais à comparação dos floats) ele vira (0, 0, -1).
+    alignas(16) float ref[4] = {0.0f, 1.0f, 0.0f, 1.0f};
+    const bool level = ee::lt(0.85f, ee::abs(normal[1]));
+    if (level) {
+        ref[1] = 0.0f;
+        ref[2] = -1.0f;
+    }
+    // vopmula.xyz ACC, normal, ref; vopmsub.xyz across, ref, normal (o w do across é o lixo da pilha no PS2: 0 aqui).
+    uint32_t n[4], rr[4], acc[4] = {}, across[4] = {};
+    std::memcpy(n, normal, 16);
+    std::memcpy(rr, ref, 16);
+    opmula(acc, n, rr);
+    opmsub(across, acc, rr, n);
+    WorldCollisionInfo info;
+    WorldCollisionInfo_Init(info);
+    bool across_hit = true, back_hit = true, along_hit = true;
+    alignas(16) float seg[2][4] = {};
+    std::memcpy(seg[0], point, 16);  // (o w do primeiro ponto do segmento fica o do ponto: o centro o herda abaixo)
+    if (!ee::le(size, ps2::ffloat(0x3ea8f5c3u))) {  // 0,33
+        // A marca grande precisa achar a superfície nas duas pontas do eixo e ao longo da referência; metade até duas
+        // vezes (o tamanho é dividido também depois da última tentativa).
+        auto axpy = [](float out[4], const uint32_t* v, float k) {
+            for (int i = 0; i < 3; ++i) out[i] = ps2::ffloat(ps2::add(ps2::fbits(out[i]), ps2::mul(v[i], ps2::fbits(k))));
+        };
+        auto hit_ok = [&]() {
+            check_hit(&seg[0][0], info);
+            return info.hit != 0 && info.face_type != 6;
+        };
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            std::memcpy(seg[0], point, 16);
+            std::memcpy(seg[1], point, 16);
+            axpy(seg[0], n, 0.25f);
+            axpy(seg[1], n, -0.25f);
+            axpy(seg[0], across, size);
+            axpy(seg[1], across, size);
+            across_hit = hit_ok();
+            const float back = ee::mul(size, -2.0f);
+            axpy(seg[0], across, back);
+            axpy(seg[1], across, back);
+            back_hit = hit_ok();
+            axpy(seg[0], rr, size);
+            axpy(seg[1], rr, size);
+            along_hit = hit_ok();
+            if (back_hit && across_hit && along_hit) break;
+            size = ee::mul(size, 0.5f);
+        }
+    }
+    // O centro: a uns centímetros da face, mais nas inclinadas (|1 - y| x 0,05 + 0,035).
+    const float lift = ee::add(ee::abs(ee::mul(ee::sub(1.0f, normal[1]), ps2::ffloat(0x3d4ccccdu))),
+                               ps2::ffloat(0x3d0f5c29u));
+    alignas(16) float centre[4];
+    std::memcpy(centre, seg[0], 16);
+    for (int i = 0; i < 3; ++i)
+        centre[i] = ps2::ffloat(ps2::add(ps2::fbits(point[i]), ps2::mul(n[i], ps2::fbits(lift))));
+    if (!(back_hit && across_hit && along_hit)) {
+        ++g_stats.refused_edges;
+        return false;
+    }
+    wc->find_closest_face(wp, point, true);
+    if (wp.instance != 0) {
+        const WCollisionInstance* ci = nf::p32_ptr<const WCollisionInstance>(wp.instance);
+        if (ci->article == 0) {
+            ++g_stats.guards;  // o PS2 leria o byte +0xc do endereço 0
+            return false;
+        }
+        if (nf::p32_ptr<const uint8_t>(ci->article)[0xc] != 0) {
+            ++g_stats.refused_face;
+            return false;
+        }
+    }
+    alignas(16) float across_f[4];
+    std::memcpy(across_f, across, 16);
+    bool added = false;
+    if ((info.face_subtype & 2) == 0) {
+        RDecalManager_AddDecal(s, centre, normal, across_f, type, ee::add(size, size), ee::add(size, size));
+        added = true;
+    }
+    if (level) return added;
+    // Na parede: a marca desce até o chão ao pé dela, quando ele é perto e plano.
+    wc->find_closest_face(wp, centre, true);
+    if (wp.valid != 1 || (wp.surface[1] & 2) != 0) return added;
+    const float d = ee::sub(centre[1], WWorldPos_HeightAtPoint(wp, centre));
+    if (!ee::lt(d, size) || !ee::lt(0.0f, d)) return added;
+    // vmulx.xyz (o w de sp+0x90 é o do segundo ponto do segmento); vsub.xyz
+    alignas(16) float down[4];
+    std::memcpy(down, seg[1], 16);
+    const float k = ee::mul(d, 4.0f);
+    for (int i = 0; i < 3; ++i) down[i] = ps2::ffloat(ps2::mul(n[i], ps2::fbits(k)));
+    for (int i = 0; i < 3; ++i) centre[i] = ee::sub(centre[i], down[i]);
+    centre[1] = ee::add(lift, WWorldPos_HeightAtPoint(wp, centre));
+    // A normal do chão (a do HeightAtPoint): (v1 - v0) x (v0 - v2) normalizada, para cima, y no máximo 0,9999; (0, 1, 0)
+    // sem face.
+    alignas(16) float g[4] = {0.0f, 1.0f, 0.0f, 0.0f};
+    if (wp.valid != 0) {
+        const float e1[3] = {ee::sub(wp.v1[0], wp.v0[0]), ee::sub(wp.v1[1], wp.v0[1]), ee::sub(wp.v1[2], wp.v0[2])};
+        const float e2[3] = {ee::sub(wp.v0[0], wp.v2[0]), ee::sub(wp.v0[1], wp.v2[1]), ee::sub(wp.v0[2], wp.v2[2])};
+        float c[3];
+        cross_fpu(e1, e2, c);
+        if (!(ee::eq(c[0], 0.0f) && ee::eq(c[1], 0.0f) && ee::eq(c[2], 0.0f))) {
+            const float l = ee::add(ee::add(ee::mul(c[0], c[0]), ee::mul(c[1], c[1])), ee::mul(c[2], c[2]));
+            const float r = ee::rsqrt(1.0f, l);
+            g[0] = ee::mul(c[0], r);
+            g[1] = ee::mul(c[1], r);
+            g[2] = ee::mul(c[2], r);
+        }
+        if (ee::lt(g[1], 0.0f)) {
+            g[1] = ee::neg(g[1]);
+            g[0] = ee::neg(g[0]);
+            g[2] = ee::neg(g[2]);
+        }
+        const float cap = ps2::ffloat(0x3f7ff972u);  // 0,9999
+        if (ee::le(cap, g[1])) g[1] = cap;
+    }
+    g[3] = 0.0f;
+    if (!ee::le(ps2::ffloat(0x3f7ae148u), ee::abs(g[1]))) return added;  // 0,98
+    RDecalManager_AddDecal(s, centre, g, normal, type, ee::add(size, size), ee::mul(size, 8.0f));
+    ++g_stats.world_feet;
+    return true;
+}
+
 }  // namespace drv

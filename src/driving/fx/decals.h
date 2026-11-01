@@ -80,11 +80,27 @@ void RDecalManager_Draw(DecalState& s);
 // `wc` o mundo (nulo: nenhuma face, nada). Devolve se pôs a marca.
 bool RScorchWorld_ScorchGround(DecalState& s, WorldCollision* wc, WWorldPos& wp, const float pos[4], int32_t type,
                                float size);
+// [driving] 0x001ea8e8 RScorchWorld::ScorchWorld(WWorldPos &, COORD4 &ponto, COORD4 &normal, DecalType, float tamanho)
+// (seção 32): a marca de um tiro numa parede ou no chão. Acha a face sob o ponto (recusa a de bandeira 2 no subtipo e a
+// de tipo 6), limita o tamanho a 6 e tira o eixo da marca (normal x (0, 1, 0), ou normal x (0, 0, -1) numa face com
+// |y| > 0,85); uma marca maior que 0,33 precisa que três segmentos de meio metro através da superfície (nas duas pontas
+// do eixo e ao longo da referência) achem algo que não seja do tipo 6 (WCollisionMgr::CheckHitWorld), à metade do
+// tamanho até duas vezes. Com a face de novo sob o ponto (recusa a de instância cujo artigo tem o byte +0xc), a marca
+// (2 x tamanho) vai a |1 - y| x 0,05 + 0,035 acima, se o último segmento não achou a bandeira 2 no subtipo; numa
+// parede, se o chão a menos que o tamanho abaixo do centro é plano (|y| >= 0,98), uma marca de 2 x 8 tamanhos desce
+// até ele. `check_hit` o CheckHitWorld (nulo: o do port, driving/game/missile.h). Devolve se pôs alguma marca.
+// Divergências (só do port): o w do eixo é 0 (lixo da pilha no PS2) e o do centro numa marca pequena é o do ponto (lixo
+// também); o PS2 não confere o artigo nulo da instância (guarda).
+struct WorldCollisionInfo;
+using ScorchHitFn = bool (*)(const float* segment, WorldCollisionInfo& info);
+bool RScorchWorld_ScorchWorld(DecalState& s, WorldCollision* wc, WWorldPos& wp, const float point[4],
+                              const float normal[4], int32_t type, float size, ScorchHitFn check_hit = nullptr);
 
 // O que o port conta.
 struct DecalStats {
     uint64_t added = 0, scorches = 0, refused_face = 0, refused_slope = 0, refused_edges = 0, refused_size = 0;
     uint64_t draws = 0, guards = 0;
+    uint64_t world_scorches = 0, world_feet = 0;  // seção 32: os ScorchWorld e as marcas que desceram ao chão
 };
 DecalStats& decal_stats();
 

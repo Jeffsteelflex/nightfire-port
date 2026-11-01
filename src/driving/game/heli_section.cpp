@@ -102,6 +102,13 @@ bool PBondCar_ChangeCarType(BondCar& car, const CarTypeData& type, bool purge) {
     car.collision_points = type.desc->collision;
     car.collision_y_offset = ee::neg(CarDesc_RenderOffset(*type.desc));
     if (heli_change_car_hook()) heli_change_car_hook()(car, type);
+    // O objeto de som: o antigo apagado (a entrada +0xc com 3), SetAudioObject(0), um APlayerVehicle do SFX_ENGINE novo
+    // com o SFX_VOLUME e 15..500 m (driving/sound/audio.h; nada sem o som ligado).
+    {
+        std::string engine;
+        attrs.find("SFX_ENGINE", engine);
+        audio_change_player_car(engine, attrs.lookup_float("SFX_VOLUME"));
+    }
     uint8_t* raw = reinterpret_cast<uint8_t*>(&c);
     raw[0x25a] = 0;
     PBondCar_InitializeCarVariables(car, false, car.tyre_damage_points_attr);

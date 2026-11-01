@@ -41,12 +41,20 @@ struct FxBatch {
 // As texturas dos efeitos: o 'MAIN' do contexto 1 (data\render\partic01.ssh, RParticleSystemManager::Init) e os do
 // contexto 0 (o common.ssh): 'sprk' (os riscos), 'decl' (as marcas), 'trai' (o rastro dos mísseis).
 enum FxTexture { kFxTexMain = 0, kFxTexSpark = 1, kFxTexDecal = 2, kFxTexTrail = 3 };
+// Seção 29: as formas dos riscos das balas ('wtrc', 'ytrc', 'otrc', 'btrc': 4..7), o atlas dos clarões ('flar') e as
+// texturas dos destroços (10 em diante, pela ordem do RDebris).
+constexpr int kFxTexStreak0 = 4, kFxTexGlare = 8, kFxTexDebris0 = 10;
+// Seção 32: as cinco texturas do RMuzzleFlash::Draw (40..44) e as 24 do DrawPOV (45..68: tipo x 3 + k).
+constexpr int kFxTexMuzzle0 = 40, kFxTexMuzzlePov0 = 45;
 
 // O Control.y do RenderSpritesRot (0x001f4920 RParticleParticleCache::JustRender): 66 / (fov x margem).
 float fx_sprites_control_y(float fov, float guard_band);
 
 // As listas do RenderBlock em lotes do PC: os retângulos normais (o GeoPrimState 0x3e3f70: (Cs - Cd) As + Cd), os
 // aditivos (0x3e5ff0: Cs As + Cd) e os riscos (0x3e8070: Cs FIX + Cd, FIX 0x80; o STQ fixo do construtor do cache).
+// Uma lista de retângulos do RenderSpritesRot em um lote (a mistura `alpha`; a textura e o resto ficam no lote).
+void fx_sprite_batch(const ParticleDrawLists::Sprites& l, const float view[16], const float proj[16], float control_y,
+                     float aspect, uint64_t alpha, FxBatch& b);
 void fx_particle_batches(const ParticleDrawLists& lists, const float view[16], const float proj[16], float control_y,
                          float aspect, std::vector<FxBatch>& out);
 
@@ -72,5 +80,14 @@ void render_sprites_rot_reference(const FxVuGlobals& g, const float mvp[4][4], c
 // MatDebugTexture para um vértice que não cruza os planos (o caminho sem recorte do microprograma).
 void mat_debug_texture_reference(const FxVuGlobals& g, const float mvp[4][4], const float pos[4], const float stq[4],
                                  const uint32_t colour[4], GsVertexOut& out);
+// MatDebug (o USimpleMaterial do HUD: os quadrados sem textura; docs/driving.md seção 28) para um vértice que não cruza
+// os planos: o XYZ como no MatDebugTexture (w 0) e a cor do qword de entrada como está; o st fica zero.
+void mat_debug_reference(const FxVuGlobals& g, const float mvp[4][4], const float pos[4], const uint32_t colour[4],
+                         GsVertexOut& out);
+// BondDebris (seção 29, os destroços): a matriz de um pedaço (driving/fx/debris.h, bond_debris_instance_matrix) vezes a
+// viewProj (MULAx/MADDAy/MADDAz/MADDw por linha) em `mvp`; depois cada vértice do modelo é o do MatDebugTexture com o
+// STQ (u, v, 1, 1) e a cor do pedaço (o caminho sem recorte).
+void bond_debris_mvp(const float viewproj[4][4], const float simtick[4], const float offset[4], const float velocity[4],
+                     const float quat[4], float mvp[4][4]);
 
 }  // namespace drv

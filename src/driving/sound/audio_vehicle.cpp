@@ -3,11 +3,11 @@
 // som do ECollision. Portado do MIPS do DRIVING.ELF (SupportPS2.lib, BondAudioPS2.lib); docs/driving.md seção 17.
 //
 // Divergências (port):
-//  - as armas do carro (AGun, ATurret, AZoomObj), a buzina (AHorn) e o alarme (ACarAlarm) não estão portados: os
-//    ponteiros ficam nulos e o AVehicle::Play os pula (o PS2 cria o AGun "Machine Gun" do jogador, mudo sem tiro);
-//  - o PBondCar::Simulate grava em +0xb0/+0xb4 (as armas, pelo SMissionManager e pelo estado da animação) e em +0x50
-//    (RPlayerCamera::GetForwardAimVec4): o port grava 1, 0 e zero (só as armas os leem);
-//  - o submarino e os carros de IA (as outras classes) não estão portados: só o caminho do carro do jogador;
+//  - as armas do carro (AGun, ATurret, AZoomObj), o alarme (ACarAlarm) e o APlayerHeli estão em audio_scene.cpp (seção
+//    31); a buzina (AHorn) e os outros carros (ATrafficVehicle) em audio_traffic.cpp (seção 29);
+//  - o PBondCar::Simulate grava em +0x50 o RPlayerCamera::GetForwardAimVec4: o port grava zero (só as armas o leem);
+//  - o submarino não está portado (o caminho dele no PBondCar_AudioFeed); os carros das outras classes recebem o mesmo
+//    que o do jogador (o PS2 tem um caminho da classe 1 com as derrapagens e o acelerador forçados: não portado);
 //  - as contas em double do AVehicleWind (o fptodp/dpmul/dpadd/dptofp da libgcc) são double do C++ (IEEE, o mesmo
 //    arredondamento); o resto na FPU do EE (platform/ps2_float.h).
 
@@ -18,6 +18,11 @@
 
 #include "driving/camera/dafi.h"
 #include "driving/game/bond_car.h"
+#include "driving/game/mission.h"
+#include "driving/game/smackable.h"
+#include "driving/game/weapons.h"
+#include "driving/render/anim_engine.h"
+#include "driving/physics/simulation.h"
 #include "driving/physics/collision.h"
 #include "driving/physics/rigid_body.h"
 #include "driving/physics/world.h"
@@ -34,7 +39,7 @@ namespace ee = ps2::ee;
 
 namespace {
 
-APlayerVehicle* g_player = nullptr;
+AVehicle* g_player = nullptr;  // o APlayerVehicle ou o APlayerHeli
 std::map<std::string, std::unique_ptr<AEngine>, NoCaseLess> g_engines;  // URefCounter<AEngine>
 uint32_t g_gate = 0;                 // 0x00355d0c
 int32_t g_cooldown[12] = {};          // 0x00355cd8 o tick até o qual cada timbre do choque descansa
@@ -220,7 +225,7 @@ void AVehicleWind::Stop(APath& path) {
 // ---- AVehicle ------------------------------------------------------------------------------------------------------
 
 // [driving] 0x002defd0 AVehicle::AVehicle(char *, ASceneObj::SurfaceType)
-AVehicle::AVehicle(const char* mix_name, int32_t surface) : ABaseSound(mix_name, 4) {
+AVehicle::AVehicle(const char* mix_name, int32_t surface) : ASceneObj(mix_name) {
     // ASceneObj::ASceneObj (0x002f0480): o mesmo que o ABaseSound, +0xc4 = 1.
     ABank* generic = ABank_Category(0);
     collisions = ABank_Category(1);
@@ -255,17 +260,24 @@ AVehicle::AVehicle(const char* mix_name, int32_t surface) : ABaseSound(mix_name,
         skid[0] = new AVoice(mix_skids, c, patch_of(collisions, "SFX_SquealFront1"));
         skid[1] = new AVoice(mix_skids, c, patch_of(collisions, "SFX_SquealBack1"));
     }
-    for (int i = 0; i < 4; ++i) surface_type = 0, this->surface[i] = 1, prev_surface[i] = 1;
+    for (int i = 0; i < 4; ++i) aiming = 0, this->surface[i] = 1, prev_surface[i] = 1;
 }
 
+// [driving] 0x002e2b60 AVehicle::~AVehicle (a buzina é apagada pelo ~ATrafficVehicle do port; a ordem do PS2: a buzina,
+// o AGun, o ACarAlarm, o vento, o ATurret, o AZoomObj e as vozes)
 AVehicle::~AVehicle() {
+    delete gun;
+    delete alarm;
+    delete wind;
+    wind = nullptr;
+    delete turret;
+    delete zoom;
     for (AVoice* v : road) delete v;
     for (AVoice* v : skid) delete v;
     for (AVoice* v : grass_skids) delete v;
     for (AVoice* v : offroad_skids) delete v;
     for (AVoice* v : ice_skids) delete v;
     for (AVoice* v : scrapes) delete v;
-    delete wind;
 }
 
 // [driving] 0x002def58 AVehicle::Reset
@@ -430,7 +442,16 @@ void AVehicle::Play(APath& path) {
         if (play) wind->Play(countf, path);
         else wind->Stop(path);
     }
-    // (AHorn, AGun, ATurret, AZoomObj, ACarAlarm: ver o cabeçalho)
+    // A buzina com o pedido da IA (+0x154), que volta a 0; a metralhadora (+0x1a4) com o +0xb4, a torre (+0x1a8) com o
+    // +0xb8, o +0xbc e o +0xb0, a luneta (+0x1ac) e o alarme (+0x1f0).
+    if (horn_obj != nullptr) {
+        horn_obj->Play(horn, path);
+        horn = 0;
+    }
+    if (gun != nullptr) gun->Play(countf, gun_firing, path);
+    if (turret != nullptr) turret->Play(unknown_b8, unknown_bc, gun_active, path);
+    if (zoom != nullptr) zoom->Play(path);
+    if (alarm != nullptr) alarm->Play(path);
 }
 
 // [driving] 0x002dfa00 AVehicle::PlayLanding(float, COORD3 &, COORD3 &): os pneus batendo (e uma pancada com duas ou
@@ -524,7 +545,7 @@ void AVehicle::PlayCollision(float force, const float point[3], const float hit_
 APlayerVehicle::APlayerVehicle(const char* engine_name_) : AVehicle("Player Car", 0xe) {
     engine = AEngine_Get(4500.0f, engine_name_, this);
     std::snprintf(engine_name, sizeof engine_name, "%s", engine_name_);
-    // ActivateGun("Machine Gun"): o AGun não está portado (o cabeçalho).
+    ActivateGun("Machine Gun");
     ActivateWind();
     ABank* generic = ABank_Category(0);
     road_noise = new AVoice(mix_asphalt, generic->snd_bank, patch_of(generic, "SFX_PavedRN"));
@@ -572,11 +593,24 @@ void APlayerVehicle::Play(APath& path) {
 
 // ---- o carro do jogador no port ------------------------------------------------------------------------------------
 
-// [driving] 0x00186878 PBondCar::InitAudioObject (a classe 0 sem um dos nomes especiais: APlayerVehicle)
+// A parte do PBondCar::InitAudioObject (0x00186878, a marca em game/bond_car.cpp) da classe 0 sem um dos nomes
+// especiais: o APlayerVehicle.
 void audio_create_player_car(const AudioCarAttributes& a) {
     if (!audio_ready()) return;
-    delete g_player;
-    APlayerVehicle* v = new APlayerVehicle(a.engine.c_str());
+    if (g_player != nullptr) g_player->destroy();
+    g_player = nullptr;
+    AVehicle* v;
+    if (dafi_strcasecmp(a.type.c_str(), "helicopter") == 0 || dafi_strcasecmp(a.type.c_str(), "helivanquish") == 0) {
+        v = new APlayerHeli();
+    } else {
+        // "tank" (APlayerTank), "vanquishsub" (ASubmersible), "supersnow" (ASnowMobile), "ultralight" (AUltraLite),
+        // "fodbase" (AFingoDeath), "jungle_truck" (o ATrafficVehicle com a metralhadora): não portados.
+        static const char* const kOthers[] = {"tank", "vanquishsub", "supersnow", "ultralight", "fodbase",
+                                              "jungle_truck"};
+        for (const char* o : kOthers)
+            if (dafi_strcasecmp(a.type.c_str(), o) == 0) ++scene_audio_stats().guards;
+        v = new APlayerVehicle(a.engine.c_str());
+    }
     v->volume = a.volume;
     v->min_distance = 30.0f;
     v->max_distance2 = 160000.0f;
@@ -585,10 +619,35 @@ void audio_create_player_car(const AudioCarAttributes& a) {
     g_player = v;
 }
 
+void audio_change_player_car(const std::string& engine, float volume) {
+    if (!audio_ready()) return;
+    // O objeto antigo (a entrada +0xc com 3), o SetAudioObject(0) e o APlayerVehicle novo (0x240) no +0x388 e no +0x4c.
+    if (g_player != nullptr) g_player->destroy();
+    APlayerVehicle* v = new APlayerVehicle(engine.c_str());
+    v->volume = volume;
+    v->max_distance2 = 250000.0f;
+    v->min_distance = 15.0f;
+    v->max_distance = 500.0f;
+    g_player = v;
+}
+
+void audio_player_zoom(int32_t on) {
+    if (g_player == nullptr) return;
+    if (g_player->zoom == nullptr) {
+        ++scene_audio_stats().guards;  // o PS2 chamaria o InTheZone com o objeto nulo (+0x1ac)
+        return;
+    }
+    g_player->zoom->InTheZone(on);
+}
+
+void audio_player_scene_c0(int32_t v) {
+    if (g_player != nullptr) g_player->aiming = v;
+}
+
+namespace {
+
 // O fim do PBondCar::Simulate (0x001891c4..0x00189390): o objeto de som do carro a cada passo.
-void audio_feed_player_car(const AudioCarFeed& f) {
-    APlayerVehicle* v = g_player;
-    if (v == nullptr) return;
+void feed_vehicle(AVehicle* v, const AudioCarFeed& f) {
     v->gas = f.gas;
     v->alive = f.alive;
     v->rpm = f.rpm;
@@ -615,18 +674,64 @@ void audio_feed_player_car(const AudioCarFeed& f) {
     v->brake_button = ee::lt(0.0f, f.brake_input) ? 1 : 0;
 }
 
+}  // namespace
+
+void audio_feed_player_car(const AudioCarFeed& f) {
+    if (g_player != nullptr) feed_vehicle(g_player, f);
+}
+
 void audio_player_car_collision(float force, const float point[3], const float vel[3], int32_t surface, bool landing) {
     if (g_player == nullptr) return;
     if (landing) g_player->PlayLanding(force, point, vel);
     else g_player->PlayCollision(force, point, vel, surface);
 }
 
-// O fim do PBondCar::Simulate (0x00188200, a marca em bond_car.cpp; 0x00188c64..0x00189390): o que vai ao objeto de som (GetAudio) a
-// cada passo, para o carro do jogador (a classe 0; o submarino e as classes de IA não estão portados).
-void PBondCar_AudioFeed(BondCar& car, float rpm) {
-    if (g_player == nullptr) return;
+// O +0xb0 e o +0xb4 do objeto de som no fim do PBondCar::Simulate (0x00188f58..0x0018911c): a arma ligada e atirando,
+// pela arma secundária do SWeaponManager (o 0x0033a530 do jogador, para qualquer carro): na classe 1 as de Bond (0x18
+// fora do travamento dos controles, 0x1b, 0x1d) com o +0x30; nas outras a metralhadora (o tipo 0 com munição) com o
+// botão (+0x25b) e o sistema 9 da animação do carro do jogador no estado 2 ou 3; nada com a missão ganha ou perdida, a
+// simulação parada ou o modo de cinema.
+void PBondCar_GunFeed(BondCar& car, int32_t& active, int32_t& firing) {
     const PBondCarData& c = car.d;
-    if (c.car_class != 0) return;
+    active = 1;
+    firing = 0;
+    SWeaponManagerData* w = weapon_manager();
+    const WeaponEntry* e = w ? nf::p32_ptr<const WeaponEntry>(w->weapons) + w->secondary : nullptr;
+    if (e == nullptr) {
+        ++scene_audio_stats().guards;  // o PS2 leria o gerente nulo
+        active = 0;
+        return;
+    }
+    if (car.virtual_9c() == 1) {
+        const bool locked = simulation().steps < c.control_lock_timer;
+        if ((locked || e->type != 0x18) && e->type != 0x1d && e->type != 0x1b) {
+            active = 0;
+            firing = 0;
+        } else {
+            firing = w->hands_fired;
+        }
+    } else {
+        firing = (e->type == 0 && 0 < e->ammo && c.control.fire_secondary != 0) ? 1 : 0;
+        if (firing != 0) {
+            BondCar* player = mission_player_car();
+            const uint32_t render = player ? player->d.render_object : 0;
+            if (render != 0) {
+                const uint32_t h = weapons_env().anim_handle ? weapons_env().anim_handle(render) : 0u;
+                if (uint32_t(int32_t(AnimHandle_GetSystemState(h, 9)) - 2) > 1u) firing = 0;
+            }
+        }
+    }
+    const SMissionManagerData* m = mission_exists() ? &mission_manager() : nullptr;
+    const int32_t st = m ? m->state : 0;
+    if (st == 3 || st == 4 || simulation().state == 3 || (m && m->cinematic_mode != 0)) firing = 0;
+}
+
+// O fim do PBondCar::Simulate (0x00188200, a marca em bond_car.cpp; 0x00188c64..0x00189390): o que vai ao objeto de som (GetAudio) a
+// cada passo: o do jogador (a classe 0) e o ATrafficVehicle dos outros (o +0x388; o submarino não está portado).
+void PBondCar_AudioFeed(BondCar& car, float rpm) {
+    const PBondCarData& c = car.d;
+    AVehicle* target = c.car_class == 0 ? static_cast<AVehicle*>(g_player) : audio_car_object(c.audio);
+    if (target == nullptr) return;
     RigidBody* rb = car.body();
     AudioCarFeed f;
     // As derrapagens: a média do GetCarWheelSlip das rodas da frente e das de trás (f23, f22).
@@ -637,8 +742,7 @@ void PBondCar_AudioFeed(BondCar& car, float rpm) {
     f.alive = ee::le(car.hit_points(), 0.0f) ? 0 : 1;
     // A superfície de cada roda no chão (IsWheelOnGround: a compressão não zero).
     for (int i = 0; i < 4; ++i) f.surface[i] = ee::eq(c.suspension[i], 0.0f) ? 0 : c.wheels[i].surface[0];
-    f.gun_active = 1;
-    f.gun_firing = 0;
+    PBondCar_GunFeed(car, f.gun_active, f.gun_firing);
     std::memcpy(f.pos, rb->pos, 12);
     std::memcpy(f.vel, rb->vel, 12);
     for (int r = 0; r < 3; ++r) std::memcpy(f.orient[r], rb->info->orient[r], 12);
@@ -649,54 +753,72 @@ void PBondCar_AudioFeed(BondCar& car, float rpm) {
     std::memcpy(f.compression, c.suspension, sizeof f.compression);
     f.gas_input = c.gas_input;
     f.brake_input = c.brake_input;
-    audio_feed_player_car(f);
+    feed_vehicle(target, f);
 }
 
-// A parte do som do ECollision::~ECollision (0x00149ed8, a marca em game/feedback.cpp): cada lado do choque cujo dono tem objeto de som (no
-// port, o carro do jogador) recebe o PlayLanding ou o PlayCollision com a superfície do outro lado.
-void ECollision_Audio(const CollisionInfo& c, int32_t player_slot) {
-    if (g_player == nullptr) return;
+// O objeto de som (o +0x4c) do dono da vaga, se a vaga está em uso (DAT_00339400): o carro do jogador, o ATrafficVehicle
+// dos outros carros (o +0x388) ou o ASmackable de um objeto derrubado.
+ASceneObj* audio_object_of_slot(int32_t slot) {
+    if (slot < 0 || slot >= kRigidBodySlots) return nullptr;
+    PhysicsObject* o = simulation().owners[slot];
+    if (o == nullptr) return nullptr;
+    if (BondCar* car = dynamic_cast<BondCar*>(o))
+        return car->d.car_class == 0 ? static_cast<ASceneObj*>(g_player) : audio_car_object(car->d.audio);
+    if (Smackable* sm = dynamic_cast<Smackable*>(o)) return asmackable_from(sm->d.audio_object);
+    return nullptr;
+}
+
+// A parte do som do ECollision::~ECollision (0x00149ed8, a marca em game/feedback.cpp): cada lado do choque cujo dono
+// tem objeto de som (o carro do jogador, os outros carros, os objetos derrubados) recebe o PlayLanding ou o
+// PlayCollision com a superfície do outro lado.
+void ECollision_Audio(const CollisionInfo& c, int32_t /*player_slot*/) {
     const float force = ee::abs(c.strength);
-    if (c.kind < 6 && c.slot == player_slot) {
-        if (c.flags == 0xe) {
-            g_player->PlayLanding(force, c.point, c.velocity);
-        } else if (c.kind == 4) {
-            if (c.type == 7) g_player->PlayLanding(force, c.point, c.velocity);
-        } else if (c.kind < 4 && c.type != 4) {
-            int32_t surf;
-            switch (int16_t(c.tag - 1)) {
-                case 0: surf = 1; break;
-                case 1: surf = 2; break;
-                case 2: surf = 3; break;
-                case 3: surf = 4; break;
-                case 4:
-                case 0x4f: surf = 5; break;
-                case 9: surf = 10; break;
-                case 0xb: surf = 0xc; break;
-                case 0xc:
-                case 0xf: surf = 0xd; break;
-                case 0x2f: surf = 9; break;
-                case 0x3f: surf = 8; break;
-                case 0x5f: surf = 0xf; break;
-                default: surf = 0; break;
+    if (c.kind < 6) {
+        if (ASceneObj* a = audio_object_of_slot(c.slot)) {
+            if (c.flags == 0xe) {
+                a->PlayLanding(force, c.point, c.velocity);
+            } else if (c.kind == 4) {
+                if (c.type == 7) a->PlayLanding(force, c.point, c.velocity);
+            } else if (c.kind < 4 && c.type != 4) {
+                int32_t surf;
+                switch (int16_t(c.tag - 1)) {
+                    case 0: surf = 1; break;
+                    case 1: surf = 2; break;
+                    case 2: surf = 3; break;
+                    case 3: surf = 4; break;
+                    case 4:
+                    case 0x4f: surf = 5; break;
+                    case 9: surf = 10; break;
+                    case 0xb: surf = 0xc; break;
+                    case 0xc:
+                    case 0xf: surf = 0xd; break;
+                    case 0x2f: surf = 9; break;
+                    case 0x3f: surf = 8; break;
+                    case 0x5f: surf = 0xf; break;
+                    default: surf = 0; break;
+                }
+                if (a != g_player) ++scene_audio_stats().collisions_other;
+                a->PlayCollision(force, c.point, c.velocity, surf);
             }
-            g_player->PlayCollision(force, c.point, c.velocity, surf);
         }
     }
-    if (c.type < 6 && int8_t(c.unknown_4d) == player_slot) {
-        if (c.tag == 0xe) {
-            g_player->PlayLanding(force, c.point, c.velocity);
-        } else if (c.type == 4) {
-            if (c.kind == 7) g_player->PlayLanding(force, c.point, c.velocity);
-        } else if (c.type < 4 && c.kind != 4) {
-            const int32_t surf = c.kind == 7 ? 1 : (c.flags == 0x10 || c.flags == 0xd) ? 0xd : 0xf;
-            g_player->PlayCollision(force, c.point, c.velocity, surf);
+    if (c.type < 6) {
+        if (ASceneObj* a = audio_object_of_slot(int8_t(c.unknown_4d))) {
+            if (c.tag == 0xe) {
+                a->PlayLanding(force, c.point, c.velocity);
+            } else if (c.type == 4) {
+                if (c.kind == 7) a->PlayLanding(force, c.point, c.velocity);
+            } else if (c.type < 4 && c.kind != 4) {
+                const int32_t surf = c.kind == 7 ? 1 : (c.flags == 0x10 || c.flags == 0xd) ? 0xd : 0xf;
+                if (a != g_player) ++scene_audio_stats().collisions_other;
+                a->PlayCollision(force, c.point, c.velocity, surf);
+            }
         }
     }
 }
 
 void audio_vehicle_internals(AudioInternals& out) {
-    out.player = g_player;
+    out.player = dynamic_cast<APlayerVehicle*>(g_player);
     out.cooldown = g_cooldown;
     out.gate = &g_gate;
 }

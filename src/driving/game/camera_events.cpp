@@ -2,7 +2,9 @@
 
 #include "driving/game/camera_events.h"
 
+#include "driving/ai/element_controller.h"
 #include "driving/camera/player_camera.h"
+#include "driving/game/bond_car.h"
 #include "driving/game/mission.h"
 #include "driving/game/triggers.h"
 #include "driving/physics/simulation.h"
@@ -56,6 +58,43 @@ void camera_events_control_to_cpu(uint32_t on) {
     if (g_env.camera) g_env.camera->SetControlToCPU(on);
 }
 
+void camera_events_pause() {
+    ++g_env.pause_cams;
+    if (g_env.camera) g_env.camera->SetPauseCamera();
+}
+
+namespace {
+
+// O dono do carro de um AIElement (+0xfc, o PBondCarData): o BondCar da Simulation com esses dados.
+PhysicsObject* owner_of_car_data(uint32_t data) {
+    Simulation& sim = simulation();
+    for (int i = 0; i < kRigidBodySlots; ++i)
+        if (BondCar* bc = dynamic_cast<BondCar*>(sim.owners[i]))
+            if (nf::p32_u(&bc->d) == data) return bc;
+    return nullptr;
+}
+
+// [driving] 0x153c48 EPlayCarCameraAnim::~EPlayCarCameraAnim: a âncora (o carro do elemento da IA acordado; sem ele, o
+// carro do jogador sem elemento, ou o dono da vaga +0x18 dos corpos rígidos ou dos simples pelo +0x14).
+void play_car_camera_anim(const uint32_t* o) {
+    PhysicsObject* obj = nullptr;
+    if (o[1] != 0) {
+        if (const AIElement* el = AIElementController_RedirectCarpElement(o[1]))
+            if (el->type == 1 && el->physics != 0) obj = owner_of_car_data(el->physics);
+    }
+    if (!obj) {
+        Simulation& sim = simulation();
+        if (o[1] == 0) obj = sim.cars.empty() ? nullptr : sim.cars[0];  // o 0x339f5c
+        else if (o[5] == 0) obj = o[6] < uint32_t(kRigidBodySlots) ? sim.owners[o[6]] : nullptr;
+        else obj = o[6] < uint32_t(kSimpleBodySlots) ? sim.simple_owners[o[6]] : nullptr;
+    }
+    CameraAnchor* a = obj && g_env.anchor_for ? g_env.anchor_for(obj) : nullptr;
+    if (!a) ++g_env.no_anchor;  // (o PS2 passaria o objeto; sem âncora o diretor não troca)
+    if (g_env.camera) g_env.camera->TriggerCarAnimationCamera(o[4], uint16_t(o[2]), uint16_t(o[3]), a, 0);
+}
+
+}  // namespace
+
 bool camera_event_execute(const PendingEvent& e) {
     switch (e.type) {
         case 63:
@@ -64,10 +103,8 @@ bool camera_event_execute(const PendingEvent& e) {
         case 246:
         case 251:
         case 207:
-            break;
         case 97:
-            ++g_env.car_anims;  // [driving] 0x153c48 EPlayCarCameraAnim: não portado
-            return false;
+            break;
         default:
             return false;
     }
@@ -116,6 +153,14 @@ bool camera_event_execute(const PendingEvent& e) {
         case 251: {
             if (cam)
                 cam->ShakeCamera(u2f(o[2]), int32_t(o[1]), cam->d.matrix + 12, int32_t(o[3]), simulation().frame_rate);
+            return true;
+        }
+        // [driving] 0x153c48 EPlayCarCameraAnim::~EPlayCarCameraAnim (seção 30)
+        case 97: {
+            ++g_env.car_anims;
+            o[3] = frames(o[3], false);
+            o[2] = frames(o[2], true);
+            play_car_camera_anim(o);
             return true;
         }
         // [driving] 0x149528 EChangeCarCameraView::~EChangeCarCameraView

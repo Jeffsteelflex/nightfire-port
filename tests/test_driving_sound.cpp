@@ -8,12 +8,14 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
 #include "driving/sound/audio.h"
 #include "driving/sound/audio_internal.h"
 #include "driving/sound/eaxa.h"
+#include "driving/sound/iop_mix.h"
 #include "driving/sound/snd.h"
 #include "driving/sound/snd_spu.h"
 #include "driving/sound/snd_state.h"
@@ -306,4 +308,120 @@ TEST(driving_sound_engine_pitch_follows_rpm) {
     CHECK(in_band);
     sound_count() = 0;
     v->destroy();
+}
+
+namespace {
+
+// Um bloco de EA-XA do IOP (15 bytes): o filtro e o deslocamento no primeiro, 28 nibbles (o alto primeiro).
+void xa_block(std::vector<uint8_t>& out, int filter, int shift, const int (&nib)[28]) {
+    out.push_back(uint8_t(filter << 4 | (shift & 0xf)));
+    for (int i = 0; i < 28; i += 2) out.push_back(uint8_t((nib[i] & 0xf) << 4 | (nib[i + 1] & 0xf)));
+}
+
+int g_iop_freed = -1;
+void iop_freed(int32_t v) { g_iop_freed = v; }
+
+}  // namespace
+
+TEST(driving_sound_iop_mixer_xa_blocks) {
+    // Filtro 0, deslocamento 0: cada amostra é o nibble com sinal x 4096 (o decodificador inteiro do IOP).
+    int nib[28];
+    for (int i = 0; i < 28; ++i) nib[i] = (i % 16) - 8;
+    std::vector<uint8_t> d;
+    xa_block(d, 0, 0, nib);
+    int32_t out[28];
+    int32_t s1 = 0, s2 = 0;
+    const uint8_t* in = d.data();
+    int32_t* o = out;
+    CHECK(iop_decxa16c(28, s1, s2, in, o) == 0);
+    bool ok = in == d.data() + 15 && o == out + 28;
+    for (int i = 0; i < 28; ++i) ok &= out[i] == nib[i] * 4096;
+    CHECK(ok);
+    CHECK(s1 == out[27] && s2 == out[26]);
+    // Filtro 1 (240/256), nibbles zero: o estado decai pela fração inteira, arredondando para baixo.
+    int zero[28] = {};
+    std::vector<uint8_t> z;
+    xa_block(z, 1, 0, zero);
+    s1 = 0x100000;
+    s2 = 0;
+    in = z.data();
+    o = out;
+    iop_decxa16c(28, s1, s2, in, o);
+    int32_t expect = 0x100000;
+    ok = true;
+    for (int i = 0; i < 28; ++i) {
+        expect = (expect * 240) >> 8;
+        ok &= out[i] == expect;
+    }
+    CHECK(ok);
+    // Um pedido que não é múltiplo de 28 decodifica o bloco inteiro e devolve o resto negativo.
+    in = z.data();
+    o = out;
+    CHECK(iop_decxa16c(5, s1, s2, in, o) == 5 - 28);
+}
+
+TEST(driving_sound_iop_mixer_plays_ends_and_loops) {
+    // Dois blocos de filtro 0: amostras conhecidas (nibble x 4096), 56 no total.
+    int n0[28], n1[28];
+    for (int i = 0; i < 28; ++i) n0[i] = (i % 15) - 7, n1[i] = 7 - (i % 15);
+    std::vector<uint8_t> d;
+    xa_block(d, 0, 0, n0);
+    xa_block(d, 0, 0, n1);
+    auto sample = [&](int i) { return (i < 28 ? n0[i] : n1[i - 28]) * 4096; };
+    std::vector<int32_t> left(512), right(512);
+    int32_t* outs[2] = {left.data(), right.data()};
+    // Sem laço, pitch 1, volume 127 à esquerda (o SNDIOP_setiopvoicevol: x 0x102), nada à direita.
+    IopMix_create(48000, 6, 2, iop_freed);
+    IopMix_setresamplequality(0);
+    IopMix_playinit(0, 10, 1, d.data(), d.data() + d.size(), 56, 0, 0, 0);
+    IopMix_setpitch(0, 0x10000);
+    IopMix_setdrygain(0, 0, 127 * 0x102);
+    IopMix_setdrygain(0, 1, 0);
+    IopMix_play(0);
+    CHECK(IopMix_playing(0));
+    IopMix_audioslice(outs, 512);
+    bool ok = true;
+    for (int i = 0; i < 512; ++i) ok &= left[size_t(i)] == (i < 56 ? sample(i) * 127 : 0) && right[size_t(i)] == 0;
+    CHECK(ok);
+    CHECK(IopMix_getframe(0) == 56);
+    // Acabou: a fatia seguinte para a voz e avisa o driver.
+    g_iop_freed = -1;
+    IopMix_audioslice(outs, 512);
+    CHECK(!IopMix_playing(0) && g_iop_freed == 0);
+
+    // Pitch 2 (o reamostrador do mais perto): uma amostra a cada duas.
+    IopMix_playinit(1, 10, 1, d.data(), d.data() + d.size(), 56, 0, 0, 0);
+    IopMix_setpitch(1, 0x20000);
+    IopMix_setdrygain(1, 0, 127 * 0x102);
+    IopMix_play(1);
+    IopMix_audioslice(outs, 512);
+    ok = true;
+    for (int i = 0; i < 64; ++i) ok &= left[size_t(i)] == (2 * i < 56 ? sample(2 * i) * 127 : 0);
+    CHECK(ok);
+    IopMix_stop(1);
+
+    // Com laço do bloco 1 (28) ao fim (55, incluído): o começo e depois o segundo bloco repetido.
+    IopMix_playinit(2, 10, 1, d.data(), d.data() + d.size(), 56, 28, 55, 0);
+    IopMix_setpitch(2, 0x10000);
+    IopMix_setdrygain(2, 1, 64 * 0x102);
+    IopMix_play(2);
+    IopMix_audioslice(outs, 512);
+    ok = true;
+    for (int i = 0; i < 512; ++i) {
+        const int at = i < 56 ? i : 28 + (i - 56) % 28;
+        ok &= right[size_t(i)] == sample(at) * 64 && left[size_t(i)] == 0;
+    }
+    CHECK(ok);
+    // Um ganho novo vai em rampa nas 16 primeiras amostras (passos de 1/17) e fica.
+    IopMix_setdrygain(2, 1, 0);
+    IopMix_audioslice(outs, 512);
+    CHECK(right[16] == 0 && right[100] == 0 && right[0] != 0 && std::abs(right[0]) < std::abs(sample(36) * 64));
+    // Parada com a última amostra: o estalo vai a zero nas 16 primeiras da fatia seguinte (só onde havia ganho).
+    IopMix_setdrygain(2, 0, 127 * 0x102);
+    IopMix_audioslice(outs, 512);
+    IopMix_stop(2);
+    IopMix_audioslice(outs, 512);
+    ok = left[16] == 0;
+    for (int i = 0; i < 512; ++i) ok &= right[size_t(i)] == 0;
+    CHECK(ok);
 }

@@ -2,6 +2,7 @@
 // out/agent_drv_weapons/s_wm do checkout principal); as divergências estão no cabeçalho e em cada função.
 
 #include "driving/game/weapons.h"
+#include "driving/sound/audio.h"
 
 #include <cstring>
 #include <memory>
@@ -83,6 +84,7 @@ void anim_stimulus(uint32_t h, int32_t sys, int32_t stim, int32_t time, int32_t 
 
 void sound(int32_t bank, const char* name, const char* group, int32_t mode) {
     weapons_note_call(kFnAMenuSoundTrigger, uint32_t(bank), 0, 0, uint32_t(mode), name, group);
+    AMenuSound_TriggerCategory(bank, name, group, mode);  // (driving/sound/audio.h: nada sem o som ligado)
 }
 
 // "SFX_" + o nome da arma + o sufixo (o buffer de 0x20 bytes da pilha: 5 copiados, 0x1b zerados, os strcat).
@@ -1162,6 +1164,7 @@ bool weapons_event_execute(const PendingEvent& e) {
         // [driving] 0x0014f0a0 EGadgetOn::~EGadgetOn: GHud::GadgetOn(o tempo, o aparelho) (o HUD das galerias, anotado)
         case 249:
             weapons_note_call(kFnGadgetOn, e.obj[1], e.obj[2]);
+            if (hud_live() && hud_exists()) GHud_GadgetOn(hud(), fl(e.obj[1]), e.obj[2]);
             return true;
         // [driving] 0x0015dcf8 EUnloadWeapon::~EUnloadWeapon (o SWeaponManager::UnloadWeapon, 0x20d420)
         case 269:

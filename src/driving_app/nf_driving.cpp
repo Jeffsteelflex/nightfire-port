@@ -14,6 +14,9 @@
 //                                                     NF_DRV_TRIGGERS=1 lista)
 //              [--play-effect NOME@s[@m]]             (depuração, seção 25) um efeito da galeria m metros à frente
 //              [--spawn-explosion s[@m[@dano]]]       uma explosão (o ESpawnExplosion) m metros à frente
+//              [--config <ini>]                       os controles de PC ([driving_bindings], [driving]; seção 33): na
+//                                                     janela o teclado, o mouse (um clique o captura) e o controle;
+//                                                     --drive-input também aceita mlook=dx,dy, lmb, rmb e wheel=n
 //   nf_driving --data <pasta> --viv MIS01.VIV --actor 2.h_pmask.h_pmask.t_paris.95 [--anim srmg:<nome|n>]
 //              [--seconds s] [--screenshot ...]       um personagem posado e tocando uma animação (seção 20);
 //                                                     --list-anims lista os bancos e as animações do arquivo
@@ -39,24 +42,40 @@
 #include <string>
 #include <vector>
 
+#include "driving/fx/gfx_gallery.h"
 #include "driving/sound/audio.h"
 #include "driving/sound/audio_stream.h"
+#include "driving/sound/audio_pause.h"
+#include "driving/render/play_mpc.h"
+#include "driving/render/subtitles.h"
+#include "driving/render/gs2d.h"
+#include "driving_app/drv_hud2d.h"
+#include "driving/sound/iop_mix.h"
 #include "drv_fx.h"
 #include "driving/sound/snd_spu.h"
+#include "driving/sound/snddrv_iop.h"
 #include "platform/audio_out.h"
 #include "platform/crt_compat.h"
 #include "platform/entry.h"
 #include "platform/fmath.h"
+#include "platform/drive_controls.h"
 #include "platform/gamepad.h"
+#include "platform/keys.h"
+#include "platform/settings.h"
 #include "platform/os.h"
 #include "platform/ps2_float.h"
 
 #include "driving/ai/ai_weapons.h"
 #include "driving/ai/element_controller.h"
 #include "driving/ai/ground_vehicle.h"
+#include "driving/ai/pedestrian.h"
 #include "driving/anim/act_actor.h"
 #include "driving/anim/actor.h"
 #include "driving/anim/eagl_anim.h"
+#include "driving/fx/decals.h"
+#include "driving/fx/fx_events.h"
+#include "driving/fx/muzzle_flash.h"
+#include "driving/fx/scene_fx.h"
 #include "driving/ai/road_nav.h"
 #include "driving/ai/road_network.h"
 #include "driving/ai/road_spawn.h"
@@ -75,6 +94,7 @@
 #include "driving/game/shells.h"
 #include "driving/game/weapons.h"
 #include "driving/render/anim_engine.h"
+#include "driving/scene_article.h"
 #include "driving/carp.h"
 #include "driving/eagl_loader.h"
 #include "driving/eagl_model.h"
@@ -97,6 +117,10 @@
 #include "driving/game/heli_section.h"
 #include "driving/game/hud.h"
 #include "driving/game/mission.h"
+#include "driving/game/hud_draw.h"
+#include "driving/game/hud_pause.h"
+#include "driving/render/hud_gfx.h"
+#include "driving/shps.h"
 #include "driving/game/rail.h"
 #include "driving/game/input_config.h"
 #include "driving/physics/collision.h"
@@ -105,6 +129,7 @@
 #include "driving/render/font.h"
 #include "driving/render/path_engine.h"
 #include "driving/render/shadow.h"
+#include "driving/render/sniper_zoom.h"
 #include "driving/render/vehicle.h"
 #include "driving/render_method.h"
 #include "driving/track.h"
@@ -139,6 +164,7 @@ struct Args {
     bool probe = false;                      // --probe: as instâncias em volta da câmera (depuração)
     bool drive = false;                      // --drive: o carro dirigível (com --track e --car)
     std::string drive_input;                 // --drive-input "W:2 W+A:1.5 ...": as teclas por segundos (captura)
+    std::string config;                      // --config <ini>: [driving_bindings] e [driving] (seção 33; janela: o nightfire.ini)
     float seconds = 0;                       // --seconds: o tempo simulado antes da captura (0: o do roteiro)
     bool car_pos_given = false;
     bool no_cull = false;                    // --no-cull: o corte de antes (só o volume de visão), sem a árvore e as cortinas
@@ -163,6 +189,10 @@ struct Args {
     // rumo `giro` (graus, no mundo); a câmera do jogo não muda (só a vista do desenho).
     int shot_look_element = -1;
     float shot_look[3] = {8.0f, 3.0f, 0.0f};
+    // --shot-look-at x,y,z@d,h,giro (depuração, seção 32): o mesmo olhar sobre um ponto do mundo (um clarão de cano do
+    // NF_DRV_FLASH_LOG).
+    bool shot_look_point_given = false;
+    float shot_look_point[3] = {};
     std::vector<float> emp_hits;
     // --damage-hit s@dano: no tempo s, um tiro no carro do jogador (PBondCar::ApplyDamage do tipo 2, de cima para o
     // centro): o que as armas dos inimigos fariam (as armas são de outro módulo).
@@ -178,6 +208,15 @@ struct Args {
     bool mission = false;                    // --mission: a missão mesmo com --car-pos
     int difficulty = 1;                      // --difficulty: 0 fácil, 1 normal, 2 difícil (o bloco da troca)
     bool no_hud = false;                     // --no-hud: a missão sem o HUD desenhado
+    // Os filmes (seção 28): a janela os toca; as capturas só com --movies (as linhas de comando de antes ficam iguais).
+    bool movies = false;                     // --movies
+    bool no_movies = false;                  // --no-movies
+    std::string movie;                       // --movie <nome>: o filme ntsc\eng\<nome>.mpc antes do jogo (depuração)
+    int movie_frame = -1;                    // --movie-frame N[@k]: a captura no quadro N do k-ésimo filme (1: o primeiro)
+    int movie_index = 1;
+    float movie_skip = -1.0f;                // --movie-skip s: o Start s segundos depois do começo de cada filme
+    bool subtitles = false;                  // --subtitles: as legendas (o UberBond +0xa2c, o 0x0032e694)
+    bool debug_hud = false;                  // --debug-hud: o HUD mínimo antigo (hud_view, a fonte de depuração)
     std::string audio_dump;                  // --audio-dump <wav>: o som do --drive num WAV (as capturas são mudas)
     bool no_audio = false;                   // --no-audio: a janela sem som
     std::string actor;                       // --actor "2.h_pmask.h_pmask.t_paris.95": um personagem (seção 20)
@@ -874,6 +913,11 @@ bool parse(int argc, wchar_t** argv, Args& a) {
             const size_t at = v.find('@');
             a.shot_look_element = std::atoi(v.substr(0, at).c_str());
             if (at != std::string::npos) parse_floats(v.substr(at + 1), a.shot_look, 3);
+        } else if (k == "--shot-look-at") {
+            const std::string v = next();
+            const size_t at = v.find('@');
+            a.shot_look_point_given = parse_floats(v.substr(0, at), a.shot_look_point, 3);
+            if (at != std::string::npos) parse_floats(v.substr(at + 1), a.shot_look, 3);
         } else if (k == "--autopilot-fire") {
             a.autopilot_fire = true;
         } else if (k == "--kill-element") {
@@ -889,6 +933,7 @@ bool parse(int argc, wchar_t** argv, Args& a) {
         }
         else if (k == "--drive") a.drive = true;
         else if (k == "--drive-input") a.drive_input = next();
+        else if (k == "--config") a.config = next();
         else if (k == "--seconds") a.seconds = std::stof(next());
         else if (k == "--no-sky") a.no_sky = true;
         else if (k == "--probe") a.probe = true;
@@ -906,6 +951,18 @@ bool parse(int argc, wchar_t** argv, Args& a) {
         else if (k == "--mission") a.mission = true;
         else if (k == "--difficulty") a.difficulty = std::stoi(next());
         else if (k == "--no-hud") a.no_hud = true;
+        else if (k == "--movies") a.movies = true;
+        else if (k == "--no-movies") a.no_movies = true;
+        else if (k == "--movie") a.movie = next();
+        else if (k == "--movie-frame") {
+            const std::string v = next();
+            const size_t at = v.find('@');
+            a.movie_frame = std::stoi(v.substr(0, at));
+            if (at != std::string::npos) a.movie_index = std::stoi(v.substr(at + 1));
+        }
+        else if (k == "--movie-skip") a.movie_skip = std::stof(next());
+        else if (k == "--subtitles") a.subtitles = true;
+        else if (k == "--debug-hud") a.debug_hud = true;
         else if (k == "--audio-dump") a.audio_dump = next();
         else if (k == "--no-audio") a.no_audio = true;
         else if (k == "--actor") a.actor = next();
@@ -991,6 +1048,13 @@ void push_track_draw(const drv::Track& track, const drv::Track::Draw& d, const f
     drv::DrvItem it;
     it.model = &track.models();
     it.part = d.part;
+    if (d.own) {
+        // Seção 34: uma cópia do Handle de um objeto de cena (o RSceneObj::Render), com a matriz e o artigo dela.
+        std::memcpy(it.world, d.world, sizeof it.world);
+        if (d.render_flags & 1) it.flags |= drv::DrvItem::kNoFog;
+        scene.items.push_back(it);
+        return;
+    }
     std::memcpy(it.world, inst.matrix, sizeof it.world);
     const drv::TrackArticle& art = track.articles()[size_t(inst.article)];
     if (art.render_flags & 1) it.flags |= drv::DrvItem::kNoFog;
@@ -1355,13 +1419,20 @@ int run_track(const Args& a) {
 // ---------------------------------------------------------------- o carro dirigível (--drive)
 
 // As teclas de um passo do roteiro (--drive-input): W acelera, S freia, A/D viram, SPACE é o freio de mão; R1, L1, R2,
-// L2 e TRI os botões; LU/LD, RL/RR, RU/RD os direcionais.
+// L2 e TRI os botões; LU/LD, RL/RR, RU/RD os direcionais; START o Start e DU/DD/DL/DR o D-pad (a pausa, seção 31).
 struct DriveKeys {
     bool gas = false, brake = false, left = false, right = false, hand = false;
     // Os botões das armas (os do drivecfg.def): R1, L1, R2, L2 e o triângulo.
     bool r1 = false, l1 = false, r2 = false, l2 = false, tri = false;
+    // O Start e o D-pad (o menu da pausa: o FrontEnd.def).
+    bool start = false, du = false, dd = false, dl = false, dr = false;
     // Os direcionais nos extremos (só do roteiro): LU/LD o esquerdo para cima e para baixo, RL/RR/RU/RD o direito.
     bool lu = false, ld = false, rl = false, rr = false, ru = false, rd = false;
+    // O mouse (seção 33), pelos controles de PC (platform/drive_controls.h, o alvo do modo): mlook=dx,dy contagens por
+    // segundo, lmb/rmb os botões, wheel=n entalhes no começo do passo (positivo para cima; sem o sinal de +).
+    float mdx = 0.0f, mdy = 0.0f;
+    bool lmb = false, rmb = false;
+    int wheel = 0;
 };
 
 DriveKeys parse_keys(const std::string& s) {
@@ -1387,64 +1458,72 @@ DriveKeys parse_keys(const std::string& s) {
         else if (t == "RR") k.rr = true;
         else if (t == "RU") k.ru = true;
         else if (t == "RD") k.rd = true;
+        else if (t == "START" || t == "start") k.start = true;
+        else if (t == "DU") k.du = true;
+        else if (t == "DD") k.dd = true;
+        else if (t == "DL") k.dl = true;
+        else if (t == "DR") k.dr = true;
+        else if (t == "lmb" || t == "LMB") k.lmb = true;
+        else if (t == "rmb" || t == "RMB") k.rmb = true;
+        else if (t.rfind("mlook=", 0) == 0) {
+            const size_t c = t.find(',');
+            k.mdx = std::strtof(t.c_str() + 6, nullptr);
+            k.mdy = c == std::string::npos ? 0.0f : std::strtof(t.c_str() + c + 1, nullptr);
+        } else if (t.rfind("wheel=", 0) == 0) {
+            k.wheel = std::atoi(t.c_str() + 6);
+        }
         p = e + 1;
     }
     return k;
 }
 
-// O controle do PS2 que o teclado e o controle do PC fazem (só do port): o teclado aperta o X (W/seta acima: o acelerador
-// do drivecfg.def), o quadrado (S/seta abaixo: o freio), a bola (espaço: o freio de mão) com a pressão inteira e põe o
-// direcional esquerdo nos extremos (A/D, setas); o controle do PC entra pela posição dos botões, como o controle virtual
-// do jogo a pé (A = X, B = bola, X = quadrado, Y = triângulo, LB/RB = L1/R1, LT/RT = L2/R2, os direcionais e o
-// D-pad), com a pressão 255 nos botões e os gatilhos acima de 30.
-drv::PadData pad_from(const DriveKeys& k, const nf::PadState* pc) {
-    drv::PadData p;
-    // Os bits: L2 0, R2 1, L1 2, R1 3, triângulo 4, bola 5, X 6, quadrado 7, Select 8, L3 9, R3 10, Start 11, cima 12,
-    // direita 13, baixo 14, esquerda 15; as pressões: direita, esquerda, cima, baixo, triângulo, bola, X, quadrado, L1,
-    // R1, L2, R2.
-    auto press = [&](int bit, int pressure) {
-        p.buttons |= uint16_t(1u << bit);
-        if (pressure >= 0) p.pressure[pressure] = 255;
-    };
-    if (k.gas) press(6, 6);
-    if (k.brake) press(7, 7);
-    if (k.hand) press(5, 5);
-    if (k.r1) press(3, 9);
-    if (k.l1) press(2, 8);
-    if (k.r2) press(1, 11);
-    if (k.l2) press(0, 10);
-    if (k.tri) press(4, 4);
-    if (pc && pc->connected) {
-        const uint16_t b = pc->buttons;
-        if (b & nf::kPadA) press(6, 6);
-        if (b & nf::kPadB) press(5, 5);
-        if (b & nf::kPadX) press(7, 7);
-        if (b & nf::kPadY) press(4, 4);
-        if (b & nf::kPadLB) press(2, 8);
-        if (b & nf::kPadRB) press(3, 9);
-        if (pc->lt > nf::kPadTriggerThreshold) press(0, 10);
-        if (pc->rt > nf::kPadTriggerThreshold) press(1, 11);
-        if (b & nf::kPadBack) press(8, -1);
-        if (b & nf::kPadLThumb) press(9, -1);
-        if (b & nf::kPadRThumb) press(10, -1);
-        if (b & nf::kPadStart) press(11, -1);
-        if (b & nf::kPadDpadUp) press(12, 2);
-        if (b & nf::kPadDpadRight) press(13, 0);
-        if (b & nf::kPadDpadDown) press(14, 3);
-        if (b & nf::kPadDpadLeft) press(15, 1);
-        // Os direcionais: -32768..32767 para 0..255, o y do PS2 para baixo.
-        auto byte = [](int v) { return uint8_t((v + 32768) >> 8); };
-        p.lx = byte(pc->lx);
-        p.ly = uint8_t(255 - byte(pc->ly));
-        p.rx = byte(pc->rx);
-        p.ry = uint8_t(255 - byte(pc->ry));
-    }
+// O controle do PS2 dos passos do roteiro (--drive-input; só do port): os botões e os direcionais do PS2 direto (W o X,
+// o acelerador do drivecfg.def; S o quadrado, o freio; espaço a bola, o freio de mão; A/D o direcional esquerdo nos
+// extremos; R1, L1...). O teclado, o mouse e o controle do PC da janela vão pelos controles de PC das missões de carro
+// (platform/drive_controls.h, seção 33), que também fazem os passos do mouse do roteiro.
+// O primeiro controle conectado (só do port): o XInput pode pôr o controle em qualquer índice de 0 a 3 (um adaptador sem fio,
+// um controle virtual do Steam); o jogo a pé também usa o primeiro conectado (o tSlot 0 do psi_pad).
+const nf::PadState* first_connected_pad(const nf::PadState* pads) {
+    for (int i = 0; i < nf::kMaxPads; ++i)
+        if (pads[i].connected) return &pads[i];
+    return nullptr;
+}
+
+nf::Ps2PadFrame ps2_from_keys(const DriveKeys& k) {
+    nf::Ps2PadFrame p;
+    using nf::Ps2In;
+    if (k.gas) nf::ps2_press(p, Ps2In::Cross);
+    if (k.brake) nf::ps2_press(p, Ps2In::Square);
+    if (k.hand) nf::ps2_press(p, Ps2In::Circle);
+    if (k.r1) nf::ps2_press(p, Ps2In::R1);
+    if (k.l1) nf::ps2_press(p, Ps2In::L1);
+    if (k.r2) nf::ps2_press(p, Ps2In::R2);
+    if (k.l2) nf::ps2_press(p, Ps2In::L2);
+    if (k.tri) nf::ps2_press(p, Ps2In::Triangle);
+    if (k.start) nf::ps2_press(p, Ps2In::Start);
+    if (k.du) nf::ps2_press(p, Ps2In::Up);
+    if (k.dr) nf::ps2_press(p, Ps2In::Right);
+    if (k.dd) nf::ps2_press(p, Ps2In::Down);
+    if (k.dl) nf::ps2_press(p, Ps2In::Left);
     if (k.left != k.right) p.lx = k.left ? 0 : 255;
     if (k.lu != k.ld) p.ly = k.lu ? 0 : 255;
     if (k.rl != k.rr) p.rx = k.rl ? 0 : 255;
     if (k.ru != k.rd) p.ry = k.ru ? 0 : 255;
     return p;
 }
+
+drv::PadData pad_data(const nf::Ps2PadFrame& f) {
+    drv::PadData p;
+    p.buttons = f.buttons;
+    p.lx = f.lx;
+    p.ly = f.ly;
+    p.rx = f.rx;
+    p.ry = f.ry;
+    std::memcpy(p.pressure, f.pressure, sizeof p.pressure);
+    return p;
+}
+
+drv::PadData pad_from(const DriveKeys& k) { return pad_data(ps2_from_keys(k)); }
 
 // O IOModule do jogo (game/input.h): o PS2PadDevice, a tabela do data\Control\drivecfg.def e o SendGameMessages, que
 // manda as ações para a fila do carro (o ActionQueueManager, que só tem a do carro aqui).
@@ -1463,6 +1542,7 @@ struct DriveInput {
             ++actions;
             car.push_action(action, value);
             drv::weapons_feed(action, device, value);  // a fila "WeaponManQ" do SWeaponManager (FeedQueue: todas as filas)
+            drv::hud_queue_feed(action, device, value);  // a fila "HUDQ" do GHud (a pausa, as trapaças: seção 31)
             static const bool log = nf::get_env_narrow("NF_DRV_WEAPON_LOG", nullptr);  // depuração: as ações
             if (log)
                 std::printf("acao passo %d %d (%s) %.2f\n", int(drv::simulation().steps), action,
@@ -2043,10 +2123,110 @@ int32_t fx_lookup_int(uint32_t object, const char* key) {
     return a ? a->lookup_int(key) : 0;
 }
 
+// Seção 32: os carros com render (o do jogador, os do tráfego e os da IA) pela imagem do RVehicle, para os efeitos das
+// instâncias (RSceneObj::RenderEffects, TriggerFX) e os eventos.
+struct FxCars {
+    std::vector<std::pair<CarRig*, drv::BondCar*>> all;
+    const drv::Track* track = nullptr;
+    drv::TrackWorld* world = nullptr;
+};
+FxCars g_fx_cars;
+CarRig* fx_rig_of(uint32_t scene, drv::BondCar** car = nullptr) {
+    if (g_fx.rig && scene == nf::p32_u(&g_fx.rig->vehicle.d)) {
+        if (car) *car = g_fx.car;
+        return g_fx.rig;
+    }
+    for (auto& p : g_fx_cars.all)
+        if (scene == nf::p32_u(&p.first->vehicle.d)) {
+            if (car) *car = p.second;
+            return p.first;
+        }
+    return nullptr;
+}
+// [driving] 0x001c9368 RSceneObj::GetInstancePosition(índice, m, true) de qualquer carro com render (o do jogador pelo
+// fx_instance_position; os outros pela instância de origem do rig deles) e das armas dos atores.
+bool fx_instance_position_any(uint32_t scene, int32_t idx, float m[4][4]) {
+    if (fx_instance_position(scene, idx, m)) return true;
+    drv::BondCar* car = nullptr;
+    CarRig* r = fx_rig_of(scene, &car);
+    if (!r) return false;
+    float t[4][4];
+    std::memcpy(t, r->instance, 64);
+    t[0][3] = t[1][3] = t[2][3] = 0.0f;
+    t[3][3] = 1.0f;
+    const uint32_t h = r->vehicle.d.anim;
+    if (h == 0 || idx < 0 || uint32_t(idx) >= nf::p32_ptr<const uint8_t>(h)[0x1c]) {
+        std::memcpy(m, t, 64);
+        return true;
+    }
+    const drv::ProcAnimContext ctx = drv::RSkeletalObj_SetProcAnimState(r->vehicle);
+    uint32_t raw[16];
+    std::memcpy(raw, nf::p32_ptr<const uint8_t>(h) + 0x40 + size_t(idx) * 0x40, 64);
+    float im[4][4];
+    if (!drv::GetInstanceMatrix(raw, ctx, im)) return false;
+    drv::VU0_MATRIX4_mult(im, t, m);
+    return true;
+}
+// RSceneObj::GetInstancePosition(índice, m, false): a identidade vezes a matriz da cópia da instância (sem o objeto nem o
+// mundo); o EActorMuzzleFlash (as armas dos atores) e os carros.
+bool fx_instance_position_local(uint32_t scene, int32_t idx, float m[4][4]) {
+    std::memset(m, 0, 64);
+    m[0][0] = m[1][1] = m[2][2] = m[3][3] = 1.0f;
+    uint32_t h = 0;
+    drv::ProcAnimContext ctx;
+    if (drv::anim::ActWeapon_FromScene(scene)) {
+        h = nf::p32_ptr<const drv::RSceneObj>(scene)->article;
+        if (h) {
+            uint32_t st;
+            std::memcpy(&st, nf::p32_ptr<const uint8_t>(h) + 8, 4);
+            ctx.states = st ? nf::p32_ptr<const uint8_t>(st) : nullptr;
+        }
+    } else if (CarRig* r = fx_rig_of(scene)) {
+        h = r->vehicle.d.anim;
+        ctx = drv::RSkeletalObj_SetProcAnimState(r->vehicle);
+    } else {
+        return false;
+    }
+    if (h == 0 || idx < 0 || uint32_t(idx) >= nf::p32_ptr<const uint8_t>(h)[0x1c]) return true;
+    uint32_t raw[16];
+    std::memcpy(raw, nf::p32_ptr<const uint8_t>(h) + 0x40 + size_t(idx) * 0x40, 64);
+    float im[4][4], id[4][4] = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}};
+    if (!drv::GetInstanceMatrix(raw, ctx, im)) return false;
+    drv::VU0_MATRIX4_mult(im, id, m);
+    return true;
+}
+// [driving] 0x00230bf0 WWorld::GetSceneObjFromInstance: uma instância de render da pista com a bandeira 0x10 (o byte
+// +0xc) dá o objeto de cena do registro do 'ps  ' (+8, o WWorld::Open o guarda).
+uint32_t scene_obj_from_instance(uint32_t inst) {
+    const drv::Track* t = g_fx_cars.track;
+    if (!t) return 0u;
+    const drv::WRender& r = t->world_render();
+    const uint32_t base = r.instances, n = uint32_t(t->instances().size());
+    if (inst < base || inst >= base + n * 0x40) return 0u;
+    const uint8_t* in = nf::p32_ptr<const uint8_t>(inst);
+    if ((in[0xc] & 0x10) == 0 || r.proc_anims == 0) return 0u;
+    uint16_t ps;
+    std::memcpy(&ps, in + 0xe, 2);
+    uint32_t scene;
+    std::memcpy(&scene, nf::p32_ptr<const uint8_t>(r.proc_anims) + size_t(ps) * 0x20 + 8, 4);
+    return scene;
+}
+
+// O RSceneObj (+0x48) do dono de uma vaga da Simulation: os carros (o RVehicle) e os objetos derrubáveis.
+uint32_t fx_physics_scene(int32_t simple, int32_t slot) {
+    const drv::Simulation& sim = drv::simulation();
+    drv::PhysicsObject* po = simple ? sim.simple_owners[slot] : sim.owners[slot];
+    if (!po) return 0;
+    if (drv::BondCar* c = dynamic_cast<drv::BondCar*>(po)) return c->vehicle ? nf::p32_u(&c->vehicle->d) : 0u;
+    if (drv::Smackable* sm = dynamic_cast<drv::Smackable*>(po)) return sm->scene() ? nf::p32_u(sm->scene()) : 0u;
+    return 0;
+}
+
 // O tráfego (docs/driving.md seção 18): cada tipo sorteado pelo CreateSimTrafficCars com o modelo, os atributos e a
 // descrição carregados uma vez; cada carro um PBondCar de classe 3 com o seu render (CarRig).
 // Depuração (NF_DRV_TRIGGERS, NF_DRV_RULES): o que um evento de uma lista 'el' aponta: os gatilhos (">índice"), a etapa
 // (">e"), o cronômetro e o valor (">c"), o comando 'AICo' e o elemento 'AIEl' (">k", ">a").
+uint32_t g_note_cams = 0;  // (depuração) o começo dos 'Cams' da pista
 std::string event_note(int32_t type, const uint8_t* dd, uint32_t tbase, uint32_t aiel, uint32_t aico) {
     auto w = [dd](int off) {
         uint32_t v = 0;
@@ -2074,6 +2254,19 @@ std::string event_note(int32_t type, const uint8_t* dd, uint32_t tbase, uint32_t
         r = ">k" + std::to_string(idx(w(4), aico, 0xa0)) + ">a" + std::to_string(idx(w(0xc), aiel, 0x100));
     } else if (type == 66 || type == 67 || type == 161) {
         r = ">a" + std::to_string(idx(w(4), aiel, 0x100));
+    } else if (type == 63 || type == 97 || type == 196 || type == 68 || type == 207 || type == 233 || type == 234) {
+        // As câmeras: o registro 'Cams' da pista (">m<índice>", "*" com animação) e as palavras seguintes.
+        if (type == 63) {
+            if (int i = idx(w(4), g_note_cams, 0x40); i >= 0) {
+                uint32_t anim = 0;
+                std::memcpy(&anim, nf::p32_ptr<const uint8_t>(w(4)) + 0x1c, 4);
+                r = ">m" + std::to_string(i) + (anim ? "*" : "");
+            }
+        }
+        for (int wo = (type == 63 ? 8 : 4); wo <= 0x18; wo += 4) {
+            std::snprintf(b, sizeof b, ":%x", w(wo));
+            r += b;
+        }
     }
     return r;
 }
@@ -2091,6 +2284,30 @@ struct TrafficCar {
     CarRig* rig = nullptr;
     TrafficType* type = nullptr;
 };
+
+// Bytes do DRIVING.ELF do jogador num endereço virtual (pelos cabeçalhos de programa): a tabela de cores da moça da
+// pausa (0x0039d918, seção 31).
+bool read_driving_elf(const nf::DiscSource& disc, uint32_t addr, void* dst, uint32_t n) {
+    std::vector<uint8_t> elf;
+    if (!disc.read("DRIVING.ELF", elf) || elf.size() < 0x34) return false;
+    auto u32 = [&](size_t o) {
+        uint32_t v = 0;
+        if (o + 4 <= elf.size()) std::memcpy(&v, elf.data() + o, 4);
+        return v;
+    };
+    const uint32_t phoff = u32(0x1c);
+    uint16_t phnum = 0;
+    std::memcpy(&phnum, elf.data() + 0x2c, 2);
+    for (uint32_t i = 0; i < phnum; ++i) {
+        const size_t p = size_t(phoff) + size_t(i) * 32;
+        const uint32_t off = u32(p + 4), va = u32(p + 8), fs = u32(p + 16);
+        if (addr >= va && uint64_t(addr) + n <= uint64_t(va) + fs && uint64_t(off) + (addr - va) + n <= elf.size()) {
+            std::memcpy(dst, elf.data() + off + (addr - va), n);
+            return true;
+        }
+    }
+    return false;
+}
 
 int run_drive(const Args& a) {
     const std::shared_ptr<nf::DiscSource> disc = open_data(a);
@@ -2201,6 +2418,11 @@ int run_drive(const Args& a) {
     drv::mission_reset();
     drv::event_stats() = drv::EventStats();
     drv::hud_exists() = false;
+    bool real_hud = false;                    // o HUD das galerias (driving/game/hud_draw.h)
+    bool accumulate_scores = false;           // o ACCUMULATE_SCORES do mundo (a pausa: a página dos pontos)
+    std::vector<drv::HudFrameItem> hud_items;  // o último quadro do HUD (o GHud::Render do ERenderFrame)
+    drv::hud_draw_stats() = drv::HudDrawStats();
+    drv::draw_power_on();
     drv::Bigf misc_arc;
     const bool have_misc_arc = misc_arc.open(*disc, "DRIVING/MISC.VIV");
     auto read_any = [&](const std::string& key) {
@@ -2218,10 +2440,47 @@ int run_drive(const Args& a) {
         }
         drv::GHud_Reset(drv::hud());
         drv::hud_exists() = true;
+        // O HUD de verdade (driving/game/hud_draw.h): o GHud::GHud com a galeria hudNTSC.gal, a cortina e a fonte.
+        if (!a.debug_hud && !a.no_hud && have_misc_arc) {
+            drv::HudFiles hf;
+            const std::string gal = read_entry(misc_arc, "data\\gfx\\data\\hudNTSC.gal");
+            const std::string blood = read_any("data\\render\\blood.ssh");
+            const std::string fnt = read_entry(misc_arc, "data\\loading\\loading.sfn");
+            hf.gallery.assign(gal.begin(), gal.end());
+            hf.blood.assign(blood.begin(), blood.end());
+            hf.font.assign(fnt.begin(), fnt.end());
+            hf.image = [](const uint8_t* ssh, uint32_t size, bool first) -> uint32_t {
+                drv::ShpsFile sf;
+                if (!drv::shps_parse(ssh, size, sf) || sf.images.empty()) return 0;
+                // GGallery::MGMT_MainShapeIndex: o último 'MAIN'; a cortina: a primeira entrada.
+                const drv::ShpsImage* im = &sf.images.front();
+                if (!first)
+                    for (const drv::ShpsImage& i : sf.images)
+                        if (i.name == "MAIN") im = &i;
+                drv::UiImage img;
+                img.width = im->width;
+                img.height = im->height;
+                img.rgba = im->rgba;
+                return drv::ui_image_add(std::move(img));
+            };
+            hf.font_image = [](const std::vector<uint8_t>& file) -> uint32_t {
+                drv::FontFile ff;
+                if (!drv::font_parse(file.data(), file.size(), ff)) return 0;
+                drv::UiImage img;
+                img.width = ff.image_width;
+                img.height = ff.image_height;
+                img.rgba = ff.rgba;
+                return drv::ui_image_add(std::move(img));
+            };
+            real_hud = !hf.gallery.empty() && !hf.font.empty() && drv::GHud_Construct(drv::hud(), std::move(hf));
+            drv::hud_live() = real_hud;
+            if (!real_hud) std::fprintf(stderr, "nf_driving: sem a galeria do HUD (o HUD mínimo)\n");
+        }
         drv::AttributeCollection world_attrs;
         bool acc = false;
         if (world_attrs.load(arc, "world", a.track.substr(0, a.track.find('_')), a.track))
             acc = world_attrs.lookup_int("ACCUMULATE_SCORES", nullptr) != 0;
+        accumulate_scores = acc;
         drv::SMissionManager_Construct(acc);  // (o SWeaponManager já existe: o LoadWeaponSet do Load o carrega)
         drv::UGroup* root = track.root();
         drv::UGroup* map = drv::UGroup_GroupLocateTag(root, 0x4d617020u);
@@ -2238,6 +2497,8 @@ int run_drive(const Args& a) {
             drv::SMissionManager_Load(m, rule, mset);
             std::string rules_env;
             if (nf::get_env_narrow("NF_DRV_RULES", &rules_env)) {
+            if (drv::UData* cm = drv::UGroup_DataLocateTag(map, 0x43616d73u); cm != drv::UGroup_DataEnd(map))
+                g_note_cams = nf::p32_u(drv::UData_Data(cm));  // 'Cams' (depuração: event_note)
                 // Depuração: as regras de cada lista (0 a de sempre, 1 + a etapa), a classe, as bandeiras, os campos
                 // e os números dos eventos.
                 const drv::MissionLists& ml = drv::mission_lists();
@@ -2312,6 +2573,8 @@ int run_drive(const Args& a) {
         }
         std::string dump;
         if (nf::get_env_narrow("NF_DRV_TRIGGERS", &dump)) {
+            if (drv::UData* cm = drv::UGroup_DataLocateTag(map, 0x43616d73u); cm != drv::UGroup_DataEnd(map))
+                g_note_cams = nf::p32_u(drv::UData_Data(cm));  // 'Cams' (depuração: event_note)
             // Depuração: os gatilhos (o índice, a forma, as bandeiras, o centro, o raio e os números dos eventos).
             for (int i = 0; i < drv::trigger_manager().count; ++i) {
                 const drv::WTrigger* t = drv::trigger_at(i);
@@ -2487,9 +2750,80 @@ int run_drive(const Args& a) {
     }
     // Os efeitos (driving/fx, drv_fx.h): a galeria e o sistema de partículas.
     DrvFxApp fx_app;
+    fx_app.track = a.track;  // seção 29: os .tun da pista e o DRIVING.ELF (os modelos dos destroços)
+    fx_app.disc = disc.get();
     fx_app.init(have_misc_arc ? &misc_arc : nullptr, &arc, fx_instance_position);
     fx_app.debug_effects = a.play_effects;
     fx_app.debug_explosions = a.spawn_explosions;
+    // Seção 32: os efeitos das instâncias, os clarões dos canos, as marcas dos tiros e os eventos que faltavam.
+    g_fx_cars = FxCars();
+    g_fx_cars.track = &track;
+    {
+        drv::SceneFxEnv& sfe = drv::scene_fx_env();
+        sfe.velocity = drv::fx_events_env().scene_velocity;
+        sfe.instance_position = fx_instance_position_any;
+        // RSceneObj::GetTransform (0x001c9190): a cópia da instância do +0x08; os carros do port guardam a instância no
+        // rig (o +0x08 do RVehicle deles pode ser 0).
+        sfe.transform = [](uint32_t scene, float m[4][4]) {
+            const uint32_t inst = nf::p32_ptr<const uint32_t>(scene)[2];
+            if (CarRig* r = fx_rig_of(scene)) std::memcpy(m, r->instance, 64);
+            else if (inst != 0) std::memcpy(m, nf::p32_ptr<const uint8_t>(inst), 64);
+            else std::memset(m, 0, 64);
+            m[0][3] = m[1][3] = m[2][3] = 0.0f;
+            m[3][3] = 1.0f;
+        };
+        sfe.world_height =[](const float p[3], float* y) {
+            drv::WorldCollision* wc = drv::world();
+            drv::TrackWorld* tw = wc ? wc->track_world() : nullptr;
+            return tw != nullptr && tw->world_height_at_point(p, *y);
+        };
+        drv::gfx_env().instance_position = fx_instance_position_any;
+        drv::MuzzleFlashEnv& mfe = drv::muzzle_flash_env();
+        mfe.player_position = [](float out[3]) {
+            const drv::Simulation& sim = drv::simulation();
+            const drv::RigidBody* b = sim.cars.empty() ? nullptr : sim.cars[0]->body();
+            if (b) std::memcpy(out, b->pos, 12);
+            else out[0] = out[1] = out[2] = 0.0f;
+        };
+        mfe.has_turret = [](uint32_t owner) {
+            const drv::AttributeCollection* at = fx_attrs_of(owner);
+            return at ? at->lookup_bool("HAS_TURRET") : false;
+        };
+        mfe.is_snowmobile = [](uint32_t owner) {
+            drv::BondCar* c = owner == g_fx.player_image ? g_fx.car : drv::ai_car_from_physics(owner);
+            return c ? int32_t(c->physics()->is_snowmobile) : 0;
+        };
+        mfe.last_fired = []() {
+            const drv::SWeaponManagerData* wm = drv::weapon_manager();
+            return wm ? wm->last_fired : 0;
+        };
+        drv::FxEventsEnv& xe = drv::fx_events_env();
+        xe.physics_scene = fx_physics_scene;
+        xe.instance_position_local = fx_instance_position_local;
+        xe.scene_from_instance = scene_obj_from_instance;
+        // Seção 34: o Shell::ApplyWorldDamage (o tiro de uma bala no mundo) acha o objeto de cena da instância atingida
+        // pelo mesmo WWorld::GetSceneObjFromInstance e manda os estímulos 0x13..0x16 ao Handle dele.
+        drv::shells_env().scene_obj_of = scene_obj_from_instance;
+        xe.set_collision_article = [](uint32_t inst, int32_t article) {
+            drv::WorldCollision* wc = drv::world();
+            drv::TrackWorld* tw = wc ? wc->track_world() : nullptr;
+            if (!tw) return;
+            drv::WCollisionMgr_SetCollisionArticle(tw->mgr(), nf::p32_u(tw->render_instances()), inst, article,
+                                                   tw->saved_articles);
+        };
+        xe.object_sig = [](uint32_t obj) -> uint32_t {
+            drv::BondCar* c = obj == g_fx.player_image ? g_fx.car : drv::ai_car_from_physics(obj);
+            return c ? drv::PhysicsObject_GetSig(c) : 0u;
+        };
+        xe.player_sig = []() -> uint32_t {
+            drv::PhysicsObject* p = drv::GetPlayerObject(drv::simulation());
+            return p ? drv::PhysicsObject_GetSig(p) : 0u;
+        };
+        drv::shells_env().scorch_world = [](drv::WWorldPos& wp, const float point[4], const float normal[4], int32_t type,
+                                            float size) {
+            drv::RScorchWorld_ScorchWorld(drv::decal_state(), drv::world(), wp, point, normal, type, size);
+        };
+    }
     float render_offset = drv::CarDesc_RenderOffset(desc);
     // O modelo desenhado (o do tipo corrente: o ChangeCarType troca pelo secundário).
     drv::CarModel* cur_model = &model;
@@ -2560,6 +2894,7 @@ int run_drive(const Args& a) {
                 tc.rig->post_load(t->model, *tc.car, std::string(), fx, name, false);
                 tc.type = t;
                 drv::simulation().cars.push_back(tc.car);
+                g_fx_cars.all.push_back({tc.rig, tc.car});
                 traffic.push_back(tc);
             });
         drv::AIVehicleController_RegisterSimCarList();
@@ -2574,6 +2909,7 @@ int run_drive(const Args& a) {
         drv::AIElementController_Destruct();
         drv::ai_car_factory() = drv::AICarFactory{};
         g_fx.ai_attrs.clear();
+        g_fx_cars = FxCars();
         for (TrafficCar& tc : ai_cars) delete tc.rig;
         ai_cars.clear();
     };
@@ -2604,6 +2940,7 @@ int run_drive(const Args& a) {
             tc.type = t;
             g_fx.ai_attrs.push_back({nf::p32_u(&tc.car->d), &t->attrs});
             drv::simulation().cars.push_back(tc.car);  // Simulation::SpawnPhysicsObject
+            g_fx_cars.all.push_back({tc.rig, tc.car});
             ai_cars.push_back(tc);
             return tc.car;
         };
@@ -2611,6 +2948,11 @@ int run_drive(const Args& a) {
             for (size_t i = 0; i < g_fx.ai_attrs.size(); ++i)
                 if (g_fx.ai_attrs[i].first == nf::p32_u(&c->d)) {
                     g_fx.ai_attrs.erase(g_fx.ai_attrs.begin() + std::ptrdiff_t(i));
+                    break;
+                }
+            for (size_t i = 0; i < g_fx_cars.all.size(); ++i)
+                if (g_fx_cars.all[i].second == c) {
+                    g_fx_cars.all.erase(g_fx_cars.all.begin() + std::ptrdiff_t(i));
                     break;
                 }
             for (size_t i = 0; i < ai_cars.size(); ++i)
@@ -2650,6 +2992,13 @@ int run_drive(const Args& a) {
         if (secondary && nf::str_icmp(name.c_str(), secondary->data.name.c_str()) == 0) return &secondary->data;
         return nullptr;
     };
+    // A âncora da câmera do jogador (o carro do jogador: o PhysicsObject que o RPlayerCamera lê; seção 30).
+    drv::CameraAnchor* anchor = new drv::CameraAnchor();
+    auto model_arti = [](const drv::CarModel& m) -> uint32_t {
+        drv::UGroup* root = m.carp_root();
+        drv::UGroup* arti = root ? drv::UGroup_GroupLocateTag(root, 0x41727469u) : nullptr;  // 'Arti'
+        return root && arti != drv::UGroup_GroupEnd(root) ? nf::p32_u(arti) : 0u;
+    };
     drv::heli_change_car_hook() = [&](drv::BondCar& c, const drv::CarTypeData& t) {
         if (!secondary || &t != &secondary->data) return;
         CarRig* nr = new CarRig();
@@ -2661,6 +3010,9 @@ int run_drive(const Args& a) {
         cur_name = t.name;
         car_list = secondary->model.view_draw_list(1);
         render_offset = drv::CarDesc_RenderOffset(secondary->desc);
+        // O objeto de desenho novo da âncora da câmera (o +0x48): o SetAnchor seguinte lê os 'Cams' dele (o vanquish).
+        anchor->model_group = model_arti(secondary->model);
+        anchor->render_offset = render_offset;
         // O RSceneObj::UseInstanceList do RVehicle novo (o Handle das instâncias) e o SWeaponManager::SetPlayerCar do
         // SMissionManager::InitPlayerCar; o EFireWeapon e as explosões passam a ler o carro novo.
         attach_anim(nr, c, secondary->model, t.name);
@@ -2689,7 +3041,8 @@ int run_drive(const Args& a) {
         cam_tables->load(ini, info);
     }
     drv::Noise_Init();
-    drv::CameraAnchor* anchor = new drv::CameraAnchor();
+    anchor->model_group = model_arti(model);  // o grupo dos 'Cams' do modelo (SetAnchor; seção 30)
+    anchor->render_offset = render_offset;   // o RVehicle::GetRenderOffset (GetAnchorRenderOffset)
     anchor->kind = 1;
     anchor->flags = 0;
     anchor->body = int16_t(rb->slot);
@@ -2698,6 +3051,7 @@ int run_drive(const Args& a) {
     cam_ctx.sim = &drv::simulation();
     cam_ctx.world = &world;
     cam_ctx.cars = {anchor};
+    cam_ctx.player_vehicle = drv::rail_player_vehicle;  // o AIVehicle do primeiro carro (GetAnchorLinearVelocity)
     drv::PlayerCamera* cam = new drv::PlayerCamera();
     cam->construct(*cam_tables, cam_ctx);
     drv::effects_env().camera_1f4 = &cam->d.weapon_anim_step;  // o RPlayerCamera::WeaponFired do EFireWeapon
@@ -2724,11 +3078,54 @@ int run_drive(const Args& a) {
     refresh_cam_ctx();
     drv::camera_events_env().camera = cam;
     drv::camera_events_env().ctx = &cam_ctx;
+    // A âncora de um dono de corpo (o 97 EPlayCarCameraAnim no carro de um elemento da IA; seção 30): o carro do jogador
+    // é a âncora de sempre; os outros carros, uma âncora feita na primeira vez com os campos do PhysicsObject do PS2
+    // (+0x40 o tipo, +0x44 as bandeiras, +0x46 a vaga; os modelos dos carros da IA de Paris não têm 'Cams').
+    std::map<drv::PhysicsObject*, std::unique_ptr<drv::CameraAnchor>> other_anchors;
+    drv::camera_events_env().anchor_for = [&](drv::PhysicsObject* obj) -> drv::CameraAnchor* {
+        if (obj == car) return anchor;
+        drv::BondCar* bc = dynamic_cast<drv::BondCar*>(obj);
+        if (!bc) return nullptr;
+        std::unique_ptr<drv::CameraAnchor>& a2 = other_anchors[obj];
+        if (!a2) a2 = std::make_unique<drv::CameraAnchor>();
+        a2->kind = bc->d.type;
+        a2->flags = bc->d.flags;
+        a2->body = bc->d.slot;
+        a2->object = obj;
+        TrafficType* tt = type_of(bc->name());  // o RVehicle::GetRenderOffset do carro (pela descrição do tipo)
+        a2->render_offset = tt && tt->ok ? tt->render_offset : 0.0f;
+        return a2.get();
+    };
     // O AICharacter::Init (as mãos de Bond; o PS2 o chama no fim do GameLoop_StartUp, antes da câmera: o Init não a lê).
+    // Seção 32: [driving] 0x001186b0 AICharacter::Init começa pelo AICharacterPedestrian::Init(16): o conjunto da missão
+    // com o NUM_PED_TYPES_PS2 da coleção "world" da pista (paris.atr: 0, então nenhum pedestre em Paris).
+    {
+        drv::AttributeCollection world_attrs;
+        bool found = false;
+        int32_t ped_types = 0;
+        if (world_attrs.load(arc, "world", a.track.substr(0, a.track.find('_')), a.track))
+            ped_types = world_attrs.lookup_int("NUM_PED_TYPES_PS2", &found);
+        drv::pedestrian_globals() = drv::PedestrianGlobals();
+        drv::AICharacterPedestrian_Init(a.track.c_str(), ped_types, found);
+    }
     drv::drive_actors::characters_init(&attrs, reinterpret_cast<const uint8_t*>(&cam->d), [&]() {
         refresh_cam_ctx();
         cam->update(cam_ctx);
     }, &cam->statics.zoom_button);
+    // O RPlayerCamState::AimZoom e o AimRelease das mãos de Bond (seção 30): o zoom do AutoDrive, o GHud::AimOn e o AimOff.
+    cam_ctx.hud_aim = [](int32_t on) {
+        if (!drv::hud_exists()) return;
+        if (on) drv::GHud_AimOn(drv::hud());
+        else drv::GHud_AimOff(drv::hud());
+    };
+    drv::ai_character_env().aim_zoom = [&] {
+        refresh_cam_ctx();
+        cam->AimZoom(cam_ctx);
+    };
+    drv::ai_character_env().aim_release = [&] {
+        refresh_cam_ctx();
+        cam->AimRelease(cam_ctx);
+    };
     // O que o tráfego lê da câmera (AIRoadSpawn: os carros nascem fora da vista; a matriz do RCamera do mundo).
     drv::traffic_world().camera = reinterpret_cast<const float(*)[4]>(cam->d.matrix);
     float eye[3] = {0, 0, 0};
@@ -2778,9 +3175,74 @@ int run_drive(const Args& a) {
         }
     }
     uint64_t hud_lines_drawn = 0;
+    // O RSniperZoom (driving/render/sniper_zoom.h, seção 30): a luneta do fuzil de Bond no pós-processamento. O ligado e
+    // o alfa vêm do GHud (o DrawCrossHairs da luneta); os dois anéis (o de fora, depois o de dentro) com a cópia reduzida
+    // do quadro, na tela do PS2 na área 4:3 da janela, a textura amostrada no mesmo ponto da janela.
+    uint64_t sniper_frames = 0;
+    auto push_sniper = [&](int w, int hgt) {
+        scene.post.clear();
+        drv::SniperZoomData& z = drv::sniper_zoom_object();
+        z.on = drv::sniper_zoom().on;
+        z.alpha = uint32_t(drv::sniper_zoom().alpha);
+        const uint32_t cinematic = drv::mission_exists() ? drv::mission_manager().cinematic_mode : 0u;
+        const bool grab = drv::RSniperZoom_GrabBackBuffer(z, cinematic);
+        drv::sniper_zoom().on = z.on;
+        if (!grab) return;
+        drv::SniperZoomView v;
+        v.screen_w = cam_ctx.screen_w;
+        v.screen_h = cam_ctx.screen_h;
+        v.cursor_x = cam->d.cursor[0];
+        v.cursor_y = cam->d.cursor[1];
+        if (!drv::RSniperZoom_Draw(z, v)) return;
+        ++sniper_frames;
+        float aw = float(hgt) * 4.0f / 3.0f, ah = float(hgt);
+        if (aw > float(w)) {
+            aw = float(w);
+            ah = aw * 0.75f;
+        }
+        const float x0 = (float(w) - aw) * 0.5f, y0 = (float(hgt) - ah) * 0.5f;
+        const float sx = aw / float(v.screen_w), sy = ah / float(v.screen_h);
+        auto ring = [&](const float (*pos)[4], const uint32_t* colour) {
+            drv::DrvFxBatch b;
+            b.texture = drv::kDrvSceneCopyTexture;
+            b.world = false;
+            b.alpha = 0x8000000044ull;
+            b.test = 0x30000ull;
+            b.zwrite = false;
+            auto vert = [&](int k) {
+                drv::DrvFxVertex o;
+                const float px = x0 + pos[k][0] * sx, py = y0 + pos[k][1] * sy;
+                o.pos[0] = px / float(w) * 2.0f - 1.0f;
+                o.pos[1] = 1.0f - py / float(hgt) * 2.0f;
+                o.pos[2] = 0.0f;
+                o.pos[3] = 1.0f;
+                o.uv[0] = px / float(w);
+                o.uv[1] = py / float(hgt);
+                o.colour = colour[k];
+                b.verts.push_back(o);
+            };
+            for (int k = 0; k + 2 < drv::kSniperZoomVerts; ++k) {  // a faixa de triângulos (o tipo 5)
+                vert(k);
+                vert(k + 1);
+                vert(k + 2);
+            }
+            scene.post.push_back(std::move(b));
+        };
+        ring(z.pos_outer, z.colour_outer);
+        ring(z.pos_inner, z.colour_inner);
+    };
     auto push_hud = [&](int w, int hgt) {
         scene.sprites.clear();
+        scene.overlay.clear();
         if (!drv::hud_exists() || a.no_hud) return;
+        if (real_hud) {
+            std::vector<drv::Gs2dBatch> hb;
+            float view[4];
+            drv::hud_view_transform(drv::hud(), view);
+            drv::hud_frame_to_batches(hud_items, hb, view);
+            drv::hud2d::to_fx(hb, w, hgt, scene.overlay);
+            return;
+        }
         const drv::HudView v = drv::hud_view(drv::hud());
         const float sc = float(hgt) / 448.0f, x0 = float(w) * 0.5f - 320.0f * sc;
         auto box = [&](float x, float y, float bw, float bh, uint32_t colour) {
@@ -2854,11 +3316,12 @@ int run_drive(const Args& a) {
         drv::AIElement* le = a.shot_look_element >= 0 ? drv::ai_element(a.shot_look_element) : nullptr;
         drv::BondCar* lc = le && le->physics ? drv::ai_car_from_physics(le->physics) : nullptr;
         drv::RigidBody* lb = lc ? lc->body() : nullptr;
-        if (!lb) return false;
+        if (!lb && !a.shot_look_point_given) return false;
+        const float* tp = a.shot_look_point_given ? a.shot_look_point : lb->pos;
         const float yaw = a.shot_look[2] * 3.14159265f / 180.0f;
-        const float e3[3] = {lb->pos[0] + std::sin(yaw) * a.shot_look[0], lb->pos[1] + a.shot_look[1],
-                             lb->pos[2] + std::cos(yaw) * a.shot_look[0]};
-        float f[3] = {lb->pos[0] - e3[0], lb->pos[1] + 1.0f - e3[1], lb->pos[2] - e3[2]};
+        const float e3[3] = {tp[0] + std::sin(yaw) * a.shot_look[0], tp[1] + a.shot_look[1],
+                             tp[2] + std::cos(yaw) * a.shot_look[0]};
+        float f[3] = {tp[0] - e3[0], tp[1] + (a.shot_look_point_given ? 0.0f : 1.0f) - e3[1], tp[2] - e3[2]};
         float n = std::sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
         for (float& x : f) x /= n;
         float r[3] = {f[2], 0.0f, -f[0]};
@@ -2887,6 +3350,7 @@ int run_drive(const Args& a) {
         scene.items.clear();
         scene.quads.clear();
         push_hud(w, hgt);
+        push_sniper(w, hgt);
         // [driving] 0x001d1ef8 RTimeData::Update (StartFrameRender): o passo da simulação deste desenho.
         drv::RTimeData_Update(drv::simulation().steps);
         std::memcpy(scene.sim_step, drv::rtime_data().time_data, sizeof scene.sim_step);
@@ -2906,6 +3370,16 @@ int run_drive(const Args& a) {
             const uint64_t rig0 = nf::os::perf_counter();
             rig->frame(*car, *cur_model, render_offset, mi.interior_view != 0, hidden, int32_t(drv::simulation().steps),
                        car_list, scene);
+            // Seção 32: o RVehicle::RenderDeferredEffects (fora da vista de dentro): o RenderFX com o GetTransform.
+            auto frame_car = [&](CarRig* r) {
+                DrvFxApp::FrameCar fc;
+                fc.vehicle = nf::p32_u(&r->vehicle.d);
+                std::memcpy(fc.transform, r->instance, 64);
+                fc.transform[0][3] = fc.transform[1][3] = fc.transform[2][3] = 0.0f;
+                fc.transform[3][3] = 1.0f;
+                fx_app.frame_cars.push_back(fc);
+            };
+            if (!hidden) frame_car(rig);
             // Os carros do tráfego na rua (os guardados longe pelo UnSpawn têm o corpo congelado, estado 3). O jogo os
             // põe na cena pela visibilidade do RRenderHigh (não portada): aqui os que estão a menos de 400 m do olho.
             traffic_drawn = 0;
@@ -2916,6 +3390,7 @@ int run_drive(const Args& a) {
                 if (dx * dx + dy * dy + dz * dz > 400.0f * 400.0f) continue;
                 tc.rig->frame(*tc.car, tc.type->model, tc.type->render_offset, false, false,
                               int32_t(drv::simulation().steps), tc.type->list, scene);
+                frame_car(tc.rig);
                 ++traffic_drawn;
             }
             // Os veículos dos elementos da IA acordados, pela mesma regra.
@@ -2926,6 +3401,7 @@ int run_drive(const Args& a) {
                 if (dx * dx + dy * dy + dz * dz > 400.0f * 400.0f) continue;
                 tc.rig->frame(*tc.car, tc.type->model, tc.type->render_offset, false, false,
                               int32_t(drv::simulation().steps), tc.type->list, scene);
+                frame_car(tc.rig);
                 ++traffic_drawn;
             }
             // Os mísseis (driving/game/missile.h): o RSceneObj do Missile desenha a instância do carro que o disparou
@@ -2956,6 +3432,7 @@ int run_drive(const Args& a) {
                 ++missiles_drawn;
             }
             drv::drive_actors::draw(scene.items, cam->d.matrix, cam->d.fov);  // os atores (as mãos de Bond)
+            for (const drv::VolatileDraw& v : drv::drive_actors::muzzle_flash_draws()) fx_app.frame_volatile.push_back(v);
             rig_ticks += nf::os::perf_counter() - rig0;
         };
         if (!a.no_cull && track.has_scene_tree()) {
@@ -2974,8 +3451,9 @@ int run_drive(const Args& a) {
             for (auto* v : {&culled.sky, &culled.world, &culled.scene_objects, &culled.scene_objects_last,
                             &culled.pass1, &culled.pass0})
                 draws.insert(draws.end(), v->begin(), v->end());
+            fx_app.frame_scene_objs = culled.own_objects;  // seção 34: o RenderEffects dos objetos de cena
             scene.fx.clear();
-            fx_app.push(scene, cam->d.fov, float(w) / float(hgt));
+            fx_app.push(scene, cam->d.fov, float(w) / float(hgt), &track, &draws, cam->d.matrix);
             return;
         }
         track.visible(vp, eye, draws);
@@ -2995,7 +3473,7 @@ int run_drive(const Args& a) {
         }
         cull_line = "corte volume (sem a arvore de cenas)";
         scene.fx.clear();
-        fx_app.push(scene, cam->d.fov, float(w) / float(hgt));
+        fx_app.push(scene, cam->d.fov, float(w) / float(hgt), &track, &draws, cam->d.matrix);
     };
     DriveInput input;
     drv::InputConfigManager* icm = new drv::InputConfigManager();
@@ -3029,7 +3507,9 @@ int run_drive(const Args& a) {
     };
     input.camera = [&](int32_t action, float value) {
         refresh_cam_ctx();
-        if (icm->d.type == 1) cam->CameraInputCallback(cam_ctx, action, value, 1);
+        // As duas configurações: a do POV (o AutoDriveCamInputHandler) e a do carro (o DriveCamInputHandler, seção 30:
+        // o triângulo troca de câmera, o L2 olha para trás).
+        cam->CameraInputCallback(cam_ctx, action, value, icm->d.type == 1 ? 1 : 0);
     };
     // A vibração do carro do jogador (IFeedback, porta 0) no controle do PC, como o jogo a pé faz com o seu
     // (platform/psi_pad.cpp: o motor grande no de baixa frequência, o pequeno ligado em 0xffff), só quando muda; nas
@@ -3100,19 +3580,54 @@ int run_drive(const Args& a) {
             }
         }
         if (drv::audio_init(ai, loader)) {
+            drv::ASoundManager_SetVolumes(ai.music_volume, ai.sfx_volume);  // fMusicVolume, fSFXVolume (seção 28)
+            // O WWorld::Open (0x0022faf8, depois do ASoundManager::Init no GameLoop_StartUp): os sons do mapa ('Audi': nenhum
+            // registro em Paris) e os dos caminhos animados cujo objeto tem um DEFAULTSOUND (-1 em Paris; seção 31).
+            {
+                const uint8_t* audi = nullptr;
+                int32_t audi_count = 0;
+                if (drv::UGroup* map = track.map_group()) {
+                    drv::UData* au = drv::UGroup_DataLocateTag(map, 0x41756469u);  // 'Audi'
+                    if (au != drv::UGroup_DataEnd(map)) {
+                        audi = drv::UData_Data(au);
+                        audi_count = int32_t(au->count);
+                    }
+                }
+                std::vector<drv::WorldPathSound> paths;
+                for (drv::RPathHandle* ph : drv::path_engine_handles()) {
+                    const auto* in = nf::p32_ptr<const drv::CarpInstanceRec>(ph->instance);
+                    const uint32_t* art = in ? nf::p32_ptr<const uint32_t>(in->article) : nullptr;
+                    const auto* bd = art ? nf::p32_ptr<const drv::CarpBaseDesc>(art[0]) : nullptr;
+                    const auto* phys = bd ? nf::p32_ptr<const drv::SmackablePhysicsData>(bd->physics) : nullptr;
+                    if (!phys || phys->default_sound < 0) continue;
+                    drv::WorldPathSound w;
+                    std::memcpy(w.pos, drv::RPathHandle_GetPosition(*ph), 12);
+                    w.handle = nf::p32_u(ph);
+                    w.sound = phys->default_sound;
+                    w.warning = phys->warning_sound;
+                    paths.push_back(w);
+                }
+                drv::world_sounds_open(audi, audi_count, paths);
+            }
             drv::AudioCarAttributes ca;
             attrs.find("SFX_ENGINE", ca.engine);
             ca.volume = attrs.lookup_float("SFX_VOLUME");
             ca.skid_multiple = attrs.lookup_float("SFX_SKIDMULTIPLE");
+            ca.type = car_name;  // o +0x2cc: o "helicopter" de Paris dá o APlayerHeli (seção 31)
             drv::audio_create_player_car(ca);
             drv::bond_car_audio_hook() = [](drv::BondCar& c, float rpm) { drv::PBondCar_AudioFeed(c, rpm); };
             nf::audio_out_set_source(drv::snd_render, &drv::snd_spu());
             if (!a.audio_dump.empty()) audio_on = nf::audio_out_open_dump(widen(a.audio_dump));
             else audio_on = nf::audio_out_open_device();
             if (!audio_on) std::fprintf(stderr, "nf_driving: sem saída de som\n");
+            drv::gfx_env().sounds = true;  // os sons 'gs' da galeria (seção 29)
+            // Os carros que já existiam (o trânsito, a seção 29): o objeto de som do PBondCar::InitAudioObject.
+            for (drv::BondCar* c : drv::simulation().cars)
+                if (c) drv::PBondCar_CreateAudioObject(*c);
         }
     }
     auto audio_end = [&]() {
+        drv::gfx_env().sounds = false;
         nf::audio_out_close();
         nf::audio_out_set_source(nullptr, nullptr);
         drv::bond_car_audio_hook() = nullptr;
@@ -3163,7 +3678,24 @@ int run_drive(const Args& a) {
                     drv::RPathEngine_Update(ps2::ee::cvt_s(drv::simulation().steps));
                 }
             } else if (fn == drv::kEvAIUpdate) {
-                drv::AIVehicleController_UpdateVehicles();  // o EAIUpdate: o tráfego (os pedestres e as zonas não)
+                drv::AIVehicleController_UpdateVehicles();  // o EAIUpdate: o tráfego (as zonas não)
+                // Seção 32: os pedestres (nenhum em Paris: o Manage só guarda a posição e as ruas especiais), fora da
+                // simulação parada como o PS2.
+                if (drv::simulation().state != 3) {
+                    const drv::RigidBody* pb = drv::simulation().cars.empty() ? nullptr : drv::simulation().cars[0]->body();
+                    const float zero3[3] = {0.0f, 0.0f, 0.0f};
+                    drv::AICharacterPedestrian_Manage(pb ? pb->pos : zero3);
+                }
+                // NF_DRV_FLASH_LOG=1: o passo e o tempo de cada clarão de cano novo (para capturar um).
+                static const bool flash_log = nf::get_env_narrow("NF_DRV_FLASH_LOG", nullptr);
+                static uint64_t flashes_seen = 0;
+                const drv::MuzzleFlashStats& mfs = drv::muzzle_flash_stats();
+                if (flash_log && mfs.actor_started + mfs.vehicle_started != flashes_seen) {
+                    flashes_seen = mfs.actor_started + mfs.vehicle_started;
+                    std::printf("clarao_cano passo %d tempo %.3f s atores %llu carros %llu\n", drv::simulation().steps,
+                                double(drv::simulation().steps) / 60.0, (unsigned long long)mfs.actor_started,
+                                (unsigned long long)mfs.vehicle_started);
+                }
             } else if (fn == drv::kEvCameraUpdate) {
                 chase(0.12f);
             } else if (fn == drv::kEvRenderFrame) {
@@ -3171,6 +3703,16 @@ int run_drive(const Args& a) {
                 // O RRenderWorldCamera::DrawStaticWorldGeometry -> WTargetPicker::UpdateTargets do quadro: os alvos da
                 // IA na tela, a escolha e o alvo do mundo (driving/game/target_picker.h), que os mísseis seguem.
                 drv::WTargetPicker_UpdateTargets();
+                // O GHud::Render do quadro (RRenderHigh::Render): o tempo do quadro e o desenho do HUD (o GOrthoHudView).
+                if (real_hud) {
+                    // GHud::IsFlyByWireOn (0x0023eab0): o modo da câmera do jogador é o da câmera do míssil.
+                    drv::hud_draw_env().fly_by_wire = cam != nullptr && cam->d.mode == cam_tables->tables.missile_index;
+                    // O RRenderWorldCamera::DoRender -> WTargetPicker::DrawTargetingSystem: a trava e a mira no HUD.
+                    drv::WTargetPicker_DrawTargetingSystem(drv::hud());
+                    drv::hud_frame().clear();
+                    drv::GHud_Render(drv::hud());
+                    hud_items = drv::hud_frame();
+                }
             } else if (fn == drv::kEvAudioUpdate) {
                 // EAudioUpdate: o ouvinte na câmera do jogador (a matriz e a velocidade, +0x40), o carro.
                 drv::AudioListenerInput l;
@@ -3191,6 +3733,38 @@ int run_drive(const Args& a) {
         events.clear();
     };
     drv::mission_env().scheduler = &sched;
+    // A pausa do HUD (seção 31): a fila "HUDQ" (o DriveInput a alimenta), o InputConfigManager e o mapa das ações (as
+    // páginas dos controles, o eixo invertido), o timeScale do escalonador (a trapaça da câmera lenta), o
+    // ACCUMULATE_SCORES do mundo (a página dos pontos), a câmera do jogador (o RPlayerCamera::PauseOff do EResume) e a
+    // moça do fundo: a tabela de cores do .data do DRIVING.ELF e a imagem do port trocada a cada quadro dela.
+    {
+        drv::hud_queue_reset();
+        drv::HudPauseEnv& pe = drv::hud_pause_env();
+        pe = drv::HudPauseEnv();
+        pe.icm = icm;
+        pe.input_uber = &input_uber;
+        pe.input_map = &input.map;
+        pe.time_scale = &sched.time_scale;
+        pe.accumulate_scores = accumulate_scores;
+        pe.camera_pause_off = [&] { cam->PauseOff(); };
+        std::vector<int8_t>& colours = drv::ggirl_colour_table();
+        colours.assign(0xc000, 0);
+        if (!read_driving_elf(*disc, 0x0039d918u, colours.data(), uint32_t(colours.size()))) {
+            colours.clear();
+            std::fprintf(stderr, "nf_driving: sem a tabela de cores da moça da pausa (DRIVING.ELF)\n");
+        }
+        drv::ggirl_image_sink() = [](int32_t buffer, const std::vector<uint32_t>& pixels) -> uint32_t {
+            static uint32_t ids[2] = {};
+            drv::UiImage img;
+            img.width = 128;
+            img.height = 128;
+            img.rgba.resize(size_t(128) * 128 * 4);
+            if (pixels.size() >= size_t(128) * 128) std::memcpy(img.rgba.data(), pixels.data(), img.rgba.size());
+            uint32_t& id = ids[buffer & 1];
+            if (id == 0 || !drv::ui_image_update(id, img)) id = drv::ui_image_add(std::move(img));
+            return id;
+        };
+    }
     int32_t clock = 0;  // o Clock do jogo (RealClock: um por quadro de vídeo, 60 Hz)
     // Um quadro do roteiro: a entrada (os SYNCTASKs, antes do Run) e um tick do relógio.
     // Os gatilhos pedidos para depois da largada (--fire-trigger N@s).
@@ -3204,7 +3778,7 @@ int run_drive(const Args& a) {
     // O tempo das mensagens do HUD (os Draw* do PS2 descontam o tempo do quadro).
     auto hud_tick = [&](float seconds) {
         std::memcpy(drv::mission_env().camera_pos, eye, sizeof eye);
-        if (drv::hud_exists()) drv::GHud_Tick(drv::hud(), seconds);
+        if (drv::hud_exists() && !real_hud) drv::GHud_Tick(drv::hud(), seconds);
     };
     Autopilot autopilot;
     autopilot.element = a.autopilot;
@@ -3223,13 +3797,62 @@ int run_drive(const Args& a) {
     uint64_t emp_hits = 0;
     std::string ai_log_env;
     const bool ai_log = nf::get_env_narrow("NF_DRV_AI_LOG", &ai_log_env);  // depuração: o estado da IA a cada segundo
+    // Os VBlanks dos filmes (seção 28): o relógio do som (o TIMER e a saída) anda com eles além do do jogo.
+    int32_t av_offset = 0;
+    bool outro_done = false;  // o filme de fim já tocou (depois do EExit)
+    // Os controles de PC (seção 33, platform/drive_controls.h): a tabela [driving_bindings] e o mouse [driving] do
+    // arquivo de --config (na janela, sem ele, o nightfire.ini ao lado do executável; as capturas só leem com --config).
+    nf::DriveController drive_ctl;
+    {
+        nf::Settings ini;
+        bool have_ini = false;
+        if (!a.config.empty()) have_ini = ini.load(widen(a.config));
+        else if (a.screenshot.empty()) have_ini = ini.load(nf::default_settings_path());
+        if (have_ini) {
+            nf::load_drive_bindings(ini, &drive_ctl.bindings);
+            drive_ctl.mouse = nf::load_drive_mouse(ini);
+        }
+    }
+    // O modo da entrada: o menu com a pausa do HUD aberta, a mira com a configuração do POV (a direção automática; a
+    // luneta fechada pelo AimZoom), a condução no resto.
+    auto drive_mode = [&]() {
+        if (drv::hud().paused != 0) return nf::DriveMode::Menu;
+        if (icm->d.type == 1) return cam->state.zoom_held != 0 ? nf::DriveMode::AimZoom : nf::DriveMode::Aim;
+        return nf::DriveMode::Drive;
+    };
+    uint16_t drive_last_buttons = 0;
+    // Um quadro dos controles de PC: o controle do PS2 que eles fazem e o giro da mira pelo mouse na câmera do AutoDrive.
+    auto drive_controls = [&](const nf::DriveFrame& f) {
+        const nf::Ps2PadFrame p = drive_ctl.update(f, drive_mode());
+        if (drive_ctl.aim_yaw != 0.0f || drive_ctl.aim_pitch != 0.0f) {
+            const float turn = 1.0f / 6.28318530718f;
+            cam->AddMouseAim(drive_ctl.aim_yaw * turn, drive_ctl.aim_pitch * turn);
+        }
+        drive_last_buttons = p.buttons;
+        return p;
+    };
     auto step = [&](const DriveKeys& k) {
         refresh_cam_ctx();
-        drv::PadData pad = pad_from(k, nullptr);
+        nf::Ps2PadFrame pf = ps2_from_keys(k);
+        {
+            // Os passos do mouse do roteiro pelos controles de PC (sem eles, um quadro neutro: nada muda).
+            nf::DriveFrame f;
+            if (k.lmb || k.rmb)
+                f.key_down = [&k](int code) {
+                    return (code == nf::key::LButton && k.lmb) || (code == nf::key::RButton && k.rmb);
+                };
+            f.mouse_dx = k.mdx / 60.0f;
+            f.mouse_dy = k.mdy / 60.0f;
+            f.wheel = k.wheel;
+            f.clock = clock;
+            pf = nf::ps2_merge(pf, drive_controls(f));
+        }
+        drv::PadData pad = pad_data(pf);
         // Com o atirador, o piloto só depois da troca do helicóptero pelo carro (ECustomTransition) e o atirador só antes.
         const bool car_section = drv::heli_section_stats().changes > 0;
         if (a.autopilot >= 0 && (gunner.elements.empty() || car_section)) autopilot.drive(pad, *car);
         if (!gunner.elements.empty() && !car_section) gunner.drive(pad);
+        input.io.inverted = icm->d.inverted != 0;  // (a pausa troca o eixo: InputConfigManager::SetInverted)
         input.feed(*car, pad, clock);
         if (ai_log && clock % 600 == 0)
             for (int i = 0; drv::ai_controller() && i < drv::ai_controller()->count; ++i)
@@ -3310,7 +3933,7 @@ int run_drive(const Args& a) {
         fire_late(clock, clock + 1);
         ++clock;
         hud_tick(1.0f / 60.0f);
-        drv::audio_set_timer(clock * 100 / 60);
+        drv::audio_set_timer((clock + av_offset) * 100 / 60);
         sched.Run(clock);
         {
             // Os efeitos andam a cada passo (drv_fx.h): a câmera do passo.
@@ -3318,7 +3941,12 @@ int run_drive(const Args& a) {
             camera_view(fv);
             fx_app.update(drv::simulation().steps, cam->d.matrix, fv);
         }
-        if (audio_on) nf::audio_out_catch_up(uint32_t(clock));
+        if (audio_on) nf::audio_out_catch_up(uint32_t(clock + av_offset));
+        // O EExit do GOrthoHudView::PostRender acaba o laço do RunTheGame: o filme de fim (o RunTheGame_PlaysOutro).
+        if (real_hud && drv::hud().exit != 0 && !outro_done) {
+            outro_done = true;
+            if (drv::RunTheGame_PlaysOutro()) drv::RunTheGame_PlayOutro(drv::uber_bond().text(0x4f4));
+        }
     };
     // O roteiro: "teclas:segundos" separados por espaço (60 passos por segundo).
     std::vector<std::pair<DriveKeys, int>> script;
@@ -3337,6 +3965,87 @@ int run_drive(const Args& a) {
         }
     }
     std::string rep;
+    // Os filmes e as legendas (seção 28, driving/render/play_mpc.h): o anfitrião do PlayMPC. Cada quadro do filme vai
+    // ao renderizador (a área 4:3 da janela, as legendas por cima pelo 2D do GS); a espera anda o relógio do som um
+    // VBlank por vez; o Start (Enter, espaço, Esc; o Start ou o A do controle) para o filme.
+    bool movie_shot_done = false;
+    int32_t movie_vbl = 0;
+    uint64_t movie_seen = 0;
+    {
+        drv::SubtitleFiles& sf = drv::subtitle_files();
+        sf.load = [&](const std::string& name, std::vector<uint8_t>& out) {
+            if (!have_misc_arc) return false;
+            const int i = misc_arc.find(name);
+            return i >= 0 && misc_arc.read(i, out);
+        };
+        sf.image = [](const std::vector<uint8_t>& file) -> uint32_t {
+            drv::FontFile ff;
+            if (!drv::font_parse(file.data(), file.size(), ff)) return 0;
+            drv::UiImage img;
+            img.width = ff.image_width;
+            img.height = ff.image_height;
+            img.rgba = ff.rgba;
+            return drv::ui_image_add(std::move(img));
+        };
+        drv::GSubtitles_Construct(drv::gsubtitles_storage());
+        drv::movie_power_on();
+        drv::MovieHost& mh = drv::movie_host();
+        mh.load = sf.load;
+        mh.subtitles = a.subtitles;
+        mh.enabled = !a.no_movies && (a.screenshot.empty() || a.movies || !a.movie.empty());
+    }
+    auto movie_vblank = [&]() {
+        ++av_offset;
+        ++movie_vbl;
+        drv::audio_set_timer((clock + av_offset) * 100 / 60);
+        if (audio_on) nf::audio_out_catch_up(uint32_t(clock + av_offset));
+    };
+    auto movie_present = [&](drv::DrvRenderer& rr, int w, int hgt, const drv::MovieFrameView& v) {
+        if (drv::movie_stats().played != movie_seen) {
+            movie_seen = drv::movie_stats().played;
+            movie_vbl = 0;
+        }
+        drv::DrvScene ms;
+        ms.clear[0] = ms.clear[1] = ms.clear[2] = 0.0f;
+        ms.clear[3] = 1.0f;
+        std::memcpy(ms.view, scene.view, sizeof ms.view);
+        std::memcpy(ms.proj, scene.proj, sizeof ms.proj);
+        if (v.bgra) {
+            rr.set_movie_frame(v.width, v.height, v.bgra);
+            ms.movie = true;
+        }
+        if (v.subtitles) {
+            drv::hud2d::upload_images(rr);
+            drv::hud2d::packet_to_fx(v.subtitles->words, w, hgt, ms.overlay);
+        }
+        rr.draw_scene(ms);
+        if (a.movie_frame >= 0 && !movie_shot_done && v.bgra && v.frame >= a.movie_frame && !a.screenshot.empty() &&
+            int(drv::movie_stats().played + drv::movie_stats().missing) >= a.movie_index) {
+            movie_shot_done = true;
+            if (!rr.save_png(widen(a.screenshot))) std::fprintf(stderr, "nf_driving: não gravei %s\n", a.screenshot.c_str());
+            if (FILE* f = nf::fopen_narrow((a.screenshot + ".txt").c_str(), "wb")) {
+                const drv::MovieStats& st = drv::movie_stats();
+                const drv::SubtitleStats& ss = drv::subtitle_stats();
+                std::fprintf(f, "filme %s quadro %d %dx%d legendas %d (desenhadas %llu) vblanks %llu decodificados %llu\n",
+                             st.last.c_str(), v.frame, v.width, v.height, v.subtitles ? 1 : 0,
+                             (unsigned long long)ss.drawn, (unsigned long long)st.vblanks,
+                             (unsigned long long)st.frames_decoded);
+                std::fclose(f);
+            }
+            std::printf("filme %s quadro %d gravado em %s\n", drv::movie_stats().last.c_str(), v.frame, a.screenshot.c_str());
+        }
+    };
+    auto movie_pad = [&]() -> uint16_t {
+        if (movie_shot_done) return 0x800;  // a captura do filme já saiu: o Start
+        if (a.movie_skip >= 0.0f && float(movie_vbl) >= a.movie_skip * 60.0f) return 0x800;
+        return 0;
+    };
+    // Os filmes antes do laço do jogo: o --movie de depuração e o de abertura do RunTheGame (a missão).
+    auto play_start_movies = [&]() {
+        if (!a.movie.empty()) drv::PlayMovie(("ntsc\\eng\\" + a.movie + ".mpc").c_str(),
+                                             a.subtitles ? ("data\\loading\\" + a.movie + ".sub").c_str() : nullptr);
+        else if (drv::mission_exists()) drv::RunTheGame_PlayIntro(drv::uber_bond().text(0x4f4));
+    };
     auto report_line = [&](double ms_per_frame) {
         char b[1024];
         const drv::PBondCarData& c = car->d;
@@ -3530,6 +4239,40 @@ int run_drive(const Args& a) {
         rep += cull_line;
         rep += '\n';
         {
+            // Seção 34: o modelo próprio dos objetos de cena (o UseArticle e o Render) e os que saíram do estado de partida
+            // (o nome do artigo da instância, o estado do primeiro sistema, se toca): a rampa do guindaste da obra.
+            const drv::SceneArticleStats& ss = drv::scene_article_stats();
+            std::snprintf(b, sizeof b,
+                          "objetos_cena_modelo artigos %llu listas %llu unicos %llu sem %llu handles %llu copias %llu "
+                          "efeitos %llu raiz %llu | desenhos %llu escondidas %llu outras_funcoes %llu efeitos_quadros %llu "
+                          "guardas %llu |",
+                          (unsigned long long)ss.articles, (unsigned long long)ss.lists, (unsigned long long)ss.single,
+                          (unsigned long long)ss.without, (unsigned long long)ss.handles,
+                          (unsigned long long)ss.instances, (unsigned long long)ss.effects_on,
+                          (unsigned long long)ss.root_nodes, (unsigned long long)ss.draws,
+                          (unsigned long long)ss.hidden, (unsigned long long)ss.proc_other,
+                          (unsigned long long)fx_app.scene_obj_fx_frames, (unsigned long long)ss.guards);
+            rep += b;
+            int moved = 0;
+            for (const drv::RSceneObj& o : track.scene_objects()) {
+                if (!o.article) continue;
+                const auto& hd = *nf::p32_ptr<const drv::AnimHandleData>(o.article);
+                if (hd.n_systems == 0) continue;
+                const auto& sys = *nf::p32_ptr<const drv::AnimSystemData>(hd.systems);
+                if (sys.state == 1 && sys.playing == 0) continue;
+                if (++moved > 8) continue;
+                const int src = track.instance_index(o.instance);
+                const std::string nm =
+                    src >= 0 && track.instances()[size_t(src)].article >= 0
+                        ? track.articles()[size_t(track.instances()[size_t(src)].article)].name
+                        : std::string("?");
+                std::snprintf(b, sizeof b, " %s#%d:estado%u%s", nm.c_str(), src, sys.state, sys.playing ? "+tocando" : "");
+                rep += b;
+            }
+            std::snprintf(b, sizeof b, " (%d)\n", moved);
+            rep += b;
+        }
+        {
             // A missão: o estado, a etapa, as regras, os eventos, os cronômetros, o objetivo e o HUD.
             const drv::MissionStats& ms = drv::mission_stats();
             const drv::EventStats& es = drv::event_stats();
@@ -3576,11 +4319,64 @@ int run_drive(const Args& a) {
                           int(h.objective_text), int(h.button_symbol), int(h.result_text), int(h.letterbox_mode),
                           double(h.black_fade), (unsigned long long)hud_lines_drawn);
             rep += b;
+            {
+                // O HUD das galerias: os quadros desenhados, os itens do último (materiais e pacotes de fonte), os sons
+                // (AMenuSound) e os EExit/ERestart do GOrthoHudView::PostRender.
+                const drv::HudDrawStats& hs = drv::hud_draw_stats();
+                size_t mats = 0, packets = 0;
+                for (const drv::HudFrameItem& it : hud_items) (it.is_packet ? packets : mats) += 1;
+                std::string snd;
+                for (size_t i = hs.sounds.size() > 6 ? hs.sounds.size() - 6 : 0; i < hs.sounds.size(); ++i)
+                    snd += " " + hs.sounds[i].name;
+                std::snprintf(b, sizeof b,
+                              "hud_galeria %s quadros %d materiais %zu fontes %zu sons %zu%s | saidas %d recomecos %d "
+                              "pausa %d guardas %d\n",
+                              real_hud ? "sim" : "nao", hs.frames, mats, packets, hs.sounds.size(),
+                              snd.empty() ? "" : snd.c_str(), hs.exits, hs.restarts, hs.pause_menu, hs.guards);
+                rep += b;
+                // A pausa (seção 31): o estado do GHud e o que a fila HUDQ fez.
+                const drv::HudPauseStats& ps = drv::hud_pause_stats();
+                const uint8_t* hb = reinterpret_cast<const uint8_t*>(&drv::hud());
+                auto w32 = [hb](uint32_t at) {
+                    int32_t v;
+                    std::memcpy(&v, hb + at, 4);
+                    return v;
+                };
+                std::snprintf(b, sizeof b,
+                              "pausa_hud parado %d pagina %d item %d confirma %d | pausas %llu retomadas %llu acoes %llu "
+                              "pulos %llu trapacas %llu recomecos %llu saidas %llu | moca quadros %llu voltas %llu "
+                              "tabela %zu | sem_camera %llu sem_carro %llu\n",
+                              w32(0x2a0), w32(0x480), w32(0x484), w32(0x494), (unsigned long long)ps.pauses,
+                              (unsigned long long)ps.resumes, (unsigned long long)ps.actions, (unsigned long long)ps.skips,
+                              (unsigned long long)ps.cheats, (unsigned long long)ps.restarts, (unsigned long long)ps.quits,
+                              (unsigned long long)ps.girl_frames, (unsigned long long)ps.girl_restarts,
+                              drv::ggirl_colour_table().size(), (unsigned long long)ps.no_camera,
+                              (unsigned long long)ps.no_car);
+                rep += b;
+            }
             rep += "eventos_sem_porte" + (skipped.empty() ? std::string(" -") : skipped) + "\n";
             std::string ran;
             for (const auto& e : es.run)
                 if (ran.size() < 300) ran += " " + std::to_string(e.first) + ":" + std::to_string(e.second);
             rep += "eventos_executados" + (ran.empty() ? std::string(" -") : ran) + "\n";
+        }
+        {
+            // Os filmes e as legendas (seção 28).
+            const drv::MovieStats& mv = drv::movie_stats();
+            const drv::SubtitleStats& sb = drv::subtitle_stats();
+            const drv::AudioPauseStats& ap = drv::audio_pause_stats();
+            std::snprintf(b, sizeof b,
+                          "filmes %s tocados %llu pulados %llu sem_arquivo %llu sem_som %llu mostrados %llu decodificados %llu vblanks "
+                          "%llu ultimo %s quadros %d passo %d | legendas carregadas %llu mostradas %llu desenhadas %llu "
+                          "guardas %llu | som_pausado %llu/%llu sons %llu\n",
+                          drv::movie_host().enabled ? "ligados" : "desligados", (unsigned long long)mv.played,
+                          (unsigned long long)mv.skipped, (unsigned long long)mv.missing, (unsigned long long)mv.no_sound,
+                          (unsigned long long)mv.frames_shown, (unsigned long long)mv.frames_decoded,
+                          (unsigned long long)mv.vblanks, mv.last.empty() ? "-" : mv.last.c_str(), mv.last_frames,
+                          mv.last_step, (unsigned long long)sb.loads, (unsigned long long)sb.shown,
+                          (unsigned long long)sb.drawn, (unsigned long long)sb.guards, (unsigned long long)ap.pauses,
+                          (unsigned long long)ap.resumes, (unsigned long long)ap.sounds_paused);
+            rep += b;
         }
         if (const drv::SWeaponManagerData* w = drv::weapon_manager()) {
             // As armas (driving/game/weapons.h) e o motor de animação das instâncias (driving/render/anim_engine.h).
@@ -3687,6 +4483,45 @@ int run_drive(const Args& a) {
                           (unsigned long long)ss.failed, (unsigned long long)ss.mix_voices,
                           (unsigned long long)ss.guards);
             rep += b;
+            // O mixador do IOP (docs/driving.md seção 29): as vozes de EA-XA da memória do IOP.
+            const drv::IopMixStats& im = drv::iop_mix_stats();
+            std::snprintf(b, sizeof b,
+                          "mixador_iop comecos %llu paradas %llu fim %llu fatias %llu fatias_voz %llu amostras %llu "
+                          "rampas %llu guardas %llu pico %d ativas %llu de %.2f s a %.2f s | snddrv_guardas %llu\n",
+                          (unsigned long long)im.starts, (unsigned long long)im.stops, (unsigned long long)im.ended,
+                          (unsigned long long)im.slices, (unsigned long long)im.voice_slices,
+                          (unsigned long long)im.samples, (unsigned long long)im.ramps, (unsigned long long)im.guards,
+                          im.peak, (unsigned long long)im.active_slices, double(im.first_active) * 512.0 / 48000.0,
+                          double(im.last_active) * 512.0 / 48000.0, (unsigned long long)drv::snddrv_guards());
+            rep += b;
+            const drv::ACharacterStats& cs = drv::acharacter_stats();
+            const drv::GallerySoundStats& gs = drv::gallery_sound_stats();
+            std::snprintf(b, sizeof b,
+                          "personagens_som criados %llu apagados %llu falas %llu mudas %llu acabadas %llu guardas %llu | "
+                          "galeria_som criados %llu tocados %llu mudos %llu apagados %llu guardas %llu\n",
+                          (unsigned long long)cs.created, (unsigned long long)cs.deleted, (unsigned long long)cs.says,
+                          (unsigned long long)cs.silent, (unsigned long long)cs.voices_done,
+                          (unsigned long long)cs.guards, (unsigned long long)gs.created,
+                          (unsigned long long)gs.started, (unsigned long long)gs.silent,
+                          (unsigned long long)gs.deleted, (unsigned long long)gs.guards);
+            rep += b;
+            const drv::TrafficAudioStats& ts = drv::traffic_audio_stats();
+            std::snprintf(b, sizeof b, "carros_som criados %llu apagados %llu tocados %llu guardas %llu\n",
+                          (unsigned long long)ts.created, (unsigned long long)ts.deleted,
+                          (unsigned long long)ts.plays, (unsigned long long)ts.guards);
+            rep += b;
+            // Seção 31: os sons das armas, da mira e dos objetos (driving/sound/audio.h).
+            const drv::SceneAudioStats& sc = drv::scene_audio_stats();
+            std::snprintf(b, sizeof b,
+                          "cena_som menus %llu tiros %llu zona %llu/%llu trava %llu avisos %llu | derrubaveis %llu "
+                          "choques %llu soltos %llu | mundo %llu outros %llu guardas %llu\n",
+                          (unsigned long long)sc.menu_sounds, (unsigned long long)sc.gun_shots,
+                          (unsigned long long)sc.zone_in, (unsigned long long)sc.zone_out,
+                          (unsigned long long)sc.targeting, (unsigned long long)sc.targeting_warnings,
+                          (unsigned long long)sc.smackables, (unsigned long long)sc.smack_collisions,
+                          (unsigned long long)sc.smack_detached, (unsigned long long)sc.world_sounds,
+                          (unsigned long long)sc.collisions_other, (unsigned long long)sc.guards);
+            rep += b;
         }
         // O render do carro: as rodas (o giro dos eixos e a direção desenhada), as lâmpadas acesas, a sombra, a
         // vibração e as configurações do controle.
@@ -3746,18 +4581,38 @@ int run_drive(const Args& a) {
         }
         if (hud_font_ok) r.set_ui_texture(hud_font.image_width, hud_font.image_height, hud_atlas.data());
         fx_app.textures(have_misc_arc ? &misc_arc : nullptr, &arc, r);
+        {
+            drv::MovieHost& mh = drv::movie_host();
+            mh.vblank = movie_vblank;
+            mh.pad = movie_pad;
+            mh.present = [&](const drv::MovieFrameView& v) { movie_present(r, a.width, a.height, v); };
+            play_start_movies();
+            if (movie_shot_done) {
+                audio_end();
+                return 0;
+            }
+        }
         chase(1.0f);
         int total = 0;
         for (const auto& s : script) total += s.second;
         const int want = a.seconds > 0 ? int(a.seconds * 60.0f + 0.5f) : total;
         int done = 0;
         for (const auto& s : script)
-            for (int i = 0; i < s.second && done < want; ++i, ++done) step(s.first);
-        for (; done < want; ++done) step(DriveKeys{});
+            for (int i = 0; i < s.second && done < want && !movie_shot_done; ++i, ++done) {
+                DriveKeys k = s.first;
+                if (i > 0) k.wheel = 0;  // os entalhes no começo do passo
+                step(k);
+            }
+        for (; done < want && !movie_shot_done; ++done) step(DriveKeys{});
+        if (movie_shot_done) {  // a captura saiu do filme do meio da missão (o ESetVideo)
+            audio_end();
+            return 0;
+        }
         double ms = 0;
         if (a.bench_frames > 0) {
             // O custo de um quadro inteiro: um passo da física, a visibilidade, a cena e o desenho (fora da tela).
             compose(a.width, a.height);
+            drv::hud2d::upload_images(r);
             r.draw_scene(scene);
             r.finish();
             const uint64_t b0 = nf::os::perf_counter();
@@ -3767,6 +4622,7 @@ int run_drive(const Args& a) {
             for (int i = 0; i < a.bench_frames; ++i) {
                 step(k);
                 compose(a.width, a.height);
+                drv::hud2d::upload_images(r);
                 r.draw_scene(scene);
             }
             r.finish();
@@ -3777,6 +4633,7 @@ int run_drive(const Args& a) {
                         1000.0 / ms, rig_ms, r.stats().adapter.c_str());
         }
         compose(a.width, a.height);
+        drv::hud2d::upload_images(r);
         r.draw_scene(scene);
         report_line(ms);
         char b[512];
@@ -3792,6 +4649,25 @@ int run_drive(const Args& a) {
                       r.stats().draw_calls, a.width, a.height, r.stats().adapter.c_str());
         rep += b;
         {
+            // Os controles de PC (seção 33): o aparelho e o modo da entrada, o mouse, a mira pelo mouse (os pedidos, os
+            // aplicados no UpdateAutoDriveCam, os presos pelo LimitPitchYaw, os jogados fora; o giro somado em graus; o
+            // rumo e a inclinação da mira agora, em graus), a roda e os botões do PS2 do último quadro.
+            const drv::PlayerCamera::MouseAimStats& ms = cam->mouse_aim_stats;
+            std::snprintf(b, sizeof b,
+                          "entrada_conducao aparelho %s modo %s trocas %llu | mouse quadros %llu dx %.0f dy %.0f | mira "
+                          "pedidos %llu aplicados %llu presos %llu descartados %llu giro %.2f %.2f rumo %.2f inclinacao "
+                          "%.2f | roda entalhes %llu toques %llu | botoes %04x | sensibilidade %.5f inverte %d\n",
+                          drive_ctl.device() == nf::DriveDevice::Pad ? "controle" : "teclado_mouse",
+                          nf::drive_mode_name(drive_mode()), (unsigned long long)drive_ctl.device_switches,
+                          (unsigned long long)drive_ctl.mouse_frames, drive_ctl.mouse_dx_total, drive_ctl.mouse_dy_total,
+                          (unsigned long long)ms.requests, (unsigned long long)ms.applied, (unsigned long long)ms.limited,
+                          (unsigned long long)ms.dropped, ms.yaw * 360.0, ms.pitch * 360.0, double(cam->d.ad_yaw) * 360.0,
+                          double(cam->d.ad_pitch) * 360.0, (unsigned long long)drive_ctl.wheel_notches,
+                          (unsigned long long)drive_ctl.pulses, unsigned(drive_last_buttons),
+                          double(drive_ctl.mouse.sensitivity), drive_ctl.mouse.invert_y ? 1 : 0);
+            rep += b;
+        }
+        {
             // Os modos da seção 23: o tipo do modo, o AutoDrive (o braço, a inclinação e o rumo em graus, o ponto preso),
             // as câmeras animadas e os eventos de câmera.
             const drv::CameraModeInfo& mi = cam_tables->mode(cam->d.mode);
@@ -3806,6 +4682,23 @@ int run_drive(const Args& a) {
                           (unsigned long long)cam->ai_path_updates, (unsigned long long)cam->input_actions,
                           int(icm->d.type), (unsigned long long)ce.executed, (unsigned long long)ce.car_anims,
                           (unsigned long long)cam->guards);
+            rep += b;
+            // Os modos e os gatilhos da seção 30: os quadros dos modos novos, a entrada do carro, as trocas de modo, a
+            // câmera da pausa, os pedidos de animação relativa ao carro, as trocas de âncora, o trilho no
+            // GetAnchorLinearVelocity, a luneta; os gatilhos tocados pelos corpos simples e pelas instâncias.
+            const drv::TriggerStats& ts = drv::trigger_stats();
+            std::snprintf(b, sizeof b,
+                          "camera_vistas modo %d quadros %llu relativa %llu entradas %llu trocas %llu pausa %llu "
+                          "carro_anim %llu ancoras %llu trilho %llu animacao_engine %d sem_ancora %llu luneta %llu | "
+                          "gatilhos corpos_simples %llu/%llu instancias %llu/%llu\n",
+                          int(cam->d.mode), (unsigned long long)cam->view_updates,
+                          (unsigned long long)cam->rel_anim_updates, (unsigned long long)cam->drive_inputs,
+                          (unsigned long long)cam->mode_switches, (unsigned long long)cam->pause_cams,
+                          (unsigned long long)cam->car_anim_requests, (unsigned long long)cam->anchor_changes,
+                          (unsigned long long)cam->rail_velocity_reads, cam->engine_handle != 0 ? 1 : 0,
+                          (unsigned long long)ce.no_anchor, (unsigned long long)sniper_frames,
+                          (unsigned long long)ts.simple_hits, (unsigned long long)ts.simple_checks,
+                          (unsigned long long)ts.instance_hits, (unsigned long long)ts.instance_checks);
             rep += b;
             // O trilho do carro do jogador e a troca de carro (seção 23): o estado do AIGroundVehicle, o RPathHandle.
             const drv::RailStats& rs = drv::rail_stats();
@@ -3918,50 +4811,91 @@ int run_drive(const Args& a) {
     }
     if (hud_font_ok) r.set_ui_texture(hud_font.image_width, hud_font.image_height, hud_atlas.data());
     fx_app.textures(have_misc_arc ? &misc_arc : nullptr, &arc, r);
+    {
+        // Os filmes na janela: um VBlank de tempo real por espera, o quadro apresentado, o Start pelo teclado ou o controle.
+        drv::MovieHost& mh = drv::movie_host();
+        double movie_t = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        mh.vblank = [&]() {
+            movie_vblank();
+            movie_t += 1.0 / 60.0;
+            nf::os::wait_until(movie_t);
+        };
+        mh.pad = [&]() -> uint16_t {
+            win.pump();
+            uint16_t b = movie_pad();
+            if (win.key_down(nf::key::Return) || win.key_down(nf::key::Space) || win.key_down(nf::key::Escape)) b |= 0x800;
+            nf::PadState pads[nf::kMaxPads];
+            nf::system_pad_source().poll(pads);
+            const nf::PadState* fp = first_connected_pad(pads);
+            if (fp && (fp->buttons & (nf::kPadStart | nf::kPadA)) != 0) b |= 0x800;
+            return b;
+        };
+        mh.present = [&](const drv::MovieFrameView& v) {
+            win.pump();
+            if (win.resized()) r.resize(win.width(), win.height());
+            movie_present(r, win.width(), win.height(), v);
+            r.present();
+        };
+        play_start_movies();
+    }
     chase(1.0f);
     report_line(0);
     std::printf("%s", rep.c_str());
-    std::printf("W/seta acima acelera, S/seta abaixo freia (e dá ré), A/D/setas viram, espaço é o freio de mão, Esc sai\n");
+    std::printf("Clique na janela para capturar o mouse. Dirigindo: W/S acelera e freia (e dá ré), A/D viram, espaço é o freio "
+                "de mão, botão esquerdo (Ctrl) a arma, botão direito (Shift) o aparelho, a roda (Q/E) troca de arma, F a "
+                "câmera, C olha para trás. Na mira do helicóptero: o mouse (ou WASD/setas) mira, botão esquerdo atira, "
+                "direito fecha a luneta (a roda aproxima), R recarrega. Esc ou Enter: a pausa (sair nela fecha)\n");
     // O relógio do jogo pelo da parede (60 por segundo); a cada volta a entrada e o Run, que roda os ticks que passaram
     // (12 ou mais são jogados fora, como no PS2) e pede o desenho no último; sem tick, espera o próximo.
     const double t0s = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
     const int32_t clock0 = clock;
     (void)freq;
+    // Os controles de PC (seção 33): Esc é o Start (a pausa do HUD), como no jogo a pé; "sair" na pausa e fechar a janela
+    // acabam o programa; com o jogo parado o mouse fica solto (o menu), Alt+Tab o solta (a janela), um clique o captura.
+    const uint64_t quits0 = drv::hud_pause_stats().quits;
+    float wheel_left = 0.0f;
     while (win.pump()) {
-        if (win.key_down(nf::key::Escape)) break;
-        DriveKeys k;
-        k.gas = win.key_down('W') || win.key_down(nf::key::Up);
-        k.brake = win.key_down('S') || win.key_down(nf::key::Down);
-        k.left = win.key_down('A') || win.key_down(nf::key::Left);
-        k.right = win.key_down('D') || win.key_down(nf::key::Right);
-        k.hand = win.key_down(nf::key::Space);
-        // As armas no teclado (só do port): Ctrl o R1, Shift o L1, E o R2, Q o L2, F o triângulo.
-        k.r1 = win.key_down(nf::key::Control);
-        k.l1 = win.key_down(nf::key::Shift);
-        k.r2 = win.key_down('E');
-        k.l2 = win.key_down('Q');
-        k.tri = win.key_down('F');
+        if (real_hud && drv::hud().exit != 0) break;  // o EExit: o fim da missão
+        if (drv::hud_pause_stats().quits != quits0) break;  // "sair" no menu de pausa do HUD
+        win.set_menu_mode(drv::hud().paused != 0);
+        nf::g_pad_enabled = win.focused();
         nf::PadState pads[nf::kMaxPads];
         nf::system_pad_source().poll(pads);
         refresh_cam_ctx();
-        input.feed(*car, pad_from(k, &pads[0]), clock);
+        input.io.inverted = icm->d.inverted != 0;
+        nf::DriveFrame df;
+        df.key_down = [&win](int code) { return win.key_down(code); };
+        df.mouse_captured = win.mouse_captured();
+        win.take_mouse_delta(df.mouse_dx, df.mouse_dy);
+        wheel_left += win.take_wheel();
+        df.wheel = int(wheel_left);
+        wheel_left -= float(df.wheel);
+        df.pad = first_connected_pad(pads);
+        df.clock = clock;
+        input.feed(*car, pad_data(drive_controls(df)), clock);
         const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
         const int32_t clock_before = clock;
         clock = clock0 + int32_t((now - t0s) * 60.0);
         fire_late(clock_before, clock);
         if (clock > clock_before) hud_tick(float(clock - clock_before) / 60.0f);
         render_requested = false;
-        drv::audio_set_timer(clock * 100 / 60);
+        drv::audio_set_timer((clock + av_offset) * 100 / 60);
         sched.Run(clock);
-        if (audio_on) nf::audio_out_catch_up(uint32_t(clock));
+        if (audio_on) nf::audio_out_catch_up(uint32_t(clock + av_offset));
         if (!render_requested) {
             nf::os::wait_until(t0s + double(clock - clock0 + 1) / 60.0);
             continue;
         }
         if (win.resized()) r.resize(win.width(), win.height());
         compose(win.width(), win.height());
+        drv::hud2d::upload_images(r);
         r.draw_scene(scene);
         r.present();
+    }
+    // O fim da missão (o EExit): o filme de fim, como o RunTheGame depois do laço.
+    if (real_hud && drv::hud().exit != 0 && !outro_done) {
+        outro_done = true;
+        if (drv::RunTheGame_PlaysOutro()) drv::RunTheGame_PlayOutro(drv::uber_bond().text(0x4f4));
     }
     audio_end();
     ai_end();

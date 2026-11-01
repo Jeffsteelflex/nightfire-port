@@ -11,12 +11,8 @@
 //    ForceCameraChange, ShakeCamera, EndMissileCamera.
 //
 // Divergências e o que não foi portado (conta em camera_pending(), as leituras fora do lugar em guards):
-//  - as câmeras animadas de verdade (registro 'Cams' com animação, +0x1c não nulo: o RAnimEngine, UpdateAnimationCam) e a
-//    câmera relativa a um carro (TriggerCarAnimationCamera: as animações 'Cams' do modelo da âncora; nenhum modelo de
-//    Paris as tem): contam;
-//  - o SetOldCameraMode com transição de 2 quadros ou mais para um modo que não é Heli com ruído (o PS2 monta um
-//    RPlayerCamera inteiro na pilha para achar o ponto de partida): conta e só pede o modo;
-//  - o DriveCamInputHandler (a entrada da câmera fora do POV: trocar de câmera, olhar para trás): conta;
+//  - (desde a seção 30, em player_camera_views.cpp: as câmeras animadas de verdade pelo RAnimEngine, a câmera relativa
+//    ao carro, o SetOldCameraMode com transição pelo RPlayerCamera da pilha, o DriveCamInputHandler e os outros modos);
 //  - o RColorize (a cor da câmera do míssil) e o AICharacterHands::fgZoomButton (o global 0x3276e0: guardado em
 //    statics.zoom_button) ficam só anotados;
 //  - o PS2 lê o braço -1 do AutoDrive antes do primeiro quadro do modo (ToggleAutoDriveZoom, SetCameraZoom tipo 2): o
@@ -29,7 +25,9 @@
 #include "driving/camera/dafi.h"
 #include "driving/camera/player_camera.h"
 #include "driving/game/rail.h"
+#include "driving/light_manager.h"
 #include "driving/physics/rigid_body.h"
+#include "driving/render/anim_engine.h"
 #include "driving/physics/simulation.h"
 #include "driving/real/vu0_math.h"
 #include "platform/ps2_float.h"
@@ -251,11 +249,13 @@ void PlayerCamera::SetOldCameraMode(int32_t mode, uint16_t delay, uint32_t trans
         SetCameraModeByIndex(mode, delay, 4, 0, 0, 0, nullptr);
         return;
     }
-    // O PS2 monta um RPlayerCamera na pilha, posto no modo pedido, para achar o ponto de partida da transição (e pede
-    // o modo da animação do mundo antes): não portado.
-    pending_mode();
-    d.mode_change |= 8;
-    SetCameraModeByIndex(mode, 0, 4, 0, 0, 0, nullptr);
+    if (!ctx_) {
+        pending_mode();  // (sem o mundo: nunca, depois do construct)
+        d.mode_change |= 8;
+        SetCameraModeByIndex(mode, 0, 4, 0, 0, 0, nullptr);
+        return;
+    }
+    SetOldCameraModeTransition(*ctx_, mode, delay, transition, arg4);
 }
 
 void PlayerCamera::PrevCameraMode(uint16_t delay) {
@@ -266,7 +266,8 @@ void PlayerCamera::PrevCameraMode(uint16_t delay) {
     if (g.mode_count == 0) return;  // (o PS2 para na divisão por zero)
     int32_t k = 0;
     for (;;) {
-        m = (m - 1) % g.mode_count;
+        // divu: o anterior do modo 0 é (2^32 - 1) % contagem, não o último (o vanquish de 22 modos vai ao 3; seção 30).
+        m = int32_t(uint32_t(m - 1) % uint32_t(g.mode_count));
         if (!(k < g.mode_count) || tables->mode(m).selectable != 0) break;
         ++k;
     }
@@ -600,6 +601,23 @@ int32_t PlayerCamera::UpdateADTargetAngles(const CameraContext& ctx, float* out_
     if (state.target_lock != 0) return 1;
     if (s5 == 0) return 0;
     return s3 != 0 ? 1 : 0;
+}
+
+// Só do port (docs/driving.md seção 33): o pedido do mouse somado ao rumo e à inclinação da mira, vezes o fov sobre o
+// padrão do modo, e preso pelos limites do braço (o LimitPitchYaw que o UpdateAutoDriveCam chama logo depois prende do
+// mesmo jeito). A inclinação do PS2 cresce para baixo (ad_pitch = -asin da frente em y): o pedido para cima a diminui.
+void PlayerCamera::ApplyMouseAim(const AutoDriveArmInfo& arm, float default_fov) {
+    if (mouse_aim_[0] == 0.0f && mouse_aim_[1] == 0.0f) return;
+    const float k = ee::lt(0.0f, default_fov) ? ee::div(d.fov, default_fov) : 1.0f;
+    const float yaw = ee::mul(mouse_aim_[0], k), pitch = ee::mul(mouse_aim_[1], k);
+    d.ad_yaw = ee::add(d.ad_yaw, yaw);
+    d.ad_pitch = ee::sub(d.ad_pitch, pitch);
+    state.centering = 0;
+    mouse_aim_[0] = mouse_aim_[1] = 0.0f;
+    ++mouse_aim_stats.applied;
+    mouse_aim_stats.yaw += double(yaw);
+    mouse_aim_stats.pitch += double(pitch);
+    if (LimitPitchYaw(arm, &d.ad_pitch, &d.ad_yaw) != 0) ++mouse_aim_stats.limited;
 }
 
 int32_t PlayerCamera::LimitPitchYaw(const AutoDriveArmInfo& arm, float* pitch, float* yaw) {
@@ -1086,6 +1104,7 @@ void PlayerCamera::UpdateAutoDriveCam(const CameraContext& ctx) {
         d.ad_pitch = ee::add(d.ad_pitch, ee::mul(ee::sub(f2, d.ad_pitch), k08));
         if (LimitPitchYaw(arm, &d.ad_pitch, &d.ad_yaw) != 0) SetCameraZoom(2, 0.0f, 0x1e);
     }
+    ApplyMouseAim(arm, tables->mode(d.mode).default_fov);  // só do port (seção 33): o mouse, antes dos limites
     d.limited = LimitPitchYaw(arm, &d.ad_pitch, &d.ad_yaw);
     if (d.limited != 0 && ctx.audio_turn) {
         ctx.audio_turn[0] = 0;
@@ -1196,7 +1215,7 @@ void PlayerCamera::UpdateAutoDriveCam(const CameraContext& ctx) {
 void PlayerCamera::CameraInputCallback(const CameraContext& ctx, int32_t action, float value, int32_t config_type) {
     ++input_actions;
     if (config_type == 1) AutoDriveCamInputHandler(ctx, action, value);
-    else pending_mode();  // [driving] 0x1bddc8 RPlayerCamState::DriveCamInputHandler
+    else DriveCamInputHandler(ctx, action, value);  // (player_camera_views.cpp, seção 30)
 }
 
 void PlayerCamera::AutoDriveCamInputHandler(const CameraContext& ctx, int32_t action, float value) {
@@ -1286,8 +1305,19 @@ void PlayerCamera::AutoDriveCamInputHandler(const CameraContext& ctx, int32_t ac
 
 bool PlayerCamera::LoadSingleAnimation(const uint8_t* cams) {
     anim_handle.reset();
+    if (engine_handle) AnimHandle_Destroy(engine_handle);  // [driving] 0x1a2558 RAnimEngine::Handle::~Handle
+    engine_handle = 0;
     d.anim_handle = 0;
     if (!cams) return false;
+    uint32_t anim = 0;
+    std::memcpy(&anim, cams + 0x1c, 4);
+    if (anim != 0) {
+        // Um registro com animação (seção 30): o Handle de verdade do RAnimEngine e o sistema da instância.
+        engine_handle = AnimHandle_Create(1, rtime_data().time, nf::p32_u(cams), 0, 0);
+        d.anim_handle = engine_handle ? 1u : 0u;
+        d.anim_system = engine_handle ? AnimHandle_GetInstanceSystemID(engine_handle, 0) : 0;
+        return engine_handle != 0;
+    }
     auto h = std::make_unique<CameraAnimHandle>();
     // [driving] 0x1a1bf0 RAnimEngine::Handle::Create e 0x1a1f58 Handle::Handle, para um registro sem animação: o tamanho
     // (0x40 por instância), a contagem 1 e a cópia do registro (com a regra da bandeira 0x10 sem estados de animação).
@@ -1301,19 +1331,19 @@ bool PlayerCamera::LoadSingleAnimation(const uint8_t* cams) {
         h->bytes[0x4f] = 0;
         h->bytes[0x4c] = uint8_t(h->bytes[0x4c] & 0xef);
     }
-    uint32_t anim = 0;
-    std::memcpy(&anim, cams + 0x1c, 4);
-    if (anim != 0) pending_mode();  // a animação de verdade (o RAnimEngine): não portada
     anim_handle = std::move(h);
     d.anim_handle = 1;
     d.anim_system = 0;  // GetInstanceSystemID(0): sem animação, 0
     return true;
 }
 
-bool PlayerCamera::PlayCurrentAnimation() {
-    if (!anim_handle) return false;
-    pending_mode();  // ProcessStimuli + IsSystemPlaying do RAnimEngine
-    return false;
+// [driving] 0x1d6970 RWorldCamera::PlayCurrentAnimation: o estímulo 8 no sistema da animação (o passo da simulação, o
+// modo 2) e se ele toca. (O Handle de um registro sem animação não tem sistema: não toca.)
+bool PlayerCamera::PlayCurrentAnimation(const CameraContext& ctx) {
+    if (d.anim_handle == 0) return false;
+    if (!engine_handle) return false;
+    AnimHandle_ProcessStimuli(engine_handle, d.anim_system, 8, uint32_t(ctx.sim->steps), 2);
+    return AnimHandle_IsSystemPlaying(engine_handle, d.anim_system);
 }
 
 void PlayerCamera::TriggerAnimationCamera(const CameraContext& ctx, const uint8_t* cams, uint16_t transition,
@@ -1389,9 +1419,10 @@ void PlayerCamera::TriggerAnimationCamera(const CameraContext& ctx, const uint8_
 
 void PlayerCamera::UpdateWorldAnimationCam(const CameraContext& ctx) {
     if (ctx.sim->state == 3) return;
-    if (!anim_handle) return;
+    if (d.anim_handle == 0) return;
     ++anim_updates;
-    uint8_t* rec = anim_handle->bytes + 0x40;  // s4
+    uint8_t* rec = anim_record();  // s4
+    if (!rec) return;
     float old_eye[4];
     std::memcpy(old_eye, d.eye, 16);
     const float* P = GetAnchorPosition(ctx);
@@ -1401,7 +1432,7 @@ void PlayerCamera::UpdateWorldAnimationCam(const CameraContext& ctx) {
     if (!spline) spline = std::make_unique<PlayerCameraSpline>();
     if (d.mode_change & 1) {
         if (d.transition_override == 0) {
-            if (anim != 0) PlayCurrentAnimation();
+            if (anim != 0) PlayCurrentAnimation(ctx);
         } else {
             float* p0;
             if (rec[0xc] & 1) {
@@ -1410,14 +1441,35 @@ void PlayerCamera::UpdateWorldAnimationCam(const CameraContext& ctx) {
             } else {
                 p0 = d.eye;
             }
-            float m10[4][4];
+            float m10[4][4] = {};
             float dir1[4] = {0, 0, 0, 0};
+            float* p1 = m10[3];
+            float key_pos[4];
             if (anim != 0) {
-                pending_mode();  // a primeira chave da animação (VU0_quattom4 do quatérnio da chave): não portada
-                std::memcpy(m10, kVf0, 16);
-                std::memcpy(m10[1], kVf0, 16);
-                std::memcpy(m10[2], kVf0, 16);
-                std::memcpy(m10[3], kVf0, 16);
+                // A primeira chave da animação (seção 30): a matriz do quatérnio dela com as linhas 1 e 2 trocadas (a 2
+                // com o sinal trocado), o ponto dela e a direção para a segunda chave.
+                uint32_t art = 0, ai = 0, keys = 0;
+                std::memcpy(&art, rec + 0x1c, 4);
+                std::memcpy(&ai, nf::p32_ptr<uint8_t>(art) + 8, 4);
+                ai += uint32_t(rec[0xd]) * 0x10;
+                std::memcpy(&keys, nf::p32_ptr<uint8_t>(ai), 4);
+                uint16_t count;
+                std::memcpy(&count, nf::p32_ptr<uint8_t>(ai) + 8, 2);
+                const uint8_t* k = nf::p32_ptr<uint8_t>(keys);
+                Reg a, b, t{};
+                load(a, count < 2 ? k + 0x10 : k + 0x30);
+                load(b, k + 0x10);
+                sub(t, a, b, XYZ);
+                store(dir1, t);
+                VU0_quattom4(reinterpret_cast<const float*>(k), m10);
+                Reg r1, r2, zero{};
+                load(r1, m10[1]);
+                load(r2, m10[2]);
+                sub(r1, zero, r1, XYZ);
+                store(m10[1], r2);
+                store(m10[2], r1);
+                std::memcpy(key_pos, k + 0x10, 16);
+                p1 = key_pos;
             } else {
                 std::memcpy(m10, rec, 64);
                 m10[0][3] = 0.0f;
@@ -1425,7 +1477,6 @@ void PlayerCamera::UpdateWorldAnimationCam(const CameraContext& ctx) {
                 m10[2][3] = 0.0f;
                 m10[3][3] = 1.0f;
             }
-            float* p1 = m10[3];
             float dir0[4];
             std::memcpy(dir0, d.velocity, 16);
             {
@@ -1464,15 +1515,18 @@ void PlayerCamera::UpdateWorldAnimationCam(const CameraContext& ctx) {
         if (ee::lt(2.0f, fov)) d.fov = fov;
         d.transition -= 1;
         if (d.transition == 0 && anim != 0) {
-            done = PlayCurrentAnimation() ? 1 : 0;
+            done = PlayCurrentAnimation(ctx) ? 1 : 0;
         } else if (d.transition > 0) {
             done = 1;
         } else {
             done = spline->GetPointListSize() > 0 ? 0 : 1;
         }
     } else if (anim != 0) {
-        pending_mode();  // RWorldCamera::UpdateAnimationCam (a animação de verdade)
-        done = 0;
+        // A animação de verdade (seção 30): a chave corrente na matriz da câmera; o fim quando o sistema para.
+        float m[4][4];
+        std::memcpy(m, d.matrix, 64);
+        done = UpdateAnimationCam(m, 0) == 1 ? 1 : 0;
+        std::memcpy(d.matrix, m, 64);
         d.matrix_changed = 1;
         if (ee::lt(2.0f, d.zoom_fov_target)) d.fov = d.zoom_fov_target;
     } else {
